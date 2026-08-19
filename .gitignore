@@ -1,0 +1,22 @@
+# Built artifacts
+/build
+/app/build
+.gradle
+local.properties
+
+# Local analysis artifacts and downloaded packages
+.codex-tmp-*
+.codex-remote-attachments/
+.android/
+.gradle-user-home/
+.workbuddy/
+
+# Local Gradle distribution (downloaded for offline builds)
+.buildtools/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
