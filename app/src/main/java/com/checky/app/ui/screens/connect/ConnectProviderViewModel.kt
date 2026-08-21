@@ -96,7 +96,10 @@ class ConnectProviderViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _connected.value = smsProvider?.isSmsConnected() ?: credentialStore.has(serviceId)
+            _connected.value = when {
+                smsProvider != null -> smsProvider.isSmsConnected()
+                else -> credentialStore.has(serviceId)
+            }
             gameAccountProvider?.gameAccountConfig()?.let { config ->
                 _gameUid.value = config.uid
                 _gameRegion.value = config.region

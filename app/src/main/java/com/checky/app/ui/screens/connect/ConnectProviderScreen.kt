@@ -89,6 +89,7 @@ fun ConnectProviderScreen(
     val smsCode by viewModel.smsCode.collectAsStateWithLifecycle()
     val smsSent by viewModel.smsSent.collectAsStateWithLifecycle()
     val smsBusy by viewModel.smsBusy.collectAsStateWithLifecycle()
+    val isMiyousheCommunity = meta?.id == "miyoushe_community_signin"
 
     Scaffold(
         topBar = {
@@ -253,7 +254,11 @@ fun ConnectProviderScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "这是米游社网页登录二维码，由本机生成。请用真实手机上的米游社扫码并确认；二维码约 3 分钟有效。",
+                            if (isMiyousheCommunity) {
+                                "这是米游社客户端授权二维码，由本机生成。请用真实手机上的米游社扫码并确认；不是原神游戏登录二维码，约 3 分钟有效。"
+                            } else {
+                                "这是米游社网页登录二维码，由本机生成。请用真实手机上的米游社扫码并确认；二维码约 3 分钟有效。"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -262,7 +267,9 @@ fun ConnectProviderScreen(
                                 onClick = viewModel::startQrLogin,
                                 enabled = !qrBusy,
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text("生成米游社网页登录二维码") }
+                            ) {
+                                Text(if (isMiyousheCommunity) "生成社区授权二维码" else "生成米游社网页登录二维码")
+                            }
                         } else {
                             val bitmap = remember(qrSession?.qrPayload) {
                                 qrSession?.qrPayload?.let { qrBitmap(it).asImageBitmap() }
@@ -270,7 +277,7 @@ fun ConnectProviderScreen(
                             if (bitmap != null) {
                                 Image(
                                     bitmap = bitmap,
-                                    contentDescription = "米游社登录二维码",
+                                    contentDescription = if (isMiyousheCommunity) "米游社社区授权二维码" else "米游社登录二维码",
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 24.dp)
@@ -289,7 +296,10 @@ fun ConnectProviderScreen(
                         if (qrStatus?.startsWith("绑定成功") == true) {
                             Text(qrStatus!!, color = MaterialTheme.colorScheme.primary)
                         }
-                        Text("或手动填写 Cookie", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (isMiyousheCommunity) "或手动填写社区 Cookie" else "或手动填写 Cookie",
+                            style = MaterialTheme.typography.titleSmall
+                        )
                     }
                     OutlinedTextField(
                         value = secret,

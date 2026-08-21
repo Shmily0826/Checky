@@ -110,12 +110,16 @@ class TaygedoClient(
         useDs: Boolean = false
     ): ApiResult {
         var session = load() ?: throw AuthException()
+        fun headersFor(current: Session) = buildMap {
+            put("uid", current.uid)
+            if (webHeaders) putAll(WEB_HEADERS)
+        }
         var response = bbs(meta, path, method, query, form, session.accessToken, useDs,
-            if (webHeaders) WEB_HEADERS else emptyMap())
+            headersFor(session))
         if (response.code == 401 || response.code == -401) {
             session = refresh(session, meta) ?: throw AuthException()
             response = bbs(meta, path, method, query, form, session.accessToken, useDs,
-                if (webHeaders) WEB_HEADERS else emptyMap())
+                headersFor(session))
         }
         return response
     }
@@ -163,7 +167,8 @@ class TaygedoClient(
             val text = response.body?.string().orEmpty()
             val json = runCatching { JSONObject(text) }.getOrElse { JSONObject() }
             val code = if (response.code == 401) 401 else json.optInt("code", response.code)
-            return ApiResult(code, json.opt("data"), json.optString("msg"), json)
+            val message = json.optString("msg").ifBlank { json.optString("message") }
+            return ApiResult(code, json.opt("data"), message, json)
         }
     }
 
@@ -189,9 +194,9 @@ class TaygedoClient(
     }
 
     private fun deviceParams() = mapOf(
-        "deviceId" to deviceId, "deviceType" to "Android", "deviceName" to "Android",
-        "deviceModel" to "Android", "deviceSys" to "14", "sdkVersion" to "4.273.0",
-        "versionCode" to "11", "bid" to "com.pwrd.htassistant",
+        "deviceId" to deviceId, "deviceType" to "Pixel 6", "deviceName" to "Pixel 6",
+        "deviceModel" to "Pixel 6", "deviceSys" to "14", "sdkVersion" to "4.327.0",
+        "versionCode" to "17", "bid" to "com.pwrd.htassistant",
         "appId" to "10550", "channelId" to "1"
     )
 
@@ -227,13 +232,14 @@ class TaygedoClient(
         const val SESSION_KEY = "taygedo.shared.session"
         private const val BBS_HOST = "bbs-api.tajiduo.com"
         private const val LAOHU_HOST = "user.laohu.com"
-        private const val APP_VERSION = "1.2.2"
+        private const val APP_VERSION = "1.2.5"
         private const val DS_SALT = "pUds3dfMkl"
         private const val LAOHU_APP_KEY = "89155cc4e8634ec5b1b6364013b23e3e"
         private val WEB_HEADERS = mapOf(
+            "Accept" to "application/json",
             "Origin" to "https://webstatic.tajiduo.com",
             "Referer" to "https://webstatic.tajiduo.com/",
-            "X-Requested-With" to "com.pwrd.htassistant"
+            "User-Agent" to "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Tajiduo/1.2.2"
         )
     }
 }

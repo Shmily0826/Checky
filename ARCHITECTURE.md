@@ -50,8 +50,10 @@ DataStore, Coroutines/Flow, Hilt.
 ### Connect flow (credentials)
 
 - `ConnectProviderScreen` (FLAG_SECURE, secrets hidden, validated before save).
-- `ConnectProviderViewModel` validates via `provider.validateCredentials(...)`, saves through `CredentialStore` (mock now, Keystore-backed later), supports per-provider delete.
+- `ConnectProviderViewModel` validates via `provider.validateCredentials(...)`, saves through the default Keystore-backed `CredentialStore`, and supports per-provider delete.
 - `CloudBoxProvider` checks the vault each run: no token → `AuthenticationExpired`; token present → success (+1 membership day).
+- The MiYouShe Genshin and MiYouShe community Providers intentionally own separate credential entries and separate QR flows. Community disconnect removes only its own app-authorized session; an expired session produces a reconnect outcome for that Provider and does not silently affect the other entry.
+- The two Tajiduo Providers share one Keystore-backed session entry through `TaygedoClient`; disconnecting either removes that shared Tajiduo session. Their current mutation allowlist is limited to daily sign-in endpoints and the community browse-post detail flow.
 
 ### Developer mock controls
 
@@ -67,9 +69,9 @@ DataStore, Coroutines/Flow, Hilt.
 | `CredentialStore` abstraction | The mock (in-memory) and real (Keystore AES/GCM) implementations are interchangeable in DI; tests use the deterministic mock. |
 | Single `CheckInAllUseCase` | One place for concurrency limits, duplicate guard, continue-on-failure, cancellation, persistence, summary — unit-testable with fakes. |
 | Mock outcome overrides in DataStore | Lets a developer force every failure/success state from Settings without touching provider code. |
-| No Retrofit calls in the MVP | HTTP deps are declared and the redaction/allowlist layers are tested; real providers come later. |
+| Direct OkHttp for experimental providers | The current MiYouShe and Tajiduo experiments use provider-local OkHttp calls with HTTPS/host-policy checks; Retrofit is reserved for a future stable provider. |
 
 ## Testing strategy
 
-- **JVM unit tests** (deterministic, `runTest` + fake stores/repos): use-case orchestration (all-providers, continue-on-failure, sequential mode, duplicate guard, cancellation), provider outcomes + scenario overrides, outcome mapping, credential lifecycle + isolation + delete-all, redaction, host allowlist, HomeViewModel state transitions.
+- **JVM unit tests** (deterministic, `runTest` + fake stores/repos): use-case orchestration (all-providers, continue-on-failure, sequential mode, duplicate guard, cancellation), mock and experimental-provider response mapping, malformed-state fail-closed behavior, browse-task allowlisting, credential lifecycle + isolation + delete-all, redaction, host allowlist, and HomeViewModel state transitions. These do not verify live third-party accounts.
 - **Instrumented tests** (compile-verified; run on device/emulator): Room persistence + v1→v2 migration, Compose UI "Check in all" flow.

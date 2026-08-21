@@ -27,10 +27,11 @@ apps and services into one friendly dashboard, then triggers them with one tap.
 ## Current MVP limitations
 
 - **Mostly mock providers** — GamePass Daily (+20 pts), CloudBox (+1 membership day,
-  needs a fake token), StudyClub (already done, +5 XP). A clearly marked,
-  high-risk personal experiment for Genshin check-in uses a non-official
-  MiYouShe HTTP surface; it is disabled by default and performs no likes,
-  comments, redemptions, CAPTCHA handling, or risk-control workarounds.
+  needs a fake token), StudyClub (already done, +5 XP). The disabled, high-risk
+  personal experiments also include separate MiYouShe Genshin and community
+  check-ins plus Tajiduo NTE/community check-ins. They use non-official HTTP
+  surfaces, are not live-verified uniformly, and perform no likes, comments,
+  shares, redemptions, CAPTCHA handling, or risk-control workarounds.
 - No cloud account, no sync, no remote credential storage, no analytics.
 - High-risk providers (UI automation) are shown as **"Not supported yet"**.
 - Credentials use the **Keystore-backed encrypted** implementation by default.
@@ -74,7 +75,7 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9)
 ## Security model (summary — full details in SECURITY.md)
 
 - Credentials: per-provider `CredentialStore`; real impl is **Android Keystore AES-256/GCM**; never logged, never backed up (`allowBackup=false`).
-- Network (prepared for real providers): **HTTPS only**, per-provider **host allowlist**, **redacting interceptor** (Authorization, Cookie, tokens, API keys…), body logging disabled in release.
+- Network: **HTTPS only**, per-provider **host allowlist**, and a **redacting interceptor** (Authorization, Cookie, tokens, API keys…); body logging is disabled in release. The experimental providers use direct OkHttp calls and remain subject to upstream API changes.
 - No AccessibilityService, no cross-app control, no root, no CAPTCHA/anti-bot bypass, no automated financial actions — **explicitly out of scope**.
 - Credential screens use FLAG_SECURE; no analytics or crash reporting.
 
@@ -88,7 +89,7 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9)
 
 ## Roadmap
 
-1. Stabilize the personal MiYouShe experiment or replace it with an
+1. Stabilize the personal MiYouShe/Tajiduo experiments or replace them with
    official-API/OAuth provider (lowest risk) — the current experiment is not
    an official integration and may stop working or trigger account checks.
 2. **Real provider #1 (recommended): an official-API/OAuth provider** (lowest
@@ -98,7 +99,7 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9)
    device or emulator.
 4. Optional: reminder notification polish, per-provider schedule (e.g. "only
    weekdays"), and background retry policy for TemporaryFailure.
-4. Maintained provider health checks (declared hosts reachable, API versions).
+5. Maintained provider health checks (declared hosts reachable, API versions).
 
 ## minSdk 26 — why
 

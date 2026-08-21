@@ -15,10 +15,16 @@ import com.checky.app.domain.model.RewardType
 import com.checky.app.domain.model.RiskLevel
 import com.checky.app.domain.model.SupportStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import kotlin.math.min
 import org.json.JSONArray
 import org.json.JSONObject
+
+private val BROWSE_TASK_CODES = setOf("browse_post_c")
+
+internal fun isAllowedBrowseTaskCode(code: String): Boolean = code in BROWSE_TASK_CODES
 
 abstract class TaygedoProvider(
     protected val client: TaygedoClient
@@ -87,33 +93,43 @@ class TaygedoNteProvider(client: TaygedoClient) : TaygedoProvider(client) {
         )
         val state = client.request(
             meta, "/apihub/awapi/signin/state", query = mapOf("gameId" to "1289"),
-            webHeaders = true, useDs = true
+            webHeaders = true
         )
         if (state.code != 0) return failure(state, "无法查询异环签到状态。")
-        val stateData = state.data as? JSONObject
-        if (stateData?.optBoolean("todaySign") == true) {
+        val stateData = parseNteSignState(state.data)
+            ?: return CheckInOutcome.PermanentFailure(
+                "塔吉多返回了无法识别的异环签到状态，已停止操作。",
+                "TAYGEDO_NTE_BAD_STATE"
+            )
+        if (stateData.todaySigned) {
             return CheckInOutcome.AlreadyCompleted(
-                "异环今天已经签到（本月累计 ${stateData.optInt("days")} 天）。", "TAYGEDO_NTE_ALREADY"
+                "异环今天已经签到（本月累计 ${stateData.days} 天）。", "TAYGEDO_NTE_ALREADY"
             )
         }
         val signed = client.request(
             meta, "/apihub/awapi/sign", "POST",
-            form = mapOf("roleId" to roleId, "gameId" to "1289"), webHeaders = true, useDs = true
+            form = mapOf("roleId" to roleId, "gameId" to "1289"), webHeaders = true
         )
         if (signed.code != 0) return failure(signed, "异环签到失败。")
-        val newState = client.request(
+        val newStateResult = client.request(
             meta, "/apihub/awapi/signin/state", query = mapOf("gameId" to "1289"),
-            webHeaders = true, useDs = true
-        ).data as? JSONObject
+            webHeaders = true
+        )
+        if (newStateResult.code != 0) return failure(newStateResult, "无法确认异环签到结果。")
+        val newState = parseNteSignState(newStateResult.data)
+            ?: return CheckInOutcome.PermanentFailure(
+                "塔吉多返回了无法确认的异环签到结果，已停止后续操作。",
+                "TAYGEDO_NTE_BAD_RESULT"
+            )
         val rewards = client.request(
             meta, "/apihub/awapi/sign/rewards",
-            query = mapOf("gameId" to "1289", "roleId" to roleId), webHeaders = true, useDs = true
+            query = mapOf("gameId" to "1289", "roleId" to roleId), webHeaders = true
         ).data as? JSONArray
-        val day = (newState?.optInt("day") ?: 1).coerceAtLeast(1)
+        val day = newState.day.coerceAtLeast(1)
         val reward = rewards?.optJSONObject(day - 1)
         val rewardText = reward?.let { "，获得 ${it.optString("name")} ×${it.optInt("num")}" }.orEmpty()
         return CheckInOutcome.Success(
-            "异环签到成功（本月累计 ${newState?.optInt("days") ?: day} 天）$rewardText。",
+            "异环签到成功（本月累计 ${newState.days} 天）$rewardText。",
             "TAYGEDO_NTE_SUCCESS", Reward.empty()
         )
     }
@@ -140,28 +156,145 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
     }
 
     private suspend fun checkInCommunity(): CheckInOutcome {
-        val state = client.request(meta, "/apihub/api/getSignState", query = mapOf("communityId" to "2"))
-        if (state.code != 0) return failure(state, "无法查询异环社区签到状态。")
-        if (state.data == true) return CheckInOutcome.AlreadyCompleted(
-            "异环社区今天已经签到。", "TAYGEDO_COMMUNITY_ALREADY"
-        )
-        val signed = client.request(
-            meta, "/apihub/api/signin", "POST", form = mapOf("communityId" to "2")
-        )
-        if (signed.code != 0) return failure(signed, "异环社区签到失败。")
-        val data = signed.data as? JSONObject
-        val exp = data?.optInt("exp") ?: 0
-        val coin = data?.optInt("goldCoin") ?: 0
-        return CheckInOutcome.Success(
-            "异环社区签到成功：经验 +$exp，金币 +$coin。",
-            "TAYGEDO_COMMUNITY_SUCCESS", Reward(RewardType.EXPERIENCE, exp)
-        )
+        // The current community flow has two deterministic sign-in entries:
+        // the app-level daily sign-in (communityId=1) and the BBS/section
+        // sign-in (communityId=2). Treat an upstream "already signed" reply
+        // as positive so a repeat run is idempotent.
+        val signIns = runCommunitySignInSequence { communityId ->
+            client.request(
+                meta, "/apihub/api/signin", "POST", form = mapOf("communityId" to communityId)
+            ).toCommunitySignResponse()
+        }
+        val appSignin = signIns[0]
+        if (!appSignin.classification.mayContinue) {
+            return appSignin.classification.toOutcome("异环 APP 签到失败。")
+        }
+        val bbsSignin = signIns[1]
+        if (!bbsSignin.classification.mayContinue) {
+            return bbsSignin.classification.toOutcome("异环社区版区签到失败。")
+        }
+
+        val exp = appSignin.response.exp
+        val coin = appSignin.response.goldCoin
+        val taskState = readCommunityTaskState()
+        val browsed = taskState?.let { performBrowseTasks(it.browseRemaining) } ?: 0
+        val refreshedTaskState = if (browsed > 0) readCommunityTaskState() else taskState
+        val appLabel = if (appSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED) {
+            "APP 今日已签到"
+        } else {
+            "APP 签到成功"
+        }
+        val bbsLabel = if (bbsSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED) {
+            "版区今日已签到"
+        } else {
+            "版区签到成功"
+        }
+        val message = buildString {
+            append("塔吉多社区：$appLabel，$bbsLabel。")
+            if (exp > 0 || coin > 0) append("经验 +$exp，金币 +$coin。")
+            if (browsed > 0) append("自动浏览 $browsed 篇帖子。")
+            if (refreshedTaskState != null) append(" ").append(refreshedTaskState.toMessage())
+        }
+        val already = appSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED &&
+            bbsSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED
+        return if (already) {
+            CheckInOutcome.AlreadyCompleted(message, "TAYGEDO_COMMUNITY_ALREADY")
+        } else {
+            CheckInOutcome.Success(
+                message,
+                "TAYGEDO_COMMUNITY_SUCCESS",
+                Reward(RewardType.EXPERIENCE, exp)
+            )
+        }
+    }
+
+    private data class CommunityTaskState(
+        val browseRemaining: Int,
+        val likeRemaining: Int,
+        val shareRemaining: Int
+    ) {
+        fun toMessage() = "社区任务剩余：浏览 ${browseRemaining} 次、点赞 ${likeRemaining} 次、分享 ${shareRemaining} 次。"
+    }
+
+    /** Read task counters without performing like/share interactions. */
+    private suspend fun readCommunityTaskState(): CommunityTaskState? {
+        return try {
+            val result = client.request(
+                meta,
+                "/apihub/api/getUserTasks",
+                query = mapOf("gid" to "1")
+            )
+            if (result.code != 0) {
+                null
+            } else {
+                val taskList = (result.data as? JSONObject)?.optJSONArray("task_list1")
+                if (taskList == null) {
+                    null
+                } else {
+                    fun remaining(code: String): Int? {
+                        for (index in 0 until taskList.length()) {
+                            val task = taskList.optJSONObject(index) ?: continue
+                            val taskCode = task.optString("code").ifBlank { task.optString("taskKey") }
+                            if (taskCode == code && (isAllowedBrowseTaskCode(taskCode) ||
+                                    taskCode == "like_post_c" || taskCode == "share")) {
+                                return (task.optInt("limitTimes") - task.optInt("completeTimes")).coerceAtLeast(0)
+                            }
+                        }
+                        return null
+                    }
+                    CommunityTaskState(
+                        browseRemaining = remaining("browse_post_c") ?: 0,
+                        likeRemaining = remaining("like_post_c") ?: 0,
+                        shareRemaining = remaining("share") ?: 0
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Complete only the read-only browse task from the official task flow. */
+    private suspend fun performBrowseTasks(remaining: Int): Int {
+        if (remaining <= 0) return 0
+        return try {
+            val listResult = client.request(
+                meta,
+                "/bbs/api/getRecommendPostList",
+                query = mapOf("communityId" to "2", "count" to "20", "page" to "1"),
+                useDs = true
+            )
+            if (listResult.code != 0) return 0
+            val data = listResult.data
+            val posts = when (data) {
+                is JSONArray -> data
+                is JSONObject -> data.optJSONArray("list") ?: data.optJSONArray("posts")
+                else -> null
+            } ?: return 0
+            var completed = 0
+            for (index in 0 until min(remaining, posts.length())) {
+                val post = posts.optJSONObject(index) ?: continue
+                val postId = post.optString("postId").ifBlank { post.optString("id") }
+                if (postId.isBlank()) continue
+                val detail = client.request(
+                    meta,
+                    "/bbs/api/getPostFull",
+                    query = mapOf("postId" to postId),
+                    useDs = true
+                )
+                if (detail.code == 0) completed++
+                if (index + 1 < min(remaining, posts.length())) delay(350)
+            }
+            completed
+        } catch (_: Exception) {
+            0
+        }
     }
 
     companion object {
         val META = ProviderMeta(
             id = "taygedo_community", displayName = "塔吉多社区签到",
-            description = "仅完成异环社区每日签到，不发帖、不点赞、不评论。",
+            description = "完成塔吉多 APP 与异环版区每日签到，并读取浏览、点赞、分享任务状态；不自动点赞、不分享。",
             category = "社区", iconKey = "star", accentColor = 0xFFEE7B45,
             isEnabledByDefault = false, connectionType = ConnectionType.HTTP_SESSION,
             riskLevel = RiskLevel.HIGH, credentialType = CredentialType.SESSION_TOKEN,
@@ -170,15 +303,141 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
     }
 }
 
+internal enum class CommunitySignDisposition {
+    SUCCESS,
+    ALREADY_COMPLETED,
+    AUTH_EXPIRED,
+    VERIFICATION_REQUIRED,
+    FAILURE,
+    MALFORMED
+}
+
+internal data class CommunitySignResponse(
+    val code: Int,
+    val message: String,
+    val hasExpectedData: Boolean,
+    val exp: Int = 0,
+    val goldCoin: Int = 0
+)
+
+internal data class CommunitySignCall(
+    val communityId: String,
+    val response: CommunitySignResponse,
+    val classification: CommunitySignDisposition
+)
+
+internal val CommunitySignDisposition.mayContinue: Boolean
+    get() = this == CommunitySignDisposition.SUCCESS ||
+        this == CommunitySignDisposition.ALREADY_COMPLETED
+
+internal fun classifyCommunitySignResponse(
+    response: CommunitySignResponse
+): CommunitySignDisposition {
+    val message = response.message
+    return when {
+        response.code == 401 || response.code == -401 -> CommunitySignDisposition.AUTH_EXPIRED
+        message.contains("验证") || message.contains("风控") ||
+            message.contains("风险") || message.contains("captcha", ignoreCase = true) ->
+            CommunitySignDisposition.VERIFICATION_REQUIRED
+        isAlreadySignedMessage(message) -> CommunitySignDisposition.ALREADY_COMPLETED
+        response.code != 0 -> CommunitySignDisposition.FAILURE
+        !response.hasExpectedData -> CommunitySignDisposition.MALFORMED
+        else -> CommunitySignDisposition.SUCCESS
+    }
+}
+
+private fun isAlreadySignedMessage(message: String): Boolean {
+    val text = message.lowercase()
+    return text.contains("已签到") || text.contains("签到过") ||
+        text.contains("重复签到") || text.contains("already signed")
+}
+
+internal suspend fun runCommunitySignInSequence(
+    signIn: suspend (communityId: String) -> CommunitySignResponse
+): List<CommunitySignCall> {
+    val calls = mutableListOf<CommunitySignCall>()
+    for (communityId in listOf("1", "2")) {
+        val response = signIn(communityId)
+        val classification = classifyCommunitySignResponse(response)
+        calls += CommunitySignCall(communityId, response, classification)
+        if (!classification.mayContinue) break
+    }
+    return calls
+}
+
+private fun TaygedoClient.ApiResult.toCommunitySignResponse(): CommunitySignResponse {
+    val data = data as? JSONObject
+    return CommunitySignResponse(
+        code = code,
+        message = message.ifBlank { raw.optString("message") },
+        hasExpectedData = data != null && (data.has("exp") || data.has("goldCoin")),
+        exp = data?.optInt("exp") ?: 0,
+        goldCoin = data?.optInt("goldCoin") ?: 0
+    )
+}
+
+private fun CommunitySignDisposition.toOutcome(fallback: String): CheckInOutcome = when (this) {
+    CommunitySignDisposition.AUTH_EXPIRED -> CheckInOutcome.AuthenticationExpired(
+        "塔吉多登录已失效，请重新连接。", "TAYGEDO_AUTH_EXPIRED"
+    )
+    CommunitySignDisposition.VERIFICATION_REQUIRED -> CheckInOutcome.ActionRequired(
+        "塔吉多要求额外验证，请打开官方 App 处理。", "TAYGEDO_VERIFICATION"
+    )
+    CommunitySignDisposition.MALFORMED -> CheckInOutcome.PermanentFailure(
+        "塔吉多返回了无法识别的社区签到结果，已停止后续操作。",
+        "TAYGEDO_COMMUNITY_BAD_RESPONSE"
+    )
+    CommunitySignDisposition.FAILURE -> CheckInOutcome.TemporaryFailure(
+        fallback, "TAYGEDO_COMMUNITY_FAILURE"
+    )
+    CommunitySignDisposition.SUCCESS,
+    CommunitySignDisposition.ALREADY_COMPLETED -> error("Positive sign-in result cannot be converted to failure")
+}
+
+internal data class NteSignState(
+    val todaySigned: Boolean,
+    val days: Int,
+    val day: Int
+)
+
+internal fun parseNteSignState(data: Any?): NteSignState? {
+    val json = data as? JSONObject ?: return null
+    return parseNteSignStateFields(
+        todaySigned = json.optBoolean("todaySign").takeIf { json.has("todaySign") },
+        days = json.optInt("days").takeIf { json.has("days") },
+        day = json.optInt("day").takeIf { json.has("day") }
+    )
+}
+
+internal fun parseNteSignStateFields(
+    todaySigned: Boolean?,
+    days: Int?,
+    day: Int?
+): NteSignState? = if (todaySigned == null || days == null || day == null) {
+    null
+} else {
+    NteSignState(todaySigned, days, day)
+}
+
 private fun failure(result: TaygedoClient.ApiResult, fallback: String): CheckInOutcome {
     val message = result.message.ifBlank { fallback }
     return when {
         result.code == 401 || result.code == -401 -> CheckInOutcome.AuthenticationExpired(
             "塔吉多登录已失效，请重新连接。", "TAYGEDO_AUTH_EXPIRED"
         )
-        message.contains("验证") || message.contains("风控") -> CheckInOutcome.ActionRequired(
+        message.contains("验证") || message.contains("风控") ||
+            message.contains("风险") || message.contains("captcha", ignoreCase = true) -> CheckInOutcome.ActionRequired(
             "塔吉多要求额外验证，请打开官方 App 处理。", "TAYGEDO_VERIFICATION"
         )
         else -> CheckInOutcome.TemporaryFailure(fallback, "TAYGEDO_${result.code}")
     }
 }
+
+internal fun mapTaygedoFailure(
+    code: Int,
+    message: String,
+    fallback: String = "塔吉多请求失败。"
+): CheckInOutcome = failure(
+    TaygedoClient.ApiResult(code, null, message, JSONObject()),
+    fallback
+)

@@ -6,6 +6,7 @@ import com.checky.app.domain.FakeMockScenarioStore
 import com.checky.app.domain.MockScenario
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.model.CheckInStatus
+import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.RewardType
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.single
@@ -123,5 +124,120 @@ class ProvidersTest {
         assertTrue(done.result.message.isNotBlank())
         assertTrue(!done.result.message.contains("Exception"))
         assertEquals("TEMP_NETWORK", done.result.diagnosticCode)
+    }
+
+    @Test
+    fun miyousheCommunityMapsAuthVerificationAlreadyAndMalformedResponses() {
+        assertTrue(mapMiyousheCommunityFields(-100, "", null) is CheckInOutcome.AuthenticationExpired)
+        assertTrue(mapMiyousheCommunityFields(1034, "验证", null) is CheckInOutcome.ActionRequired)
+        assertTrue(mapMiyousheCommunityFields(0, "", 0) is CheckInOutcome.AlreadyCompleted)
+        assertTrue(mapMiyousheCommunityFields(0, "", null) is CheckInOutcome.PermanentFailure)
+        assertTrue(mapMiyousheCommunityFields(null, "", null) is CheckInOutcome.PermanentFailure)
+    }
+
+    @Test
+    fun taygedoMapsAuthAndVerificationFailuresWithoutTreatingThemAsTemporary() {
+        assertTrue(mapTaygedoFailure(401, "").diagnosticCode == "TAYGEDO_AUTH_EXPIRED")
+        assertTrue(mapTaygedoFailure(403, "需要风控验证").diagnosticCode == "TAYGEDO_VERIFICATION")
+        assertTrue(mapTaygedoFailure(503, "服务器忙").diagnosticCode == "TAYGEDO_503")
+    }
+
+    @Test
+    fun malformedTaygedoNteStateFailsClosed() {
+        assertEquals(null, parseNteSignStateFields(false, null, 2))
+        assertEquals(false, parseNteSignStateFields(false, 2, 2)?.todaySigned)
+    }
+
+    @Test
+    fun onlyBrowseTaskCodeIsAllowedForAutomaticTaskCompletion() {
+        assertTrue(isAllowedBrowseTaskCode("browse_post_c"))
+        assertTrue(!isAllowedBrowseTaskCode("like_post_c"))
+        assertTrue(!isAllowedBrowseTaskCode("share"))
+        assertTrue(!isAllowedBrowseTaskCode("follow"))
+    }
+
+    @Test
+    fun communitySuccessfulFirstSignCallsSecondSign() = runTest {
+        val called = mutableListOf<String>()
+        val calls = runCommunitySignInSequence { communityId ->
+            called += communityId
+            CommunitySignResponse(0, "", hasExpectedData = true, exp = 1)
+        }
+
+        assertEquals(listOf("1", "2"), called)
+        assertEquals(2, calls.size)
+    }
+
+    @Test
+    fun communityAlreadyCompletedFirstSignCallsSecondSign() = runTest {
+        val called = mutableListOf<String>()
+        val calls = runCommunitySignInSequence { communityId ->
+            called += communityId
+            CommunitySignResponse(1008, "已签到", hasExpectedData = false)
+        }
+
+        assertEquals(listOf("1", "2"), called)
+        assertEquals(2, calls.size)
+        assertEquals(CommunitySignDisposition.ALREADY_COMPLETED, calls.first().classification)
+    }
+
+    @Test
+    fun communityMalformedFirstSignDoesNotCallSecondSign() = runTest {
+        val called = mutableListOf<String>()
+        val calls = runCommunitySignInSequence { communityId ->
+            called += communityId
+            CommunitySignResponse(0, "", hasExpectedData = false)
+        }
+
+        assertEquals(listOf("1"), called)
+        assertEquals(CommunitySignDisposition.MALFORMED, calls.single().classification)
+    }
+
+    @Test
+    fun communityUnknownSuccessSchemaDoesNotCallSecondSign() = runTest {
+        val called = mutableListOf<String>()
+        val calls = runCommunitySignInSequence { communityId ->
+            called += communityId
+            CommunitySignResponse(0, "", hasExpectedData = false, exp = 1)
+        }
+
+        assertEquals(listOf("1"), called)
+        assertEquals(CommunitySignDisposition.MALFORMED, calls.single().classification)
+    }
+
+    @Test
+    fun communityVerificationFirstSignDoesNotCallSecondSign() = runTest {
+        val called = mutableListOf<String>()
+        val calls = runCommunitySignInSequence { communityId ->
+            called += communityId
+            CommunitySignResponse(403, "需要风控验证", hasExpectedData = false)
+        }
+
+        assertEquals(listOf("1"), called)
+        assertEquals(CommunitySignDisposition.VERIFICATION_REQUIRED, calls.single().classification)
+    }
+
+    @Test
+    fun communityAuthExpiredFirstSignDoesNotCallSecondSign() = runTest {
+        val called = mutableListOf<String>()
+        val calls = runCommunitySignInSequence { communityId ->
+            called += communityId
+            CommunitySignResponse(401, "", hasExpectedData = false)
+        }
+
+        assertEquals(listOf("1"), called)
+        assertEquals(CommunitySignDisposition.AUTH_EXPIRED, calls.single().classification)
+    }
+
+    @Test
+    fun miyousheProvidersOwnIndependentCredentialEntries() = runTest {
+        val credentials = FakeCredentialStore()
+        credentials.save(MiyousheProvider.META.id, "game-session")
+        credentials.save(MiyousheCommunityProvider.META.id, "community-session")
+
+        credentials.delete(MiyousheCommunityProvider.META.id)
+
+        assertTrue(credentials.has(MiyousheProvider.META.id))
+        assertTrue(!credentials.has(MiyousheCommunityProvider.META.id))
     }
 }

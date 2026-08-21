@@ -345,11 +345,19 @@ class MiyousheProvider(
         val message = json.optString("message").lowercase()
         return when (retcode) {
             0 -> if (checkingOnly) {
-                CheckInOutcome.Success(
-                    userMessage = "签到状态已确认。",
-                    diagnosticCode = "STATUS_OK",
-                    reward = Reward.empty()
-                )
+                val data = json.optJSONObject("data")
+                if (data == null || !data.has("is_sign")) {
+                    CheckInOutcome.PermanentFailure(
+                        userMessage = "米游社返回了无法识别的签到状态，已停止操作。",
+                        diagnosticCode = "MIYOUSHE_BAD_STATE"
+                    )
+                } else {
+                    CheckInOutcome.Success(
+                        userMessage = "签到状态已确认。",
+                        diagnosticCode = "STATUS_OK",
+                        reward = Reward.empty()
+                    )
+                }
             } else {
                 CheckInOutcome.Success(
                     userMessage = "原神签到完成。",

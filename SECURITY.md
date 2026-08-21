@@ -37,7 +37,7 @@ explicitly by the user** from the Checky UI. Nothing runs silently.
 5. **"Delete all credentials"** wipes the whole vault; each provider also supports deleting its own.
 6. Android cloud backup is disabled for the whole app (`allowBackup="false"`).
 
-## 4. Network security (for future real providers)
+## 4. Network security
 
 - **HTTPS only** — the manifest sets `usesCleartextTraffic="false"`.
 - Every provider declares an **allowlist of hosts** (`ProviderMeta.allowedHosts`) and the networking layer
@@ -61,7 +61,7 @@ explicitly by the user** from the Checky UI. Nothing runs silently.
 
 | Threat | Mitigation |
 |---|---|
-| Malicious provider code | Providers are isolated behind the `CheckInProvider` interface + host allowlist + redaction; MVP ships only mock providers. |
+| Malicious provider code | Providers are isolated behind the `CheckInProvider` interface + host allowlist + redaction; experimental providers keep their side effects provider-local and allowlisted. |
 | App compromise / rooted device | Keystore-backed keys are hardware-anchored; app refuses root features by design; no cloud target to exfiltrate to. |
 | Shoulder-surfing / screenshots | FLAG_SECURE on credential screens; secrets hidden by default. |
 | Backup extraction | `allowBackup=false` + `fullBackupContent=false`. |
@@ -69,9 +69,13 @@ explicitly by the user** from the Checky UI. Nothing runs silently.
 
 ## 7. Reporting
 
-This is an MVP prototype with mostly mock providers and one explicitly marked
-high-risk, non-official personal MiYouShe check-in experiment. The experiment
-is disabled by default, stores credentials locally, and does not implement
-likes, comments, redemptions, CAPTCHA handling, or risk-control workarounds.
+This is an MVP prototype with mostly mock providers and disabled, high-risk,
+non-official personal experiments for MiYouShe and Tajiduo. The Genshin
+MiYouShe check-in was manually confirmed in the current development session;
+MiYouShe community and Tajiduo live login/check-in behavior remains unverified.
+All experiments store credentials locally and do not implement likes, comments,
+shares, follows, posts, redemptions, CAPTCHA handling, or risk-control
+workarounds. A successful build or mocked response mapping is not live-provider
+verification.
 If you find a real security issue in a future release, report it privately to
 the maintainer; do not post credentials or raw traffic in public issues.

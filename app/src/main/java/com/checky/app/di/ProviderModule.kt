@@ -13,6 +13,7 @@ import com.checky.app.domain.providers.CloudBoxProvider
 import com.checky.app.domain.providers.GamePassDailyProvider
 import com.checky.app.domain.providers.StudyClubProvider
 import com.checky.app.domain.providers.MiyousheProvider
+import com.checky.app.domain.providers.MiyousheCommunityProvider
 import com.checky.app.domain.providers.TaygedoClient
 import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
@@ -36,6 +37,7 @@ object ProviderModule {
         CloudBoxProvider.META,
         StudyClubProvider.META,
         MiyousheProvider.META,
+        MiyousheCommunityProvider.META,
         TaygedoNteProvider.META,
         TaygedoCommunityProvider.META,
         ProviderMeta(
@@ -64,11 +66,13 @@ object ProviderModule {
         httpClient: OkHttpClient
     ): List<CheckInProvider> {
         val taygedo = TaygedoClient(context, credentialStore, httpClient)
+        val miyoushe = MiyousheProvider(context, credentialStore, httpClient)
         return listOf(
             GamePassDailyProvider(scenarioStore),
             CloudBoxProvider(credentialStore, scenarioStore),
             StudyClubProvider(scenarioStore),
-            MiyousheProvider(context, credentialStore, httpClient),
+            miyoushe,
+            MiyousheCommunityProvider(context, credentialStore, httpClient),
             TaygedoNteProvider(taygedo),
             TaygedoCommunityProvider(taygedo)
         )
