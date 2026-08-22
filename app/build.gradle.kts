@@ -114,6 +114,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
+    // Real org.json for JVM tests (the android.jar stub throws "not mocked")
+    testImplementation(libs.org.json)
 
     // Instrumented tests
     androidTestImplementation(libs.androidx.test.ext.junit)
