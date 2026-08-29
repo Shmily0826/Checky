@@ -1,7 +1,10 @@
-# TEST_REPORT — JVM Unit Test Coverage
+# TEST_REPORT — Test Coverage & Verification Status
 
-> Last run: 2026-08-22 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
-> Command: `./gradlew testDebugUnitTest` · Result: **119 tests, 0 failures, 0 errors, 0 skipped**
+> Last full run: 2026-08-29 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
+> Command: `./gradlew testDebugUnitTest` · Result: **135 tests, 0 failures, 0 errors, 0 skipped**
+> (122 tests in the committed tree; 13 additional Taygedo tests exist as
+> uncommitted working-tree changes pending live verification.)
+> Instrumented run: 2026-08-29 on emulator `Checky_Android14` (API 34) — see below.
 
 ## Verification levels (keep these distinct)
 
@@ -32,6 +35,20 @@ that a live provider works.
 | `ui.screens.history.HistoryViewModelTest` | 2 | ✅ | Records streaming, clear-history delegation |
 | `ui.screens.provider.ProviderDetailsViewModelTest` | 4 | ✅ | Meta resolution, service stream, enable toggle |
 | **Total** | **119** | ✅ | |
+
+## Instrumented tests (connectedDebugAndroidTest, emulator Checky_Android14 / API 34)
+
+| Test | Status | Notes |
+|---|---|---|
+| `RoomHistoryPersistenceTest.clearHistoryRemovesAllRecordsButKeepsServices` | ✅ | |
+| `RoomHistoryPersistenceTest.savesAndReadsRecordIncludingSafeFields` | ✅ | |
+| `RoomHistoryPersistenceTest.historyOrdersNewestFirst` | ✅ | |
+| `RoomHistoryPersistenceTest.migrationFromV1KeepsExistingHistory` | ✅ | Required Room schema export (`exportSchema = true` + `room.schemaLocation` + schemas dir as androidTest assets); `1.json` is a hand-derived v1 schema (v2 minus the two migrated columns) because no v1 commit exists in history |
+| `CheckInAllUiTest.checkInAllRunsProvidersAndShowsSummary` | ❌ blocked | Fails during Espresso framework init (`NoSuchMethodException: android.hardware.input.InputManager.getInstance`) before any app interaction; reproduced on API 34 and API 37 emulators (userdebug/Google-APIs images). Framework-level Espresso/platform incompatibility, not app code. Likely fix: bump `androidx.test` / espresso beyond the versions pulled by compose BOM 2024.06.00 |
+
+Also verified: `testDebugUnitTest` must not run while an emulator is under
+heavy load on the same machine — `CheckInAllUseCaseTest` (40 ms progress-loop
+timing) becomes flaky under CPU contention and passes with the emulator off.
 
 ## What was added in commit `1e652ac`
 

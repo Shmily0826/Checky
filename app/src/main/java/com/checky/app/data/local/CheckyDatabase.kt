@@ -10,7 +10,7 @@ import com.checky.app.data.local.entity.ServiceEntity
 @Database(
     entities = [CheckInRecordEntity::class, ServiceEntity::class],
     version = 2,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class CheckyDatabase : RoomDatabase() {
     abstract fun dao(): CheckyDao

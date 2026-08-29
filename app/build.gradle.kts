@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
     namespace = "com.checky.app"
     compileSdk = 35
@@ -19,6 +23,11 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+    }
+
+    // Export Room schemas so the migration test can validate v1→v2 on device.
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 
     buildTypes {

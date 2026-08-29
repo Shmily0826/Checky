@@ -175,6 +175,24 @@ class ConnectProviderViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Called once when the connect screen opens: QR-capable providers start
+     * their login session immediately so the default path needs no typing
+     * and no button press. Skipped when already connected or a session is
+     * already active.
+     */
+    fun maybeStartQrLoginAutomatically() {
+        if (
+            qrProvider != null &&
+            !_connected.value &&
+            _qrSession.value == null &&
+            !_qrBusy.value &&
+            _error.value == null
+        ) {
+            startQrLogin()
+        }
+    }
+
     fun startQrLogin() {
         val target = qrProvider ?: run {
             _error.value = "当前服务不支持扫码绑定。"

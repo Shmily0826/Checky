@@ -198,6 +198,54 @@ class ConnectProviderViewModelTest {
         assertNull(vm.qrSession.value)
     }
 
+    // --- Automatic QR start on screen entry ---
+
+    @Test
+    fun autoStartGeneratesQrSessionWithoutUserInput() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = vmWith(
+            RecordingCredentialStore(),
+            FakeQrProvider(listOf(QrLoginPollResult.Confirmed("123456789")))
+        )
+        vm.maybeStartQrLoginAutomatically()
+        advanceUntilIdle()
+
+        assertTrue(vm.connected.value)
+        assertTrue(vm.saved.value)
+        assertNull(vm.error.value)
+    }
+
+    @Test
+    fun autoStartIsSkippedForProvidersWithoutQrSupport() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = vmWith(RecordingCredentialStore(), ScriptedProvider())
+        vm.maybeStartQrLoginAutomatically()
+        advanceUntilIdle()
+
+        assertNull(vm.error.value)
+        assertNull(vm.qrSession.value)
+        assertFalse(vm.connected.value)
+    }
+
+    @Test
+    fun autoStartIsSkippedWhenAlreadyConnected() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore()
+        credentials.save("fake-qr", "token")
+        val vm = vmWith(
+            credentials,
+            FakeQrProvider(listOf(QrLoginPollResult.Confirmed()))
+        )
+        advanceUntilIdle()
+        assertTrue(vm.connected.value)
+
+        vm.maybeStartQrLoginAutomatically()
+        advanceUntilIdle()
+
+        assertNull(vm.qrSession.value)
+        assertNull(vm.qrStatus.value)
+    }
+
     @Test
     fun cancelQrLoginResetsTransientState() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))

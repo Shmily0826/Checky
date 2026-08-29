@@ -36,8 +36,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -206,6 +209,11 @@ fun ConnectProviderScreen(
                     }
                 }
                 else -> {
+                    // QR providers generate their session immediately on
+                    // entry — the default path is scan-only, zero typing.
+                    LaunchedEffect(Unit) {
+                        viewModel.maybeStartQrLoginAutomatically()
+                    }
                     if (viewModel.smsProvider != null) {
                         Text("手机号验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
@@ -296,10 +304,25 @@ fun ConnectProviderScreen(
                         if (qrStatus?.startsWith("绑定成功") == true) {
                             Text(qrStatus!!, color = MaterialTheme.colorScheme.primary)
                         }
-                        Text(
-                            if (isMiyousheCommunity) "或手动填写社区 Cookie" else "或手动填写 Cookie",
-                            style = MaterialTheme.typography.titleSmall
-                        )
+                    }
+                    // Manual Cookie entry stays hidden behind an explicit
+                    // opt-in so the QR path remains the zero-input default.
+                    var showManualSecret by remember { mutableStateOf(viewModel.qrProvider == null) }
+                    if (viewModel.qrProvider != null && !showManualSecret) {
+                        OutlinedButton(
+                            onClick = { showManualSecret = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (isMiyousheCommunity) "手动填写社区 Cookie（高级）" else "手动填写 Cookie（高级）")
+                        }
+                    } else {
+                    if (viewModel.qrProvider != null) {
+                        OutlinedButton(
+                            onClick = { showManualSecret = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("返回扫码绑定")
+                        }
                     }
                     OutlinedTextField(
                         value = secret,
@@ -333,6 +356,7 @@ fun ConnectProviderScreen(
                         } else {
                             Text("Save and connect")
                         }
+                    }
                     }
                 }
             }
