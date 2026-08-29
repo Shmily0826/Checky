@@ -30,6 +30,13 @@ android {
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 
+    testOptions {
+        unitTests {
+            // Required by Robolectric: exposes merged resources/assets to JVM tests.
+            isIncludeAndroidResources = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -125,10 +132,19 @@ dependencies {
     testImplementation(libs.turbine)
     // Real org.json for JVM tests (the android.jar stub throws "not mocked")
     testImplementation(libs.org.json)
+    // Robolectric lets JVM tests use the real Android framework classes
+    // (Context, Room, WorkManager) without a device or emulator.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.work.testing)
+    testImplementation(libs.androidx.test.core)
 
     // Instrumented tests
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    // Compose BOM 2024.06.00 pulls espresso 3.5.0, whose InputManager-based
+    // event injection fails on modern emulator images (NoSuchMethodException
+    // on init). Pin 3.6.1 explicitly.
+    androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

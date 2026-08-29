@@ -1,9 +1,13 @@
 # TEST_REPORT — Test Coverage & Verification Status
 
-> Last full run: 2026-08-29 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
-> Command: `./gradlew testDebugUnitTest` · Result: **135 tests, 0 failures, 0 errors, 0 skipped**
-> (122 tests in the committed tree; 13 additional Taygedo tests exist as
-> uncommitted working-tree changes pending live verification.)
+> Last full run: 2026-08-30 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
+> Command: `./gradlew testDebugUnitTest` · Result: **154 tests, 0 failures, 0 errors, 0 skipped**
+> (137 tests in the committed tree at the time of writing; 13 additional
+> Taygedo tests exist as uncommitted working-tree changes pending live
+> verification. The committed-tree suite was not rerun after this count.)
+> Instrumented run: 2026-08-30 on emulator `Checky_Android14` (API 34) — **5/5 pass**.
+> Lint: `./gradlew lintDebug` — **0 errors, 74 warnings** (mostly
+> dependency-upgrade suggestions; AGP/Compose BOM upgrades left as future work).
 > Instrumented run: 2026-08-29 on emulator `Checky_Android14` (API 34) — see below.
 
 ## Verification levels (keep these distinct)
@@ -38,17 +42,50 @@ that a live provider works.
 
 ## Instrumented tests (connectedDebugAndroidTest, emulator Checky_Android14 / API 34)
 
-| Test | Status | Notes |
-|---|---|---|
-| `RoomHistoryPersistenceTest.clearHistoryRemovesAllRecordsButKeepsServices` | ✅ | |
-| `RoomHistoryPersistenceTest.savesAndReadsRecordIncludingSafeFields` | ✅ | |
-| `RoomHistoryPersistenceTest.historyOrdersNewestFirst` | ✅ | |
-| `RoomHistoryPersistenceTest.migrationFromV1KeepsExistingHistory` | ✅ | Required Room schema export (`exportSchema = true` + `room.schemaLocation` + schemas dir as androidTest assets); `1.json` is a hand-derived v1 schema (v2 minus the two migrated columns) because no v1 commit exists in history |
-| `CheckInAllUiTest.checkInAllRunsProvidersAndShowsSummary` | ❌ blocked | Fails during Espresso framework init (`NoSuchMethodException: android.hardware.input.InputManager.getInstance`) before any app interaction; reproduced on API 34 and API 37 emulators (userdebug/Google-APIs images). Framework-level Espresso/platform incompatibility, not app code. Likely fix: bump `androidx.test` / espresso beyond the versions pulled by compose BOM 2024.06.00 |
+**All 5 pass** as of 2026-08-30, after two fixes:
 
-Also verified: `testDebugUnitTest` must not run while an emulator is under
-heavy load on the same machine — `CheckInAllUseCaseTest` (40 ms progress-loop
-timing) becomes flaky under CPU contention and passes with the emulator off.
+1. **espresso-core 3.5.0 → 3.6.1** (pinned explicitly in `libs.versions.toml`):
+   compose BOM 2024.06.00 pulls espresso 3.5.0, whose InputManager-based event
+   injection crashes on modern emulator images (`NoSuchMethodException:
+   android.hardware.input.InputManager.getInstance` at framework init).
+2. **Onboarding race fix in `CheckInAllUiTest`**: on a cold emulator start the
+   test checked for the onboarding button before the first frame composed,
+   silently skipped the onboarding flow, and then failed to find "Check in
+   all". The test now waits until either screen is present.
+
+| Test | Status |
+|---|---|
+| `RoomHistoryPersistenceTest.clearHistoryRemovesAllRecordsButKeepsServices` | ✅ |
+| `RoomHistoryPersistenceTest.savesAndReadsRecordIncludingSafeFields` | ✅ |
+| `RoomHistoryPersistenceTest.historyOrdersNewestFirst` | ✅ |
+| `RoomHistoryPersistenceTest.migrationFromV1KeepsExistingHistory` | ✅ (required Room schema export; `1.json` is a hand-derived v1 schema — v2 minus the two migrated columns — because no v1 commit exists in history) |
+| `CheckInAllUiTest.checkInAllRunsProvidersAndShowsSummary` | ✅ |
+
+## Robolectric tests (JVM, no device needed) — added 2026-08-30
+
+Nineteen new tests using the real Android framework classes on the JVM:
+
+| Suite | Tests | Scope |
+|---|---|---|
+| `ui.screens.settings.SettingsViewModelTest` | 10 | Settings ViewModel end-to-end on Robolectric: DataStore preference round-trips, WorkManager scheduling via `work-testing` (`checky_daily_reminder` / `checky_auto_checkin`), repository + credential-vault actions |
+| `data.local.CheckyDaoTest` | 9 | Real Room DAO on an in-memory database: upserts, ordering, partial `updateLastResult`, counts, entity mapping |
+
+Two Robolectric-specific pitfalls are encoded in these tests and worth keeping
+in mind for future ones:
+
+- Room's default executors spawn real `arch_disk_io` threads that Robolectric's
+  single-connection SQLite rejects (`Illegal connection pointer`) and whose
+  uncaught exceptions poison other test classes. `CheckyDaoTest` uses direct
+  executors so all DB access stays on the test thread.
+- DataStore performs file IO on real `Dispatchers.IO` threads, which virtual
+  time cannot drive and which a cancelled scope turns into leaked exceptions.
+  `SettingsViewModelTest` therefore runs on real time (`runBlocking` + an
+  eager unconfined Main + polling helpers `awaitPref`/`awaitWork`) and gives
+  each DataStore a long-lived scope that is never cancelled mid-write.
+- Mixing `runTest` into Robolectric classes is fragile for the same reason:
+  coroutines-test reports other threads' uncaught exceptions as
+  `UncaughtExceptionsBeforeTest`. Robolectric tests in this repo should use
+  `runBlocking`.
 
 ## What was added in commit `1e652ac`
 
@@ -66,17 +103,16 @@ never enters the APK.
 
 ## Known limitations / gaps
 
-- **SettingsViewModel** is not JVM-tested: its constructor requires an Android
-  `Context` (WorkManager scheduling paths). Needs Robolectric or an
-  instrumented test.
-- **KeystoreCredentialStore** is only exercised on-device (see
-  `app/src/androidTest`); the JVM suite covers the mock store only.
-- **Instrumented tests** (`CheckInAllUiTest`, `RoomHistoryPersistenceTest`)
-  are compile-verified but were not run in this cycle — no device/emulator
-  was available. Run `./gradlew connectedDebugAndroidTest` to close this gap.
+- **KeystoreCredentialStore** is only exercised on-device/emulator; the JVM
+  suite covers the mock store only. Android Keystore does not work under
+  Robolectric, so a dedicated instrumented test is still the way to cover it.
 - **No live verification**: all provider tests use fakes and scripted
   responses. The experimental Miyoushe/Taygedo providers remain
   implemented + unit-tested only, not live-verified.
+- **Dependency upgrades** (lint warnings): AGP 8.7.0, compose BOM 2024.06.00
+  and several androidx libraries have newer versions available. Upgrading the
+  BOM would also lift ui-test beyond the espresso 3.5.0 pin workaround —
+  worth doing in a dedicated change.
 
 ## Notes for future test authors
 

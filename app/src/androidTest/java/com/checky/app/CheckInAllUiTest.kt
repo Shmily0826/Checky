@@ -21,11 +21,22 @@ class CheckInAllUiTest {
 
     @Test
     fun checkInAllRunsProvidersAndShowsSummary() {
+        // Wait for the first screen to compose: on a cold emulator start the
+        // onboarding check below would otherwise race the first frame and
+        // silently skip the onboarding flow.
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            composeRule.onAllNodesWithText("Get started").fetchSemanticsNodes().isNotEmpty() ||
+                composeRule.onAllNodesWithText("Check in all").fetchSemanticsNodes().isNotEmpty()
+        }
+
         // Skip onboarding if it is shown on this install.
         if (composeRule.onAllNodesWithText("Get started").fetchSemanticsNodes().isNotEmpty()) {
             composeRule.onNodeWithText("Get started").performClick()
         }
 
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            composeRule.onAllNodesWithText("Check in all").fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithText("Check in all").performClick()
 
         // The run finishes with a summary banner ("Got it" dismisses it).
