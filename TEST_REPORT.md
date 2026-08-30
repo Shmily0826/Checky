@@ -5,7 +5,12 @@
 > Instrumented run: 2026-08-30 on emulator `Checky_Android14` (API 34) — **5/5 pass**.
 > Lint: `./gradlew lintRelease` — **0 errors, 53 warnings**.
 > CI: GitHub Actions (`.github/workflows/ci.yml`) runs unit tests + lint and
-> the instrumented suite on an API 34 emulator for every push/PR.
+> the instrumented suite on a pixel_5-profile API 34 emulator for every
+> push/PR — verified green (run 33294019542). The UI smoke test caught two
+> real bugs on its first runs: 'Get started' never navigated (restart masked
+> it locally), and the follow-up navigate() ran on an IO thread (NavController
+> main-thread assertion). Both fixed; gradlew also needed its executable bit
+> restored for Linux runners.
 >
 > 2026-08-30 release hardening: R8 minification + resource shrinking enabled
 > and smoke-verified on the emulator; release signing reads an untracked
