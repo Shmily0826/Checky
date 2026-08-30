@@ -70,6 +70,7 @@ class ReminderWorker(
 object NotificationHelper {
     private const val CHANNEL_ID = "checky_reminders"
     private const val NOTIFICATION_ID = 1001
+    private const val RECONNECT_NOTIFICATION_ID = 1002
 
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
@@ -103,6 +104,38 @@ object NotificationHelper {
             PackageManager.PERMISSION_GRANTED
         if (canNotify) {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+        }
+    }
+
+    /** Surfaces expired sessions found by a check-in run (esp. background runs). */
+    fun showReconnectRequired(context: Context, expiredServices: List<String>) {
+        if (expiredServices.isEmpty()) return
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Checky — ${expiredServices.size} 个服务需要重新连接")
+            .setContentText(expiredServices.joinToString("、"))
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("登录已失效：${expiredServices.joinToString("、")}")
+            )
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (canNotify) {
+            NotificationManagerCompat.from(context).notify(RECONNECT_NOTIFICATION_ID, notification)
         }
     }
 }
