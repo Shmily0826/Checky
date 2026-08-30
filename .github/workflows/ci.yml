@@ -25,6 +25,9 @@ jobs:
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --console=plain
 
+      - name: Release build (R8 regression guard)
+        run: ./gradlew assembleRelease --console=plain
+
       - name: Lint (release variant)
         run: ./gradlew lintRelease --console=plain
 
@@ -66,7 +69,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run instrumented tests
+      - name: Run instrumented tests (debug)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -74,6 +77,15 @@ jobs:
           arch: x86_64
           profile: pixel_5
           script: ./gradlew connectedDebugAndroidTest --console=plain
+
+      - name: Run instrumented tests (release, R8 regression guard)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          script: ./gradlew connectedReleaseAndroidTest --console=plain
 
       - name: Upload reports on failure
         if: failure()

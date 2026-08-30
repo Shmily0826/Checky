@@ -58,6 +58,12 @@ android {
         }
     }
 
+    // Historical warnings are recorded in lint-baseline.xml; lint now fails
+    // only on NEW issues. Regenerate with `./gradlew updateLintBaseline`.
+    lint {
+        baseline = file("lint-baseline.xml")
+    }
+
     signingConfigs {
         if (releaseSigning != null) {
             create("release") {
