@@ -29,3 +29,5 @@ keystore.properties
 
 # Local verification screenshots
 .codex-live-home.png
+
+.codex-ci-reports/
