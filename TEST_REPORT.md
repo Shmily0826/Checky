@@ -61,6 +61,23 @@ that a live provider works.
 | `RoomHistoryPersistenceTest.migrationFromV1KeepsExistingHistory` | ✅ (required Room schema export; `1.json` is a hand-derived v1 schema — v2 minus the two migrated columns — because no v1 commit exists in history) |
 | `CheckInAllUiTest.checkInAllRunsProvidersAndShowsSummary` | ✅ |
 
+## Live verification (2026-08-30, emulator, user's own account)
+
+Status of the uncommitted Taygedo working-tree changes after real-account
+exercise:
+
+| Flow | Result | Evidence |
+|---|---|---|
+| Taygedo SMS login (shared session) | ✅ works | phone + server SMS code, "Connected" |
+| 异环游戏签到 (NTE game sign-in) | ✅ **live verified** | `TAYGEDO_NTE_SUCCESS`, "异环签到成功（本月累计 2 天），获得 资深猎人攻略 ×3", 2069 ms; reward display confirms the signedDays-based reward index fix |
+| 塔吉多社区签到 (community sign-in, step 1 异环 APP 签到) | ❌ **blocked server-side** | `TAYGEDO_COMMUNITY_FAILURE` — server returns "系统错误" on both attempts (13:28, 13:29); fail-closed correctly stopped step 2; the new server-detail passthrough in the failure message worked |
+| FLAG_SECURE on connect screens | ✅ works | screencap returns an empty image on the connect screen |
+
+The community provider's "系统错误" is unresolved live API behavior: per
+AGENTS.md the Taygedo working-tree files remain **uncommitted** pending
+investigation (e.g. re-check the current official app's APP-sign request).
+The NTE half of the same files is verified working.
+
 ## Robolectric tests (JVM, no device needed) — added 2026-08-30
 
 Nineteen new tests using the real Android framework classes on the JVM:
