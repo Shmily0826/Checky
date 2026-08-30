@@ -1,7 +1,7 @@
 package com.checky.app.data.widget
 
 import android.content.Context
-import android.graphics.Color
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -24,7 +24,7 @@ import androidx.glance.layout.padding
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
+import androidx.glance.color.ColorProvider
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.checky.app.data.work.AutoCheckInWorker
@@ -43,7 +43,9 @@ class CheckInWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
             Box(
-                modifier = GlanceModifier.fillMaxSize().background(ColorProvider(Color.DKGRAY)),
+                modifier = GlanceModifier.fillMaxSize().background(
+                    ColorProvider(day = Color(0xFF313033), night = Color(0xFF313033))
+                ),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -53,7 +55,9 @@ class CheckInWidget : GlanceAppWidget() {
                     Text(
                         "Checky",
                         style = TextStyle(
-                            color = ColorProvider(Color.WHITE),
+                            color = ColorProvider(
+                                day = Color(0xFFE6E1E5), night = Color(0xFFE6E1E5)
+                            ),
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         )
@@ -61,7 +65,9 @@ class CheckInWidget : GlanceAppWidget() {
                     Text(
                         "One tap runs every enabled check-in.",
                         style = TextStyle(
-                            color = ColorProvider(Color.LTGRAY),
+                            color = ColorProvider(
+                                day = Color(0xFFCAC4D0), night = Color(0xFFCAC4D0)
+                            ),
                             fontSize = 12.sp
                         )
                     )
