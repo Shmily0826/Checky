@@ -12,6 +12,7 @@ import com.checky.app.domain.GameAccountConfigProvider
 import com.checky.app.domain.QrLoginPollResult
 import com.checky.app.domain.QrLoginProvider
 import com.checky.app.domain.QrLoginSession
+import com.checky.app.domain.GameRole
 import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.ConnectionType
@@ -75,6 +76,47 @@ class MiyousheProvider(
         credentialStore.get(meta.id)?.let(::decodeSession)?.takeIf { it.uid.isNotBlank() }?.let {
             GameAccountConfig(it.uid, it.region)
         }
+
+    /**
+     * Reads the Genshin roles bound to the connected account via the miyoushe
+     * binding API (same allowlisted host as the check-in itself). Best-effort
+     * and fail-closed: any error or unrecognized schema yields an empty list
+     * so the UI falls back to manual UID entry.
+     */
+    override suspend fun fetchGameRoles(): List<GameRole> = withContext(Dispatchers.IO) {
+        runCatching {
+            val cookie = credentialStore.get(meta.id)
+                ?.let(::decodeSession)?.cookie.orEmpty()
+            if (cookie.isBlank()) return@runCatching emptyList()
+            val body = request(
+                method = "GET",
+                path = "/binding/api/getUserGameRolesByCookie",
+                query = emptyMap(),
+                cookie = cookie
+            )
+            val json = runCatching { JSONObject(body) }.getOrNull()
+                ?: return@runCatching emptyList()
+            if (json.optInt("retcode", -1) != 0) return@runCatching emptyList()
+            val list = json.optJSONObject("data")?.optJSONArray("list")
+                ?: return@runCatching emptyList()
+            buildList {
+                for (index in 0 until list.length()) {
+                    val role = list.optJSONObject(index) ?: continue
+                    // Genshin only: cn official (hk4e_cn) and B服 (hk4e_bili).
+                    if (!role.optString("game_biz").startsWith("hk4e")) continue
+                    val uid = role.optString("game_uid")
+                    val region = role.optString("region")
+                    if (!uid.matches(Regex("\\d{9,10}"))) continue
+                    if (region !in SUPPORTED_REGIONS) continue
+                    this += GameRole(
+                        config = GameAccountConfig(uid, region),
+                        label = "${role.optString("region_name")} · " +
+                            "${role.optString("nickname")} Lv.${role.optInt("level")}"
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
 
     override suspend fun saveGameAccountConfig(uid: String, region: String): CredentialValidation {
         val normalizedUid = uid.trim()

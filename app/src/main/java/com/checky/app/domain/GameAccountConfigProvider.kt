@@ -10,9 +10,22 @@ data class GameAccountConfig(
     val region: String
 )
 
+/** A game role reported by the service for the connected account. */
+data class GameRole(
+    val config: GameAccountConfig,
+    /** User-facing description, e.g. "天空岛 · 派蒙 Lv.60". */
+    val label: String
+)
+
 interface GameAccountConfigProvider {
     suspend fun gameAccountConfig(): GameAccountConfig?
 
     /** Validates and persists the selected game role alongside the session. */
     suspend fun saveGameAccountConfig(uid: String, region: String): CredentialValidation
+
+    /**
+     * Roles bound to the connected account. Best-effort: an empty list means
+     * "unknown, fall back to manual entry" — never an auth error.
+     */
+    suspend fun fetchGameRoles(): List<GameRole> = emptyList()
 }

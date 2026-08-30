@@ -7,6 +7,7 @@ import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.GameAccountConfigProvider
+import com.checky.app.domain.GameRole
 import com.checky.app.domain.QrLoginPollResult
 import com.checky.app.domain.QrLoginProvider
 import com.checky.app.domain.QrLoginSession
@@ -92,6 +93,12 @@ class ConnectProviderViewModel @Inject constructor(
     private val _gameAccountSaved = MutableStateFlow(false)
     val gameAccountSaved: StateFlow<Boolean> = _gameAccountSaved.asStateFlow()
 
+    private val _gameRoles = MutableStateFlow<List<GameRole>>(emptyList())
+    val gameRoles: StateFlow<List<GameRole>> = _gameRoles.asStateFlow()
+
+    private val _gameRolesBusy = MutableStateFlow(false)
+    val gameRolesBusy: StateFlow<Boolean> = _gameRolesBusy.asStateFlow()
+
     private var qrJob: Job? = null
 
     init {
@@ -104,6 +111,11 @@ class ConnectProviderViewModel @Inject constructor(
                 _gameUid.value = config.uid
                 _gameRegion.value = config.region
                 _gameAccountSaved.value = true
+            }
+            // Zero-input path: right after a fresh connect, look up the roles
+            // bound to the account so the user never types a UID.
+            if (gameAccountProvider != null && _connected.value && _gameUid.value.isBlank()) {
+                fetchGameRoles()
             }
         }
     }
@@ -215,6 +227,9 @@ class ConnectProviderViewModel @Inject constructor(
                             _saved.value = true
                             _qrStatus.value = result.accountLabel?.let { "绑定成功（UID $it）" } ?: "绑定成功"
                             _qrSession.value = null
+                            if (gameAccountProvider != null) {
+                                fetchGameRoles()
+                            }
                             return@launch
                         }
                         is QrLoginPollResult.Expired -> {
@@ -246,13 +261,48 @@ class ConnectProviderViewModel @Inject constructor(
         _qrStatus.value = null
     }
 
+    /**
+     * Looks up the roles bound to the connected account. A single role is
+     * filled in and saved automatically; several roles wait for the user's
+     * pick; none falls back to manual UID entry with a hint.
+     */
+    fun fetchGameRoles() {
+        val target = gameAccountProvider ?: return
+        viewModelScope.launch {
+            _gameRolesBusy.value = true
+            try {
+                val roles = target.fetchGameRoles()
+                _gameRoles.value = roles
+                when {
+                    roles.size == 1 -> {
+                        _gameUid.value = roles[0].config.uid
+                        _gameRegion.value = roles[0].config.region
+                        _gameRoles.value = emptyList()
+                        saveGameAccount()
+                    }
+                    roles.isEmpty() ->
+                        _error.value = "未能自动获取角色，请手动填写游戏 UID。"
+                }
+            } finally {
+                _gameRolesBusy.value = false
+            }
+        }
+    }
+
+    /** Applies a role the user picked from the multi-role list. */
+    fun pickGameRole(index: Int) {
+        val role = _gameRoles.value.getOrNull(index) ?: return
+        _gameUid.value = role.config.uid
+        _gameRegion.value = role.config.region
+        _gameRoles.value = emptyList()
+        saveGameAccount()
+    }
+
     fun updateGameUid(value: String) {
         _gameUid.value = value.filter(Char::isDigit)
         _gameAccountSaved.value = false
         _error.value = null
-    }
-
-    fun updateGameRegion(value: String) {
+    }    fun updateGameRegion(value: String) {
         _gameRegion.value = value
         _gameAccountSaved.value = false
         _error.value = null

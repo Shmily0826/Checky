@@ -7,6 +7,7 @@ import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.GameAccountConfig
 import com.checky.app.domain.GameAccountConfigProvider
+import com.checky.app.domain.GameRole
 import com.checky.app.domain.QrLoginPollResult
 import com.checky.app.domain.QrLoginProvider
 import com.checky.app.domain.QrLoginSession
@@ -340,6 +341,67 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
+    fun singleBoundRoleIsFetchedAndSavedAutomatically() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore()
+        credentials.save("fake-game", "session-cookie")
+        val vm = vmWith(
+            credentials,
+            FakeGameAccountProvider(
+                roles = listOf(
+                    GameRole(GameAccountConfig("100001", "cn_gf01"), "天空岛 · 派蒙 Lv.60")
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals("100001", vm.gameUid.value)
+        assertEquals("cn_gf01", vm.gameRegion.value)
+        assertTrue(vm.gameAccountSaved.value)
+        assertEquals(0, vm.gameRoles.value.size)
+    }
+
+    @Test
+    fun multipleRolesWaitForUserPick() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore()
+        credentials.save("fake-game", "session-cookie")
+        val vm = vmWith(
+            credentials,
+            FakeGameAccountProvider(
+                roles = listOf(
+                    GameRole(GameAccountConfig("100001", "cn_gf01"), "天空岛 · 派蒙"),
+                    GameRole(GameAccountConfig("200002", "cn_qd01"), "世界树 · 凯亚")
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(2, vm.gameRoles.value.size)
+        assertEquals("", vm.gameUid.value)
+
+        vm.pickGameRole(1)
+        advanceUntilIdle()
+
+        assertEquals("200002", vm.gameUid.value)
+        assertEquals("cn_qd01", vm.gameRegion.value)
+        assertTrue(vm.gameAccountSaved.value)
+        assertEquals(0, vm.gameRoles.value.size)
+    }
+
+    @Test
+    fun noRolesFallsBackToManualEntryWithHint() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore()
+        credentials.save("fake-game", "session-cookie")
+        val vm = vmWith(credentials, FakeGameAccountProvider(roles = emptyList()))
+        advanceUntilIdle()
+
+        assertEquals("未能自动获取角色，请手动填写游戏 UID。", vm.error.value)
+        assertEquals("", vm.gameUid.value)
+    }
+
+    @Test
     fun gameAccountSaveValidMarksSaved() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = vmWith(RecordingCredentialStore(), FakeGameAccountProvider())
@@ -454,9 +516,11 @@ private class FakeSmsProvider(
 
 private class FakeGameAccountProvider(
     private val existing: GameAccountConfig? = null,
+    private val roles: List<GameRole> = emptyList(),
     private val saveResult: (String, String) -> CredentialValidation = { _, _ -> CredentialValidation.Valid }
 ) : BaseFakeProvider(testMeta("fake-game")), GameAccountConfigProvider {
     override suspend fun gameAccountConfig(): GameAccountConfig? = existing
+    override suspend fun fetchGameRoles(): List<GameRole> = roles
     override suspend fun saveGameAccountConfig(uid: String, region: String): CredentialValidation =
         saveResult(uid, region)
 }

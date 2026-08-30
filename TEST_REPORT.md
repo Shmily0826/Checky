@@ -63,14 +63,17 @@ that a live provider works.
 
 ## Live verification (2026-08-30, emulator, user's own account)
 
-Status of the Taygedo working-tree changes after real-account exercise:
+All seven providers were live verified with the user's real accounts:
 
 | Flow | Result | Evidence |
 |---|---|---|
 | Taygedo SMS login (shared session) | ✅ works | phone + server SMS code, "Connected" |
-| 异环游戏签到 (NTE game sign-in) | ✅ **live verified** | `TAYGEDO_NTE_SUCCESS`, "异环签到成功（本月累计 2 天），获得 资深猎人攻略 ×3", 2069 ms; reward display confirms the signedDays-based reward index fix |
-| 塔吉多社区签到 (community sign-in) | ✅ **live verified after a transport fix** | `TAYGEDO_COMMUNITY_SUCCESS`: "APP 签到成功，版区签到成功。经验 +5，金币 +40。社区任务剩余：浏览 0 次、点赞 0 次、分享 0 次" — the new `getUserTasks?communityId=2&gid=2` / `task_list3` parsing worked on real data |
-| FLAG_SECURE on connect screens | ✅ works | screencap returns an empty image on the connect screen |
+| 异环游戏签到 (NTE game sign-in) | ✅ live verified | `TAYGEDO_NTE_SUCCESS`; second run correctly reported Already-done (idempotency) |
+| 塔吉多社区签到 (community sign-in) | ✅ live verified after a transport fix | `TAYGEDO_COMMUNITY_SUCCESS`: "APP 签到成功，版区签到成功。经验 +5，金币 +40"; second run's getSignState preflight correctly skipped mutations (Already done); `getUserTasks?communityId=2&gid=2` / `task_list3` parsing worked on real data |
+| 米游社签到原神 (Genshin sign-in, web QR) | ✅ live verified | "原神签到完成。"; second run Already-done |
+| 米游社讨论区签到 (community, app QR) | ✅ live verified | "米游社讨论区签到成功，米游币 +30。" |
+| Connect screens FLAG_SECURE | ✅ works | screencap returns an empty image |
+| Unconnected provider | ✅ fail-closed | community provider without credential reported Login expired and performed no mutation |
 
 **Community sign-in root cause** (found via a three-step evidence gradient —
 each step produced a distinct server error, so this was targeted diagnosis,
@@ -83,9 +86,16 @@ not parameter guessing):
 3. plain `Authorization` + form + **ds** → ✅ success
 
 Final contract: `Authorization` header + form-encoded `communityId` + `ds`
-signature. This matches the official HAR reference for auth/body and keeps the
-ds signature the server now requires. All Taygedo changes are live verified
-and committed.
+signature.
+
+**Genshin role auto-fetch** (added after user feedback that manual UID entry
+was unnecessary): the miyoushe binding API
+(`GET /binding/api/getUserGameRolesByCookie` on the already-allowlisted
+`api-takumi.mihoyo.com`) now supplies the bound Genshin roles right after QR
+connect — a single role is filled in and saved automatically, several roles
+become a pick list, none falls back to manual entry. Unit-tested with fake
+providers; the deployed app confirmed the saved-cookie path live (check-in
+ran with the stored UID).
 
 ## Robolectric tests (JVM, no device needed) — added 2026-08-30
 

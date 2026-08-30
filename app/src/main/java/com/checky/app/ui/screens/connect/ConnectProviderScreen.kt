@@ -157,14 +157,47 @@ fun ConnectProviderScreen(
                         Text("Your token was saved. Check in again to use it.", style = MaterialTheme.typography.bodyMedium)
                     }
                     if (viewModel.gameAccountProvider != null) {
+                        val gameRoles by viewModel.gameRoles.collectAsStateWithLifecycle()
+                        val gameRolesBusy by viewModel.gameRolesBusy.collectAsStateWithLifecycle()
                         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text("原神账号", style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    "还需要选择要签到的原神角色。填写游戏内的 9–10 位 UID，不是米游社账号 ID。",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                when {
+                                    gameRolesBusy -> {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                            Spacer(Modifier.size(8.dp))
+                                            Text("正在获取绑定的原神角色…", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                    gameRoles.size > 1 -> {
+                                        Text(
+                                            "检测到多个角色，请选择要签到的角色：",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        gameRoles.forEachIndexed { index, role ->
+                                            OutlinedButton(
+                                                onClick = { viewModel.pickGameRole(index) },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text("${role.label}（UID ${role.config.uid}）")
+                                            }
+                                        }
+                                    }
+                                    !gameAccountSaved -> {
+                                        Text(
+                                            "还需要选择要签到的原神角色。填写游戏内的 9–10 位 UID，不是米游社账号 ID。",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        OutlinedButton(
+                                            onClick = viewModel::fetchGameRoles,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) { Text("重新自动获取角色") }
+                                    }
+                                }
+                                if (!gameRolesBusy && gameRoles.size <= 1) {
                                 OutlinedTextField(
                                     value = gameUid,
                                     onValueChange = viewModel::updateGameUid,
@@ -192,6 +225,7 @@ fun ConnectProviderScreen(
                                     } else {
                                         Text(if (gameAccountSaved) "已保存原神账号" else "保存原神账号")
                                     }
+                                }
                                 }
                             }
                         }
