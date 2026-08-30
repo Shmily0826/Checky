@@ -26,6 +26,12 @@ private val BROWSE_TASK_CODES = setOf("browse_post_c")
 
 internal fun isAllowedBrowseTaskCode(code: String): Boolean = code in BROWSE_TASK_CODES
 
+internal fun nteRewardIndexForSignedDays(signedDays: Int): Int =
+    signedDays.coerceAtLeast(1) - 1
+
+private fun nteRewardForSignedDays(rewards: JSONArray?, signedDays: Int): JSONObject? =
+    rewards?.optJSONObject(nteRewardIndexForSignedDays(signedDays))
+
 abstract class TaygedoProvider(
     protected val client: TaygedoClient
 ) : CheckInProvider, SmsLoginProvider {
@@ -125,8 +131,10 @@ class TaygedoNteProvider(client: TaygedoClient) : TaygedoProvider(client) {
             meta, "/apihub/awapi/sign/rewards",
             query = mapOf("gameId" to "1289", "roleId" to roleId), webHeaders = true
         ).data as? JSONArray
-        val day = newState.day.coerceAtLeast(1)
-        val reward = rewards?.optJSONObject(day - 1)
+        // `day` is the calendar day; the reward list is indexed by the
+        // number of completed monthly sign-ins. Using the calendar day can
+        // display a later day's reward on the first sign-in of the month.
+        val reward = nteRewardForSignedDays(rewards, newState.days)
         val rewardText = reward?.let { "，获得 ${it.optString("name")} ×${it.optInt("num")}" }.orEmpty()
         return CheckInOutcome.Success(
             "异环签到成功（本月累计 ${newState.days} 天）$rewardText。",
@@ -161,17 +169,30 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
         // sign-in (communityId=2). Treat an upstream "already signed" reply
         // as positive so a repeat run is idempotent.
         val signIns = runCommunitySignInSequence { communityId ->
-            client.request(
-                meta, "/apihub/api/signin", "POST", form = mapOf("communityId" to communityId)
-            ).toCommunitySignResponse()
+            // Read-only preflight: if the official endpoint already reports today's
+            // sign-in, skip the mutation and treat it as AlreadyCompleted.
+            val preflight = readCommunitySignState(communityId)
+            if (preflight == CommunitySignState.SIGNED) {
+                CommunitySignResponse(code = 0, message = "今日已签到", hasExpectedData = true)
+            } else {
+                // Live-verified contract (2026-08-30): plain Authorization +
+                // form body + ds signature. AuthorizationV2 + JSON body made
+                // the server answer 系统错误; omitting ds answered
+                // invalid request.
+                client.request(
+                    meta, "/apihub/api/signin", "POST",
+                    form = mapOf("communityId" to communityId),
+                    useDs = true
+                ).toCommunitySignResponse()
+            }
         }
         val appSignin = signIns[0]
         if (!appSignin.classification.mayContinue) {
-            return appSignin.classification.toOutcome("异环 APP 签到失败。")
+            return appSignin.classification.toOutcome("异环 APP 签到失败。", appSignin.response.message)
         }
         val bbsSignin = signIns[1]
         if (!bbsSignin.classification.mayContinue) {
-            return bbsSignin.classification.toOutcome("异环社区版区签到失败。")
+            return bbsSignin.classification.toOutcome("异环社区版区签到失败。", bbsSignin.response.message)
         }
 
         val exp = appSignin.response.exp
@@ -208,50 +229,44 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
         }
     }
 
-    private data class CommunityTaskState(
-        val browseRemaining: Int,
-        val likeRemaining: Int,
-        val shareRemaining: Int
-    ) {
-        fun toMessage() = "社区任务剩余：浏览 ${browseRemaining} 次、点赞 ${likeRemaining} 次、分享 ${shareRemaining} 次。"
-    }
-
     /** Read task counters without performing like/share interactions. */
     private suspend fun readCommunityTaskState(): CommunityTaskState? {
         return try {
             val result = client.request(
                 meta,
                 "/apihub/api/getUserTasks",
-                query = mapOf("gid" to "1")
+                query = mapOf("communityId" to "2", "gid" to "2"),
+                authV2 = true,
+                useDs = true
             )
             if (result.code != 0) {
                 null
             } else {
-                val taskList = (result.data as? JSONObject)?.optJSONArray("task_list1")
-                if (taskList == null) {
-                    null
-                } else {
-                    fun remaining(code: String): Int? {
-                        for (index in 0 until taskList.length()) {
-                            val task = taskList.optJSONObject(index) ?: continue
-                            val taskCode = task.optString("code").ifBlank { task.optString("taskKey") }
-                            if (taskCode == code && (isAllowedBrowseTaskCode(taskCode) ||
-                                    taskCode == "like_post_c" || taskCode == "share")) {
-                                return (task.optInt("limitTimes") - task.optInt("completeTimes")).coerceAtLeast(0)
-                            }
-                        }
-                        return null
-                    }
-                    CommunityTaskState(
-                        browseRemaining = remaining("browse_post_c") ?: 0,
-                        likeRemaining = remaining("like_post_c") ?: 0,
-                        shareRemaining = remaining("share") ?: 0
-                    )
-                }
+                parseCommunityTaskState((result.data as? JSONObject)?.optJSONArray("task_list3"))
             }
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Read-only preflight: ask the official `getSignState` endpoint whether a
+     * given community has already been signed today.
+     *
+     * Recovered contract (HBC 98, official 1.2.6):
+     *   GET /apihub/api/getSignState?communityId=<id>
+     *   headers: Authorization (access token) — official BearerAuthService contract
+     * Fails closed: ambiguous or errored responses return UNKNOWN so the
+     * subsequent sign-in call (not a guessed mutation) makes the decision.
+     */
+    private suspend fun readCommunitySignState(communityId: String): CommunitySignState {
+        return runCatching {
+            client.request(
+                meta,
+                "/apihub/api/getSignState",
+                query = mapOf("communityId" to communityId)
+            ).toCommunitySignState()
+        }.getOrDefault(CommunitySignState.UNKNOWN)
     }
 
     /** Complete only the read-only browse task from the official task flow. */
@@ -303,6 +318,41 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
     }
 }
 
+/**
+ * Parse community task counters from a `task_list3` JSON array (read-only).
+ * Like/share/follow counters are read for display only; this function never
+ * performs any of those interactions. Returns null when the array is missing
+ * or unusable so callers fail closed.
+ */
+internal fun parseCommunityTaskState(taskList: JSONArray?): CommunityTaskState? {
+    if (taskList == null) return null
+    fun remaining(code: String): Int? {
+        for (index in 0 until taskList.length()) {
+            val task = taskList.optJSONObject(index) ?: continue
+            val taskCode = task.optString("taskKey").ifBlank { task.optString("code") }
+            if (taskCode == code && (isAllowedBrowseTaskCode(taskCode) ||
+                    taskCode == "like_post_c" || taskCode == "share")) {
+                return (task.optInt("limitTimes") - task.optInt("completeTimes")).coerceAtLeast(0)
+            }
+        }
+        return null
+    }
+    // Unknown task types are intentionally ignored (no automatic action).
+    return CommunityTaskState(
+        browseRemaining = remaining("browse_post_c") ?: 0,
+        likeRemaining = remaining("like_post_c") ?: 0,
+        shareRemaining = remaining("share") ?: 0
+    )
+}
+
+internal data class CommunityTaskState(
+    val browseRemaining: Int,
+    val likeRemaining: Int,
+    val shareRemaining: Int
+) {
+    fun toMessage() = "社区任务剩余：浏览 ${browseRemaining} 次、点赞 ${likeRemaining} 次、分享 ${shareRemaining} 次。"
+}
+
 internal enum class CommunitySignDisposition {
     SUCCESS,
     ALREADY_COMPLETED,
@@ -310,6 +360,33 @@ internal enum class CommunitySignDisposition {
     VERIFICATION_REQUIRED,
     FAILURE,
     MALFORMED
+}
+
+/**
+ * Read-only sign-state classification. The official `getSignState` response
+ * schema is not pinned down by static analysis, so we only recognise an
+ * unambiguous signed/unsigned flag. Anything else (error, missing data,
+ * unrecognised field) is UNKNOWN and must NOT drive a mutation.
+ */
+internal enum class CommunitySignState { SIGNED, UNSIGNED, UNKNOWN }
+
+internal fun TaygedoClient.ApiResult.toCommunitySignState(): CommunitySignState {
+    if (code != 0) return CommunitySignState.UNKNOWN
+    val data = data as? JSONObject ?: return CommunitySignState.UNKNOWN
+    val signed = when {
+        data.has("isSign") -> data.optBoolean("isSign")
+        data.has("signed") -> data.optBoolean("signed")
+        data.has("todaySign") -> data.optBoolean("todaySign")
+        data.has("signState") -> data.optInt("signState") == 1
+        data.has("status") -> data.optInt("status") == 1
+        data.has("sign") -> data.optInt("sign") == 1
+        else -> null
+    }
+    return when (signed) {
+        true -> CommunitySignState.SIGNED
+        false -> CommunitySignState.UNSIGNED
+        null -> CommunitySignState.UNKNOWN
+    }
 }
 
 internal data class CommunitySignResponse(
@@ -349,7 +426,9 @@ internal fun classifyCommunitySignResponse(
 private fun isAlreadySignedMessage(message: String): Boolean {
     val text = message.lowercase()
     return text.contains("已签到") || text.contains("签到过") ||
-        text.contains("重复签到") || text.contains("already signed")
+        text.contains("重复签到") || text.contains("今日已完成") ||
+        text.contains("今日已领取") || text.contains("今天已经") ||
+        text.contains("already signed")
 }
 
 internal suspend fun runCommunitySignInSequence(
@@ -376,7 +455,10 @@ private fun TaygedoClient.ApiResult.toCommunitySignResponse(): CommunitySignResp
     )
 }
 
-private fun CommunitySignDisposition.toOutcome(fallback: String): CheckInOutcome = when (this) {
+internal fun CommunitySignDisposition.toOutcome(
+    fallback: String,
+    detail: String = ""
+): CheckInOutcome = when (this) {
     CommunitySignDisposition.AUTH_EXPIRED -> CheckInOutcome.AuthenticationExpired(
         "塔吉多登录已失效，请重新连接。", "TAYGEDO_AUTH_EXPIRED"
     )
@@ -388,7 +470,8 @@ private fun CommunitySignDisposition.toOutcome(fallback: String): CheckInOutcome
         "TAYGEDO_COMMUNITY_BAD_RESPONSE"
     )
     CommunitySignDisposition.FAILURE -> CheckInOutcome.TemporaryFailure(
-        fallback, "TAYGEDO_COMMUNITY_FAILURE"
+        if (detail.isBlank()) fallback else "$fallback（服务返回：$detail）",
+        "TAYGEDO_COMMUNITY_FAILURE"
     )
     CommunitySignDisposition.SUCCESS,
     CommunitySignDisposition.ALREADY_COMPLETED -> error("Positive sign-in result cannot be converted to failure")

@@ -8,8 +8,10 @@ import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.model.ProviderMeta
 import okhttp3.FormBody
 import okhttp3.HttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -107,7 +109,9 @@ class TaygedoClient(
         query: Map<String, String> = emptyMap(),
         form: Map<String, String> = emptyMap(),
         webHeaders: Boolean = false,
-        useDs: Boolean = false
+        useDs: Boolean = false,
+        authV2: Boolean = false,
+        jsonBody: Boolean = false
     ): ApiResult {
         var session = load() ?: throw AuthException()
         fun headersFor(current: Session) = buildMap {
@@ -115,11 +119,11 @@ class TaygedoClient(
             if (webHeaders) putAll(WEB_HEADERS)
         }
         var response = bbs(meta, path, method, query, form, session.accessToken, useDs,
-            headersFor(session))
+            authV2, jsonBody, headersFor(session))
         if (response.code == 401 || response.code == -401) {
             session = refresh(session, meta) ?: throw AuthException()
             response = bbs(meta, path, method, query, form, session.accessToken, useDs,
-                headersFor(session))
+                authV2, jsonBody, headersFor(session))
         }
         return response
     }
@@ -144,6 +148,8 @@ class TaygedoClient(
         form: Map<String, String> = emptyMap(),
         auth: String,
         useDs: Boolean,
+        authV2: Boolean = false,
+        jsonBody: Boolean = false,
         extraHeaders: Map<String, String> = emptyMap()
     ): ApiResult {
         val url = HttpUrl.Builder().scheme("https").host(BBS_HOST)
@@ -151,8 +157,8 @@ class TaygedoClient(
             .apply { query.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
         check(HostPolicy.isAllowed(meta, url.toString()))
         val builder = Request.Builder().url(url)
-            .header("Authorization", auth)
-            .header("deviceid", deviceId)
+        if (authV2) builder.header("AuthorizationV2", auth) else builder.header("Authorization", auth)
+        builder.header("deviceid", deviceId)
             .header("appversion", APP_VERSION)
             .header("platform", "android")
             .header("User-Agent", "okhttp/4.12.0")
@@ -160,7 +166,12 @@ class TaygedoClient(
         if (useDs) builder.header("ds", ds())
         extraHeaders.forEach(builder::header)
         if (method == "POST") {
-            val body = FormBody.Builder().apply { form.forEach { (k, v) -> add(k, v) } }.build()
+            val body = if (jsonBody) {
+                val json = JSONObject().apply { form.forEach { (k, v) -> put(k, v) } }
+                json.toString().toRequestBody(JSON_MEDIA_TYPE)
+            } else {
+                FormBody.Builder().apply { form.forEach { (k, v) -> add(k, v) } }.build()
+            }
             builder.post(body)
         }
         http.newCall(builder.build()).execute().use { response ->
@@ -232,7 +243,7 @@ class TaygedoClient(
         const val SESSION_KEY = "taygedo.shared.session"
         private const val BBS_HOST = "bbs-api.tajiduo.com"
         private const val LAOHU_HOST = "user.laohu.com"
-        private const val APP_VERSION = "1.2.5"
+        private const val APP_VERSION = "1.2.6"
         private const val DS_SALT = "pUds3dfMkl"
         private const val LAOHU_APP_KEY = "89155cc4e8634ec5b1b6364013b23e3e"
         private val WEB_HEADERS = mapOf(
@@ -241,5 +252,6 @@ class TaygedoClient(
             "Referer" to "https://webstatic.tajiduo.com/",
             "User-Agent" to "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Tajiduo/1.2.2"
         )
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }

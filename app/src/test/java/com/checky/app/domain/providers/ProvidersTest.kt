@@ -9,6 +9,8 @@ import com.checky.app.domain.model.CheckInStatus
 import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.RewardType
 import kotlinx.coroutines.flow.filterIsInstance
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -149,11 +151,139 @@ class ProvidersTest {
     }
 
     @Test
+    fun nteRewardUsesCompletedSignInCountNotCalendarDay() {
+        assertEquals(0, nteRewardIndexForSignedDays(signedDays = 1))
+        assertEquals(1, nteRewardIndexForSignedDays(signedDays = 2))
+        assertEquals(0, nteRewardIndexForSignedDays(signedDays = 0))
+    }
+
+    @Test
     fun onlyBrowseTaskCodeIsAllowedForAutomaticTaskCompletion() {
         assertTrue(isAllowedBrowseTaskCode("browse_post_c"))
         assertTrue(!isAllowedBrowseTaskCode("like_post_c"))
         assertTrue(!isAllowedBrowseTaskCode("share"))
         assertTrue(!isAllowedBrowseTaskCode("follow"))
+    }
+
+    @Test
+    fun communityTaskParserPrefersTaskKeyOverCode() {
+        val arr = JSONArray().apply {
+            put(JSONObject("""{"taskKey":"browse_post_c","code":"legacy_browse","limitTimes":3,"completeTimes":1}"""))
+        }
+        assertEquals(2, parseCommunityTaskState(arr)?.browseRemaining)
+    }
+
+    @Test
+    fun communityTaskParserFallsBackToCodeWhenTaskKeyBlank() {
+        val arr = JSONArray().apply {
+            put(JSONObject("""{"code":"browse_post_c","limitTimes":5,"completeTimes":2}"""))
+        }
+        assertEquals(3, parseCommunityTaskState(arr)?.browseRemaining)
+    }
+
+    @Test
+    fun communityTaskParserReturnsNullWhenListMissing() {
+        assertEquals(null, parseCommunityTaskState(null))
+    }
+
+    @Test
+    fun communityTaskParserTreatsUnknownTaskTypeAsNoAction() {
+        val arr = JSONArray().apply {
+            put(JSONObject("""{"taskKey":"follow","limitTimes":10,"completeTimes":0}"""))
+        }
+        // follow is not in the automatic allowlist and must never be counted/executed.
+        assertEquals(0, parseCommunityTaskState(arr)?.browseRemaining)
+    }
+
+    @Test
+    fun communityTaskParserReadsLikeAndShareCountersWithoutExecuting() {
+        val arr = JSONArray().apply {
+            put(JSONObject("""{"taskKey":"browse_post_c","limitTimes":2,"completeTimes":2}"""))
+            put(JSONObject("""{"taskKey":"like_post_c","limitTimes":4,"completeTimes":1}"""))
+            put(JSONObject("""{"taskKey":"share","limitTimes":1,"completeTimes":0}"""))
+        }
+        val state = parseCommunityTaskState(arr)
+        assertEquals(0, state?.browseRemaining)   // already complete
+        assertEquals(3, state?.likeRemaining)     // read-only counter
+        assertEquals(1, state?.shareRemaining)    // read-only counter
+    }
+
+    @Test
+    fun communityAlreadyCompletedRecognizesExtendedPhrases() {
+        assertTrue(
+            classifyCommunitySignResponse(CommunitySignResponse(0, "今日已完成", hasExpectedData = true))
+                == CommunitySignDisposition.ALREADY_COMPLETED
+        )
+        assertTrue(
+            classifyCommunitySignResponse(CommunitySignResponse(0, "今日已领取", hasExpectedData = true))
+                == CommunitySignDisposition.ALREADY_COMPLETED
+        )
+        assertTrue(
+            classifyCommunitySignResponse(CommunitySignResponse(0, "今天已经签到啦", hasExpectedData = true))
+                == CommunitySignDisposition.ALREADY_COMPLETED
+        )
+    }
+
+    @Test
+    fun communityFailureAppendsSafeServerDetail() {
+        val outcome = CommunitySignDisposition.FAILURE.toOutcome("异环社区版区签到失败。", "今天已经签到")
+        assertTrue(outcome is CheckInOutcome.TemporaryFailure)
+        assertTrue(outcome.userMessage.contains("今天已经签到"))
+        assertEquals("TAYGEDO_COMMUNITY_FAILURE", outcome.diagnosticCode)
+    }
+
+    // ===== getSignState read-only parser (fail-closed) =====
+
+    private fun signStateResult(code: Int, data: JSONObject?): TaygedoClient.ApiResult =
+        TaygedoClient.ApiResult(code, data, "", data ?: JSONObject())
+
+    @Test
+    fun getSignStateNonZeroCodeIsUnknown() {
+        assertEquals(
+            CommunitySignState.UNKNOWN,
+            signStateResult(401, JSONObject("""{"isSign":false}""")).toCommunitySignState()
+        )
+    }
+
+    @Test
+    fun getSignStateMissingDataIsUnknown() {
+        assertEquals(
+            CommunitySignState.UNKNOWN,
+            signStateResult(0, null).toCommunitySignState()
+        )
+    }
+
+    @Test
+    fun getSignStateRecognizesSignedViaIsSign() {
+        assertEquals(
+            CommunitySignState.SIGNED,
+            signStateResult(0, JSONObject("""{"isSign":true}""")).toCommunitySignState()
+        )
+    }
+
+    @Test
+    fun getSignStateRecognizesUnsignedViaSigned() {
+        assertEquals(
+            CommunitySignState.UNSIGNED,
+            signStateResult(0, JSONObject("""{"signed":false}""")).toCommunitySignState()
+        )
+    }
+
+    @Test
+    fun getSignStateRecognizesSignedViaSignStateInt() {
+        assertEquals(
+            CommunitySignState.SIGNED,
+            signStateResult(0, JSONObject("""{"signState":1}""")).toCommunitySignState()
+        )
+    }
+
+    @Test
+    fun getSignStateUnrecognizedSchemaIsUnknown() {
+        // No recognised signed/unsigned flag -> must not drive a mutation.
+        assertEquals(
+            CommunitySignState.UNKNOWN,
+            signStateResult(0, JSONObject("""{"foo":"bar","list":[]}""")).toCommunitySignState()
+        )
     }
 
     @Test

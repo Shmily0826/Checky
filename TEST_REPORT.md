@@ -63,20 +63,29 @@ that a live provider works.
 
 ## Live verification (2026-08-30, emulator, user's own account)
 
-Status of the uncommitted Taygedo working-tree changes after real-account
-exercise:
+Status of the Taygedo working-tree changes after real-account exercise:
 
 | Flow | Result | Evidence |
 |---|---|---|
 | Taygedo SMS login (shared session) | ✅ works | phone + server SMS code, "Connected" |
 | 异环游戏签到 (NTE game sign-in) | ✅ **live verified** | `TAYGEDO_NTE_SUCCESS`, "异环签到成功（本月累计 2 天），获得 资深猎人攻略 ×3", 2069 ms; reward display confirms the signedDays-based reward index fix |
-| 塔吉多社区签到 (community sign-in, step 1 异环 APP 签到) | ❌ **blocked server-side** | `TAYGEDO_COMMUNITY_FAILURE` — server returns "系统错误" on both attempts (13:28, 13:29); fail-closed correctly stopped step 2; the new server-detail passthrough in the failure message worked |
+| 塔吉多社区签到 (community sign-in) | ✅ **live verified after a transport fix** | `TAYGEDO_COMMUNITY_SUCCESS`: "APP 签到成功，版区签到成功。经验 +5，金币 +40。社区任务剩余：浏览 0 次、点赞 0 次、分享 0 次" — the new `getUserTasks?communityId=2&gid=2` / `task_list3` parsing worked on real data |
 | FLAG_SECURE on connect screens | ✅ works | screencap returns an empty image on the connect screen |
 
-The community provider's "系统错误" is unresolved live API behavior: per
-AGENTS.md the Taygedo working-tree files remain **uncommitted** pending
-investigation (e.g. re-check the current official app's APP-sign request).
-The NTE half of the same files is verified working.
+**Community sign-in root cause** (found via a three-step evidence gradient —
+each step produced a distinct server error, so this was targeted diagnosis,
+not parameter guessing):
+
+1. `AuthorizationV2` + JSON body + ds (the uncommitted Aug-28 state) → HTTP 200
+   with business error **系统错误**
+2. plain `Authorization` + form, **no ds** → business error **invalid request**
+   (server-side parameter validation — something required was missing)
+3. plain `Authorization` + form + **ds** → ✅ success
+
+Final contract: `Authorization` header + form-encoded `communityId` + `ds`
+signature. This matches the official HAR reference for auth/body and keeps the
+ds signature the server now requires. All Taygedo changes are live verified
+and committed.
 
 ## Robolectric tests (JVM, no device needed) — added 2026-08-30
 
