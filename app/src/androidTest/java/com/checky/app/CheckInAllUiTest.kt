@@ -4,7 +4,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.printToString
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -23,14 +25,27 @@ class CheckInAllUiTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
+    /** Polls with a real-time deadline; CI software-rendered emulators start slowly. */
+    private fun waitForText(text: String, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()) return true
+            Thread.sleep(500)
+        }
+        return false
+    }
+
     @Test
     fun onboardingHomeAndCatalogRender() {
-        // Wait for the first screen to compose: on a cold emulator start the
-        // onboarding check below would otherwise race the first frame and
-        // silently skip the onboarding flow.
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            composeRule.onAllNodesWithText("Get started").fetchSemanticsNodes().isNotEmpty() ||
-                composeRule.onAllNodesWithText("Check in all").fetchSemanticsNodes().isNotEmpty()
+        // Wait for the first screen to compose; on a cold, software-rendered
+        // CI emulator the first frame can take a while.
+        val firstScreenAppeared = waitForText("Get started", 60_000) ||
+            waitForText("Check in all", 1_000)
+        if (!firstScreenAppeared) {
+            throw AssertionError(
+                "First screen did not compose. Semantics tree:\n" +
+                    composeRule.onRoot().printToString()
+            )
         }
 
         // Skip onboarding if it is shown on this install.
@@ -38,15 +53,21 @@ class CheckInAllUiTest {
             composeRule.onNodeWithText("Get started").performClick()
         }
 
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            composeRule.onAllNodesWithText("Check in all").fetchSemanticsNodes().isNotEmpty()
+        if (!waitForText("Check in all", 30_000)) {
+            throw AssertionError(
+                "Dashboard did not compose. Semantics tree:\n" +
+                    composeRule.onRoot().printToString()
+            )
         }
         composeRule.onNodeWithText("Check in all").assertExists()
 
         // The catalog lists the real providers with their risk labels.
         composeRule.onNodeWithContentDescription("Add service").performClick()
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            composeRule.onAllNodesWithText("Add services").fetchSemanticsNodes().isNotEmpty()
+        if (!waitForText("Add services", 30_000)) {
+            throw AssertionError(
+                "Add services screen did not compose. Semantics tree:\n" +
+                    composeRule.onRoot().printToString()
+            )
         }
         composeRule.onNodeWithText("米游社签到（原神实验版）").assertExists()
         composeRule.onNodeWithText("米游社讨论区签到").assertExists()
