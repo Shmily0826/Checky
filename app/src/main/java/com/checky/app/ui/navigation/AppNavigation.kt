@@ -70,7 +70,15 @@ fun CheckyNavHost(
     NavHost(navController = navController, startDestination = startDestination) {
         composable("onboarding") {
             OnboardingScreen(
-                onFinish = { scope.launch { userPreferencesRepository.setOnboardingComplete(true) } }
+                onFinish = {
+                    scope.launch {
+                        userPreferencesRepository.setOnboardingComplete(true)
+                        navController.navigate(Screen.Home.route) {
+                            // Onboarding is finished — it must not come back.
+                            popUpTo("onboarding") { inclusive = true }
+                        }
+                    }
+                }
             )
         }
         composable(Screen.Home.route) {
