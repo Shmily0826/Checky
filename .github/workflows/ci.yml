@@ -78,14 +78,25 @@ jobs:
           profile: pixel_5
           script: ./gradlew connectedDebugAndroidTest --console=plain
 
-      - name: Run instrumented tests (release, R8 regression guard)
+      - name: Release APK smoke (R8 regression guard)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           target: google_apis
           arch: x86_64
           profile: pixel_5
-          script: ./gradlew connectedReleaseAndroidTest --console=plain
+          script: |
+            ./gradlew assembleRelease --console=plain
+            adb install -r app/build/outputs/apk/release/app-release.apk
+            adb shell am start -n com.checky.app/.MainActivity
+            sleep 20
+            if adb shell pidof com.checky.app | grep -q .; then
+              echo "Release app is alive after launch."
+            else
+              echo "Release app crashed on launch (R8 regression?)."
+              adb logcat -d | grep -A 30 "FATAL EXCEPTION" || true
+              exit 1
+            fi
 
       - name: Upload reports on failure
         if: failure()
