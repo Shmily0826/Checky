@@ -71,13 +71,14 @@ fun CheckyNavHost(
         composable("onboarding") {
             OnboardingScreen(
                 onFinish = {
-                    scope.launch {
-                        userPreferencesRepository.setOnboardingComplete(true)
-                        navController.navigate(Screen.Home.route) {
-                            // Onboarding is finished — it must not come back.
-                            popUpTo("onboarding") { inclusive = true }
-                        }
+                    // Navigate on the main thread first; the preference write
+                    // is async — a suspend continuation may resume on an IO
+                    // thread and NavController asserts the main thread.
+                    navController.navigate(Screen.Home.route) {
+                        // Onboarding is finished — it must not come back.
+                        popUpTo("onboarding") { inclusive = true }
                     }
+                    scope.launch { userPreferencesRepository.setOnboardingComplete(true) }
                 }
             )
         }
