@@ -5,8 +5,8 @@ import com.checky.app.data.model.CheckInRecord
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.model.CheckInResult
-import com.checky.app.domain.providers.GamePassDailyProvider
-import com.checky.app.domain.providers.StudyClubProvider
+import com.checky.app.domain.providers.TaygedoCommunityProvider
+import com.checky.app.domain.providers.TaygedoNteProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
@@ -38,10 +38,10 @@ class ProviderDetailsViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = ProviderDetailsViewModel(
             repository = DetailsFakeRepository(),
-            metas = listOf(GamePassDailyProvider.META, StudyClubProvider.META),
-            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "gamepass"))
+            metas = listOf(TaygedoNteProvider.META, TaygedoCommunityProvider.META),
+            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "taygedo_nte"))
         )
-        assertEquals("gamepass", vm.meta?.id)
+        assertEquals("taygedo_nte", vm.meta?.id)
     }
 
     @Test
@@ -49,7 +49,7 @@ class ProviderDetailsViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = ProviderDetailsViewModel(
             repository = DetailsFakeRepository(),
-            metas = listOf(GamePassDailyProvider.META),
+            metas = listOf(TaygedoNteProvider.META),
             savedStateHandle = SavedStateHandle(mapOf("serviceId" to "nope"))
         )
         assertNull(vm.meta)
@@ -61,20 +61,20 @@ class ProviderDetailsViewModelTest {
         val repo = DetailsFakeRepository()
         val vm = ProviderDetailsViewModel(
             repository = repo,
-            metas = listOf(GamePassDailyProvider.META, StudyClubProvider.META),
-            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "studyclub"))
+            metas = listOf(TaygedoNteProvider.META, TaygedoCommunityProvider.META),
+            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "miyoushe_community_signin"))
         )
 
         // Foreground collector: advanceUntilIdle() only drains foreground tasks.
         val latest = async { vm.service.first { it != null } }
         repo.services.value = listOf(
-            snapshot("gamepass", enabled = true),
-            snapshot("studyclub", enabled = false)
+            snapshot("taygedo_nte", enabled = true),
+            snapshot("miyoushe_community_signin", enabled = false)
         )
         advanceUntilIdle()
 
         val service = latest.await()
-        assertEquals("studyclub", service?.serviceId)
+        assertEquals("miyoushe_community_signin", service?.serviceId)
         assertEquals(false, service?.isEnabled)
     }
 
@@ -84,12 +84,12 @@ class ProviderDetailsViewModelTest {
         val repo = DetailsFakeRepository()
         val vm = ProviderDetailsViewModel(
             repository = repo,
-            metas = listOf(GamePassDailyProvider.META),
-            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "gamepass"))
+            metas = listOf(TaygedoNteProvider.META),
+            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "taygedo_nte"))
         )
         vm.setEnabled(false)
         advanceUntilIdle()
-        assertEquals(listOf("gamepass" to false), repo.enabledCalls)
+        assertEquals(listOf("taygedo_nte" to false), repo.enabledCalls)
     }
 
     private fun snapshot(id: String, enabled: Boolean) = ServiceSnapshot(
@@ -117,6 +117,4 @@ private class DetailsFakeRepository : CheckInRepository {
     }
     override suspend fun saveResult(result: CheckInResult) {}
     override suspend fun clearHistory() {}
-    override suspend fun ensureSeeded() {}
-    override suspend fun resetDemoData() {}
 }

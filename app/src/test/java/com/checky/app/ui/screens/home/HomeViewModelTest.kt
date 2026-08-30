@@ -4,10 +4,12 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.FakeCheckInRepository
-import com.checky.app.domain.FakeMockScenarioStore
+import com.checky.app.domain.ScriptedCheckInProvider
+import com.checky.app.domain.testProviderMeta
 import com.checky.app.domain.model.CheckInAllProgress
-import com.checky.app.domain.providers.GamePassDailyProvider
-import com.checky.app.domain.providers.StudyClubProvider
+import com.checky.app.domain.model.CheckInStatus
+import com.checky.app.domain.model.Reward
+import com.checky.app.domain.model.RewardType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -43,11 +45,18 @@ class HomeViewModelTest {
     fun checkInAllTransitionsThroughRunningThenFinished() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val repo = FakeCheckInRepository()
-        val scenarios = FakeMockScenarioStore()
         val useCase = CheckInAllUseCase(repo)
         val providers = listOf(
-            GamePassDailyProvider(scenarios),
-            StudyClubProvider(scenarios)
+            ScriptedCheckInProvider(
+                testProviderMeta("alpha"),
+                status = CheckInStatus.SUCCESS,
+                reward = Reward(RewardType.POINTS, 20)
+            ),
+            ScriptedCheckInProvider(
+                testProviderMeta("beta"),
+                status = CheckInStatus.ALREADY_CHECKED_IN,
+                reward = Reward(RewardType.EXPERIENCE, 5)
+            )
         )
         val vm = HomeViewModel(
             repository = repo,
@@ -81,11 +90,18 @@ class HomeViewModelTest {
     fun retrySingleProviderRunsOnlyThatProvider() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val repo = FakeCheckInRepository()
-        val scenarios = FakeMockScenarioStore()
         val useCase = CheckInAllUseCase(repo)
         val providers = listOf(
-            GamePassDailyProvider(scenarios),
-            StudyClubProvider(scenarios)
+            ScriptedCheckInProvider(
+                testProviderMeta("alpha"),
+                status = CheckInStatus.SUCCESS,
+                reward = Reward(RewardType.POINTS, 20)
+            ),
+            ScriptedCheckInProvider(
+                testProviderMeta("beta"),
+                status = CheckInStatus.ALREADY_CHECKED_IN,
+                reward = Reward(RewardType.EXPERIENCE, 5)
+            )
         )
         val vm = HomeViewModel(
             repository = repo,
@@ -95,7 +111,7 @@ class HomeViewModelTest {
             metas = providers.map { it.meta }
         )
 
-        vm.retry("gamepass")
+        vm.retry(providers.first().meta.id)
         advanceUntilIdle()
 
         val finished = vm.progress.value as CheckInAllProgress.Finished
@@ -108,11 +124,18 @@ class HomeViewModelTest {
     fun cancelCheckInAllClearsState() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val repo = FakeCheckInRepository()
-        val scenarios = FakeMockScenarioStore()
         val useCase = CheckInAllUseCase(repo)
         val providers = listOf(
-            GamePassDailyProvider(scenarios),
-            StudyClubProvider(scenarios)
+            ScriptedCheckInProvider(
+                testProviderMeta("alpha"),
+                status = CheckInStatus.SUCCESS,
+                delayMs = 1_000
+            ),
+            ScriptedCheckInProvider(
+                testProviderMeta("beta"),
+                status = CheckInStatus.ALREADY_CHECKED_IN,
+                delayMs = 1_000
+            )
         )
         val vm = HomeViewModel(
             repository = repo,

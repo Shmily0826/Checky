@@ -55,7 +55,6 @@ import androidx.navigation.compose.rememberNavController
 import com.checky.app.data.preferences.RunMode
 import com.checky.app.data.preferences.ThemeMode
 import com.checky.app.data.preferences.UserPreferences
-import com.checky.app.domain.MockScenario
 import com.checky.app.ui.navigation.CheckyBottomBar
 import com.checky.app.ui.theme.CheckyTheme
 
@@ -65,11 +64,9 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
-    val mockScenario by viewModel.mockScenario.collectAsStateWithLifecycle()
     SettingsContent(
         navController = navController,
         prefs = prefs,
-        mockScenario = mockScenario,
         onThemeMode = viewModel::setThemeMode,
         onReminderEnabled = viewModel::setReminderEnabled,
         onReminderTime = viewModel::setReminderTime,
@@ -78,8 +75,6 @@ fun SettingsScreen(
         onRunMode = viewModel::setRunMode,
         onClearHistory = viewModel::clearHistory,
         onDeleteCredentials = viewModel::deleteAllCredentials,
-        onMockScenario = viewModel::setMockScenario,
-        onResetDemo = viewModel::resetDemoData,
         onShowOnboarding = viewModel::showOnboardingAgain
     )
 }
@@ -95,21 +90,11 @@ private val RUN_MODE_OPTIONS = listOf(
     RunMode.SEQUENTIAL to "Sequential"
 )
 
-private val SCENARIO_OPTIONS = listOf(
-    MockScenario.DEFAULT to "Default",
-    MockScenario.SUCCESS to "Success",
-    MockScenario.ALREADY_COMPLETED to "Already done",
-    MockScenario.AUTH_EXPIRED to "Auth expired",
-    MockScenario.NETWORK_FAILURE to "Network error",
-    MockScenario.ACTION_REQUIRED to "Action required"
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsContent(
     navController: NavHostController,
     prefs: UserPreferences,
-    mockScenario: MockScenario,
     onThemeMode: (ThemeMode) -> Unit,
     onReminderEnabled: (Boolean) -> Unit,
     onReminderTime: (Int, Int) -> Unit,
@@ -118,8 +103,6 @@ private fun SettingsContent(
     onRunMode: (RunMode) -> Unit,
     onClearHistory: () -> Unit,
     onDeleteCredentials: () -> Unit,
-    onMockScenario: (MockScenario) -> Unit,
-    onResetDemo: () -> Unit,
     onShowOnboarding: () -> Unit
 ) {
     val context = LocalContext.current
@@ -253,31 +236,8 @@ private fun SettingsContent(
             ) {
                 Text("Delete all credentials")
             }
-            OutlinedButton(onClick = onResetDemo, modifier = Modifier.fillMaxWidth()) {
-                Text("Reset demo data")
-            }
             OutlinedButton(onClick = onShowOnboarding, modifier = Modifier.fillMaxWidth()) {
                 Text("Show onboarding again")
-            }
-
-            SectionTitle("Developer — mock outcomes")
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Science, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.padding(8.dp))
-                        Text("Force every mock provider to return this outcome", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.padding(4.dp))
-                    SCENARIO_OPTIONS.forEach { (scenario, label) ->
-                        FilterChip(
-                            selected = mockScenario == scenario,
-                            onClick = { onMockScenario(scenario) },
-                            label = { Text(label) },
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        )
-                    }
-                }
             }
 
             SectionTitle("Privacy & security")
@@ -309,7 +269,7 @@ private fun SettingsContent(
                         }
                     }
                     Spacer(Modifier.padding(8.dp))
-                    Text("Version 1.0.0 — local-first prototype with mock providers.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text("Version 1.0.0 — local-first, own-account daily check-ins.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
             }
         }
@@ -388,7 +348,6 @@ private fun SettingsPreview() {
         SettingsContent(
             navController = rememberNavController(),
             prefs = UserPreferences(),
-            mockScenario = MockScenario.DEFAULT,
             onThemeMode = {},
             onReminderEnabled = {},
             onReminderTime = { _, _ -> },
@@ -397,8 +356,6 @@ private fun SettingsPreview() {
             onRunMode = {},
             onClearHistory = {},
             onDeleteCredentials = {},
-            onMockScenario = {},
-            onResetDemo = {},
             onShowOnboarding = {}
         )
     }

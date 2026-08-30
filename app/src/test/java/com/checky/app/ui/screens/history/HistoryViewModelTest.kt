@@ -96,6 +96,4 @@ private class MutableFakeRepository : CheckInRepository {
     override suspend fun clearHistory() {
         clearHistoryCalls++
     }
-    override suspend fun ensureSeeded() {}
-    override suspend fun resetDemoData() {}
 }

@@ -4,8 +4,8 @@ import com.checky.app.data.model.CheckInRecord
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.model.CheckInResult
-import com.checky.app.domain.providers.CloudBoxProvider
-import com.checky.app.domain.providers.GamePassDailyProvider
+import com.checky.app.domain.providers.TaygedoCommunityProvider
+import com.checky.app.domain.providers.TaygedoNteProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
@@ -66,7 +66,7 @@ class AddServiceViewModelTest {
         assertEquals(listOf("cloudbox" to true), repo.enabledCalls)
     }
 
-    private fun catalog() = listOf(GamePassDailyProvider.META, CloudBoxProvider.META)
+    private fun catalog() = listOf(TaygedoNteProvider.META, TaygedoCommunityProvider.META)
 
     private fun snapshot(id: String) = ServiceSnapshot(
         serviceId = id,
@@ -93,6 +93,4 @@ private class AddServiceFakeRepository : CheckInRepository {
     }
     override suspend fun saveResult(result: CheckInResult) {}
     override suspend fun clearHistory() {}
-    override suspend fun ensureSeeded() {}
-    override suspend fun resetDemoData() {}
 }

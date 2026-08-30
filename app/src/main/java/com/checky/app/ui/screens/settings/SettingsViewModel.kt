@@ -11,8 +11,6 @@ import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.data.work.ReminderWorker
 import com.checky.app.data.work.AutoCheckInWorker
 import com.checky.app.domain.CredentialStore
-import com.checky.app.domain.MockScenario
-import com.checky.app.domain.MockScenarioStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,15 +25,11 @@ class SettingsViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val repository: CheckInRepository,
     private val credentialStore: CredentialStore,
-    private val mockScenarioStore: MockScenarioStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.preferences
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UserPreferences())
-
-    val mockScenario: StateFlow<MockScenario> = mockScenarioStore.scenario()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), MockScenario.DEFAULT)
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { userPreferencesRepository.setThemeMode(mode) }
@@ -95,14 +89,6 @@ class SettingsViewModel @Inject constructor(
 
     fun deleteAllCredentials() {
         viewModelScope.launch { credentialStore.deleteAll() }
-    }
-
-    fun setMockScenario(scenario: MockScenario) {
-        viewModelScope.launch { mockScenarioStore.setScenario(scenario) }
-    }
-
-    fun resetDemoData() {
-        viewModelScope.launch { repository.resetDemoData() }
     }
 
     fun showOnboardingAgain() {

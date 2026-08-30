@@ -24,21 +24,23 @@ apps and services into one friendly dashboard, then triggers them with one tap.
 - Retry a failed service individually, reconnect expired sessions, browse history.
 - Credentials stay **on the device**.
 
-## Current MVP limitations
+## Current status
 
-- **Mostly mock providers** — GamePass Daily (+20 pts), CloudBox (+1 membership day,
-  needs a fake token), StudyClub (already done, +5 XP). The disabled, high-risk
-  personal experiments also include separate MiYouShe Genshin and community
-  check-ins plus Tajiduo NTE/community check-ins. They use non-official HTTP
-  surfaces, are not live-verified uniformly, and perform no likes, comments,
-  shares, redemptions, CAPTCHA handling, or risk-control workarounds.
+- **Four real providers, all live-verified** (2026-08-30, on emulator with the
+  owner's accounts): Miyoushe Genshin sign-in, Miyoushe community sign-in,
+  Taygedo NTE game sign-in, and Taygedo community sign-in (APP + section).
+  They use non-official HTTP surfaces, may stop working after platform
+  changes, and perform no likes, comments, shares, redemptions, CAPTCHA
+  handling, or risk-control workarounds.
 - No cloud account, no sync, no remote credential storage, no analytics.
-- High-risk providers (UI automation) are shown as **"Not supported yet"**.
-- Credentials use the **Keystore-backed encrypted** implementation by default.
-  The in-memory mock store remains available for JVM tests.
+- High-risk providers (UI automation) are out of scope entirely.
+- Credentials use the **Keystore-backed encrypted** implementation. The
+  in-memory mock store remains available for JVM tests only.
 - Optional daily **reminder** via WorkManager, plus an explicitly opt-in
   background auto-check-in schedule for enabled providers. Android may run it
   later than the selected time.
+- Genshin roles are auto-fetched from the miyoushe binding API after QR
+  connect; manual UID entry is only a fallback.
 
 ## Setup & build
 
@@ -66,10 +68,10 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9)
 |---|---|
 | **Onboarding** | Explains local-first privacy, that not every service is supported, to connect only your own accounts, and that services may break after platform changes. |
 | **Home dashboard** | Date, done/remaining/attention counts, reward summary, big "Check in all" button (with progress + Cancel), per-service cards with live status/reward/retry/reconnect. |
-| **Add services** | Catalog with connection type, risk level, credential type and support status; unsupported high-risk providers are listed as "Not supported yet", while the personal MiYouShe experiment is explicitly marked high risk. |
+| **Add services** | Catalog of the four real providers with connection type, risk level and credential type; every experimental provider is explicitly marked high risk. |
 | **Connect provider** | Explains what data is required and where it is stored; hidden-by-default secret field, validation before save, per-provider delete, FLAG_SECURE. |
 | **History** | Date, provider, status, reward, duration, safe diagnostic code; clear-history action. |
-| **Settings** | Theme, daily reminder (time picker), run mode (parallel ≤3 / sequential), clear history, **delete all credentials**, developer mock-outcome controls, privacy & security explanation. |
+| **Settings** | Theme, daily reminder (time picker), run mode (parallel ≤3 / sequential), clear history, **delete all credentials**, privacy & security explanation. |
 | **Provider details** | Status, last result, reward, enable toggle, "Manage connection". |
 
 ## Security model (summary — full details in SECURITY.md)
@@ -89,12 +91,10 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9)
 
 ## Roadmap
 
-1. Stabilize the personal MiYouShe/Tajiduo experiments or replace them with
-   official-API/OAuth provider (lowest risk) — the current experiment is not
-   an official integration and may stop working or trigger account checks.
-2. **Real provider #1 (recommended): an official-API/OAuth provider** (lowest
-   risk) — see PROVIDER_DEVELOPMENT.md; wire Retrofit + serialization, enforce
-   host allowlist + redaction, add per-provider tests.
+1. Release hardening: a signed release build, `lint` baseline, and CI
+   (GitHub Actions emulator for `connectedDebugAndroidTest`).
+2. Maintain the unofficial integrations: when a provider breaks, follow the
+   documented evidence-gradient diagnosis (see TEST_REPORT.md).
 3. Add instrumented coverage for the **Keystore credential store** on a real
    device or emulator.
 4. Optional: reminder notification polish, per-provider schedule (e.g. "only

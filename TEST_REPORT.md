@@ -1,13 +1,16 @@
 # TEST_REPORT — Test Coverage & Verification Status
 
 > Last full run: 2026-08-30 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
-> Command: `./gradlew testDebugUnitTest` · Result: **154 tests, 0 failures, 0 errors, 0 skipped**
-> (137 tests in the committed tree at the time of writing; 13 additional
-> Taygedo tests exist as uncommitted working-tree changes pending live
-> verification. The committed-tree suite was not rerun after this count.)
+> Command: `./gradlew testDebugUnitTest` · Result: **137 tests, 0 failures, 0 errors, 0 skipped**
 > Instrumented run: 2026-08-30 on emulator `Checky_Android14` (API 34) — **5/5 pass**.
 > Lint: `./gradlew lintDebug` — **0 errors, 74 warnings** (mostly
 > dependency-upgrade suggestions; AGP/Compose BOM upgrades left as future work).
+>
+> 2026-08-30: all demo/mock providers (GamePass, CloudBox, StudyClub), the
+> VideoShelf placeholder, the developer mock-scenario controls and the demo
+> seed data were removed. The suite now covers only real, live-verified
+> functionality; orchestration tests use deterministic scripted fake
+> providers instead of mock implementations.
 > Instrumented run: 2026-08-29 on emulator `Checky_Android14` (API 34) — see below.
 
 ## Verification levels (keep these distinct)
@@ -30,10 +33,10 @@ that a live provider works.
 | `domain.CheckInAllUseCaseTest` | 5 | ✅ | Orchestration: summary, continue-on-failure, sequential mode, duplicate guard, cancellation |
 | `domain.model.CheckInOutcomeTest` | 5 | ✅ | Outcome→status mapping, retry recommendations, user-facing messages |
 | `domain.model.DomainModelsTest` | 11 | ✅ | CheckInStatus classification, Reward labels/emptiness, CheckInResult delegation, summary arithmetic |
-| `domain.providers.ProvidersTest` | 21 | ✅ | Mock provider outcomes, scenario overrides, Taygedo/Miyoushe mapping helpers, fail-closed sign-in sequencing, credential isolation |
+| `domain.providers.ProvidersTest` | 25 | ✅ | Taygedo/Miyoushe mapping helpers, fail-closed sign-in sequencing, credential isolation |
 | `domain.providers.ProviderParsingTest` | 9 | ✅ | Taygedo community classify matrix, NTE state parsing, failure mapping, Miyoushe community response shapes (incl. malformed fail-closed) |
 | `domain.providers.MockOutcomesTest` | 3 | ✅ | Scenario→outcome mapping matrix, messages never leak exception text |
-| `ui.screens.home.HomeViewModelTest` | 3 | ✅ | Running→Finished transitions, single retry, cancellation |
+| `ui.screens.home.HomeViewModelTest` | 3 | ✅ | Running→Finished transitions, single retry, cancellation (scripted fake providers) |
 | `ui.screens.addservice.AddServiceViewModelTest` | 3 | ✅ | Catalog streaming, enable toggle delegation |
 | `ui.screens.connect.ConnectProviderViewModelTest` | 19 | ✅ | Secret form (blank/valid/invalid), delete+disconnect, QR login (confirm/wait/expire/unsupported/cancel), SMS login, game-account binding |
 | `ui.screens.history.HistoryViewModelTest` | 2 | ✅ | Records streaming, clear-history delegation |

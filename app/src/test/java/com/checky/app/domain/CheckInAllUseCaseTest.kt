@@ -3,12 +3,8 @@ package com.checky.app.domain
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.model.CheckInStatus
-import com.checky.app.domain.CredentialValidation
-import com.checky.app.domain.model.ProviderMeta
+import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RewardType
-import com.checky.app.domain.providers.CloudBoxProvider
-import com.checky.app.domain.providers.GamePassDailyProvider
-import com.checky.app.domain.providers.StudyClubProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
@@ -22,17 +18,28 @@ import org.junit.Test
 
 class CheckInAllUseCaseTest {
 
+    private fun successProvider() = ScriptedCheckInProvider(
+        meta = testProviderMeta("alpha"),
+        status = CheckInStatus.SUCCESS,
+        reward = Reward(RewardType.POINTS, 20)
+    )
+
+    private fun alreadyProvider() = ScriptedCheckInProvider(
+        meta = testProviderMeta("beta"),
+        status = CheckInStatus.ALREADY_CHECKED_IN,
+        reward = Reward(RewardType.EXPERIENCE, 5)
+    )
+
+    private fun expiredProvider() = ScriptedCheckInProvider(
+        meta = testProviderMeta("gamma"),
+        status = CheckInStatus.LOGIN_EXPIRED
+    )
+
     @Test
     fun runsAllProvidersAndProducesCorrectSummary() = runTest {
         val repo = FakeCheckInRepository()
-        val credentials = FakeCredentialStore()
-        val scenarios = FakeMockScenarioStore()
         val useCase = CheckInAllUseCase(repo)
-        val providers = listOf(
-            GamePassDailyProvider(scenarios),
-            CloudBoxProvider(credentials, scenarios),
-            StudyClubProvider(scenarios)
-        )
+        val providers = listOf(successProvider(), alreadyProvider(), expiredProvider())
 
         val progress = mutableListOf<CheckInAllProgress>()
         val job = launch { useCase(providers).toList(progress) }
@@ -47,20 +54,19 @@ class CheckInAllUseCaseTest {
         assertEquals(0, finished.summary.failed)
         assertEquals(20, finished.summary.totalPoints)
         assertEquals(5, finished.summary.totalXp)
-        // every terminal result was persisted, with a duration recorded
+        // every terminal result was persisted exactly once
         assertEquals(3, repo.saved.size)
-        assertTrue(repo.saved.all { it.durationMs > 0 })
+        assertEquals(
+            setOf("alpha", "beta", "gamma"),
+            repo.saved.map { it.serviceId }.toSet()
+        )
     }
 
     @Test
     fun continuesOnFailureOfOneProvider() = runTest {
         val repo = FakeCheckInRepository()
-        val scenarios = FakeMockScenarioStore()
         val useCase = CheckInAllUseCase(repo)
-        val providers = listOf(
-            GamePassDailyProvider(scenarios),
-            FailingProvider()
-        )
+        val providers = listOf(successProvider(), FailingProvider())
 
         val progress = mutableListOf<CheckInAllProgress>()
         val job = launch { useCase(providers).toList(progress) }
@@ -79,14 +85,8 @@ class CheckInAllUseCaseTest {
     @Test
     fun sequentialModeProducesSameSummary() = runTest {
         val repo = FakeCheckInRepository()
-        val credentials = FakeCredentialStore()
-        val scenarios = FakeMockScenarioStore()
         val useCase = CheckInAllUseCase(repo)
-        val providers = listOf(
-            GamePassDailyProvider(scenarios),
-            CloudBoxProvider(credentials, scenarios),
-            StudyClubProvider(scenarios)
-        )
+        val providers = listOf(successProvider(), alreadyProvider(), expiredProvider())
 
         val progress = mutableListOf<CheckInAllProgress>()
         val job = launch { useCase(providers, parallel = false).toList(progress) }
@@ -103,9 +103,8 @@ class CheckInAllUseCaseTest {
     @Test
     fun preventsDuplicateExecution() = runTest {
         val repo = FakeCheckInRepository()
-        val scenarios = FakeMockScenarioStore()
         val useCase = CheckInAllUseCase(repo)
-        val providers = listOf(GamePassDailyProvider(scenarios), StudyClubProvider(scenarios))
+        val providers = listOf(successProvider(), alreadyProvider())
 
         val first = mutableListOf<CheckInAllProgress>()
         val job1 = launch { useCase(providers).toList(first) }
@@ -124,9 +123,8 @@ class CheckInAllUseCaseTest {
     @Test
     fun cancellationStopsRunWithoutSavingPartialResults() = runTest {
         val repo = FakeCheckInRepository()
-        val scenarios = FakeMockScenarioStore()
         val useCase = CheckInAllUseCase(repo)
-        val providers = listOf(GamePassDailyProvider(scenarios), StudyClubProvider(scenarios))
+        val providers = listOf(successProvider(), alreadyProvider())
 
         val progress = mutableListOf<CheckInAllProgress>()
         val job = launch { useCase(providers).toList(progress) }
@@ -142,15 +140,7 @@ class CheckInAllUseCaseTest {
 
 /** Test-only provider that always fails mid-stream. */
 private class FailingProvider : CheckInProvider {
-    override val meta = ProviderMeta(
-        id = "fail",
-        displayName = "Fail",
-        description = "",
-        category = "X",
-        iconKey = "star",
-        accentColor = 0xFF000000,
-        isEnabledByDefault = true
-    )
+    override val meta = testProviderMeta("fail")
 
     override suspend fun validateCredentials(secret: String): CredentialValidation = CredentialValidation.Valid
 

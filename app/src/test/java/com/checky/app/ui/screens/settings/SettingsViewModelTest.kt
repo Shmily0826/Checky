@@ -14,8 +14,6 @@ import com.checky.app.data.preferences.UserPreferences
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.FakeCredentialStore
-import com.checky.app.domain.FakeMockScenarioStore
-import com.checky.app.domain.MockScenario
 import com.checky.app.domain.model.CheckInResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +57,6 @@ class SettingsViewModelTest {
 
     private lateinit var repo: TrackingRepository
     private lateinit var credentials: FakeCredentialStore
-    private lateinit var scenarios: FakeMockScenarioStore
     private lateinit var prefsRepository: UserPreferencesRepository
     private lateinit var context: Context
 
@@ -75,7 +72,6 @@ class SettingsViewModelTest {
         )
         repo = TrackingRepository()
         credentials = FakeCredentialStore()
-        scenarios = FakeMockScenarioStore()
     }
 
     @After
@@ -94,7 +90,6 @@ class SettingsViewModelTest {
             userPreferencesRepository = prefsRepository,
             repository = repo,
             credentialStore = credentials,
-            mockScenarioStore = scenarios,
             context = context
         )
     }
@@ -140,18 +135,6 @@ class SettingsViewModelTest {
         vm.setRunMode(RunMode.SEQUENTIAL)
 
         assertEquals(RunMode.SEQUENTIAL, awaitPref { it.runMode == RunMode.SEQUENTIAL }.runMode)
-    }
-
-    @Test
-    fun setMockScenarioPersists() {
-        val vm = buildVm()
-
-        vm.setMockScenario(MockScenario.NETWORK_FAILURE)
-
-        // The scenario store is an in-memory fake — synchronous on the eager Main.
-        runBlocking {
-            assertEquals(MockScenario.NETWORK_FAILURE, scenarios.scenario().first())
-        }
     }
 
     @Test
@@ -202,15 +185,6 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun resetDemoDataDelegatesToRepository() {
-        val vm = buildVm()
-
-        vm.resetDemoData()
-
-        assertEquals(1, repo.resetDemoDataCalls)
-    }
-
-    @Test
     fun deleteAllCredentialsClearsTheVault() {
         runBlocking { credentials.save("gamepass", "secret") }
         val vm = buildVm()
@@ -236,7 +210,6 @@ class SettingsViewModelTest {
 /** Repository fake tracking the mutating calls SettingsViewModel makes. */
 private class TrackingRepository : CheckInRepository {
     var clearHistoryCalls = 0
-    var resetDemoDataCalls = 0
     val records = MutableStateFlow<List<CheckInRecord>>(emptyList())
     val services = MutableStateFlow<List<ServiceSnapshot>>(emptyList())
 
@@ -249,10 +222,5 @@ private class TrackingRepository : CheckInRepository {
     override suspend fun saveResult(result: CheckInResult) {}
     override suspend fun clearHistory() {
         clearHistoryCalls++
-    }
-
-    override suspend fun ensureSeeded() {}
-    override suspend fun resetDemoData() {
-        resetDemoDataCalls++
     }
 }

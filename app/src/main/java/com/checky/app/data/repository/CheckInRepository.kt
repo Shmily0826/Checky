@@ -16,10 +16,4 @@ interface CheckInRepository {
     suspend fun setEnabled(serviceId: String, enabled: Boolean)
     suspend fun saveResult(result: CheckInResult)
     suspend fun clearHistory()
-
-    /** Seed the 3 mock services + their demo results on first launch. */
-    suspend fun ensureSeeded()
-
-    /** Wipe history and re-apply the demo seed (used by Settings > Reset demo data). */
-    suspend fun resetDemoData()
 }

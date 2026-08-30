@@ -10,13 +10,13 @@ import com.checky.app.domain.model.CheckInStatus
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RewardType
-import com.checky.app.domain.providers.CloudBoxProvider
-import com.checky.app.domain.providers.GamePassDailyProvider
-import com.checky.app.domain.providers.StudyClubProvider
+import com.checky.app.domain.providers.MiyousheCommunityProvider
+import com.checky.app.domain.providers.MiyousheProvider
+import com.checky.app.domain.providers.TaygedoCommunityProvider
+import com.checky.app.domain.providers.TaygedoNteProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,34 +27,26 @@ import org.junit.Test
 
 /**
  * JVM coverage of the Room-backed repository through an in-memory fake DAO:
- * persistence of results, enable flags, seeding, and fail-safe mapping of
- * malformed persisted values.
+ * persistence of results, enable flags, and fail-safe mapping of malformed
+ * persisted values — against the real provider catalog.
  */
 class CheckInRepositoryImplTest {
 
     private val metas = listOf(
-        GamePassDailyProvider.META,
-        CloudBoxProvider.META,
-        StudyClubProvider.META,
-        ProviderMeta(
-            id = "extra",
-            displayName = "Extra Service",
-            description = "",
-            category = "Other",
-            iconKey = "star",
-            accentColor = 0xFF000000,
-            isEnabledByDefault = false
-        )
+        MiyousheProvider.META,
+        MiyousheCommunityProvider.META,
+        TaygedoNteProvider.META,
+        TaygedoCommunityProvider.META
     )
 
     private fun repoWith(dao: FakeCheckyDao = FakeCheckyDao()) =
         Pair(CheckInRepositoryImpl(dao, metas), dao)
 
-    private fun successResult(serviceId: String = "gamepass") = CheckInResult(
+    private fun successResult(serviceId: String) = CheckInResult(
         serviceId = serviceId,
-        serviceName = "GamePass Daily",
+        serviceName = "Miyoushe Genshin",
         outcome = CheckInOutcome.Success(
-            "Done", "SUCCESS", Reward(RewardType.POINTS, 20)
+            "Done", "SUCCESS", Reward(RewardType.POINTS, 30)
         ),
         timestamp = 123_456L,
         durationMs = 42L
@@ -63,20 +55,20 @@ class CheckInRepositoryImplTest {
     @Test
     fun saveResultPersistsRecordAndServiceLastResult() = runTest {
         val (repo, dao) = repoWith()
-        repo.saveResult(successResult())
+        repo.saveResult(successResult("miyoushe_genshin_experimental"))
 
         val record = dao.observeRecords().first().single()
-        assertEquals("gamepass", record.serviceId)
+        assertEquals("miyoushe_genshin_experimental", record.serviceId)
         assertEquals(CheckInStatus.SUCCESS.name, record.status)
         assertEquals(RewardType.POINTS.name, record.rewardType)
-        assertEquals(20, record.rewardAmount)
+        assertEquals(30, record.rewardAmount)
         assertEquals("SUCCESS", record.diagnosticCode)
         assertEquals(42L, record.durationMs)
 
-        val service = dao.getService("gamepass")
+        val service = dao.getService("miyoushe_genshin_experimental")
         assertNotNull(service)
         assertEquals(CheckInStatus.SUCCESS.name, service!!.lastStatus)
-        assertEquals(20, service.lastRewardAmount)
+        assertEquals(30, service.lastRewardAmount)
         assertEquals("Done", service.lastMessage)
         assertEquals(123_456L, service.lastTimestamp)
     }
@@ -84,10 +76,10 @@ class CheckInRepositoryImplTest {
     @Test
     fun saveResultKeepsExistingEnabledFlag() = runTest {
         val (repo, _) = repoWith()
-        repo.setEnabled("gamepass", false)
-        repo.saveResult(successResult())
+        repo.setEnabled("miyoushe_genshin_experimental", false)
+        repo.saveResult(successResult("miyoushe_genshin_experimental"))
 
-        val snapshot = repo.getService("gamepass")
+        val snapshot = repo.getService("miyoushe_genshin_experimental")
         assertNotNull(snapshot)
         assertFalse(snapshot!!.isEnabled)
         assertEquals(CheckInStatus.SUCCESS, snapshot.lastStatus)
@@ -96,10 +88,10 @@ class CheckInRepositoryImplTest {
     @Test
     fun saveResultDefaultsEnabledFromMetaWhenNoServiceRowExists() = runTest {
         val (repo, _) = repoWith()
-        // "extra" meta defaults to disabled and has no row yet.
-        repo.saveResult(successResult(serviceId = "extra"))
+        // The community provider defaults to disabled and has no row yet.
+        repo.saveResult(successResult("miyoushe_community_signin"))
 
-        val snapshot = repo.getService("extra")
+        val snapshot = repo.getService("miyoushe_community_signin")
         assertNotNull(snapshot)
         assertFalse(snapshot!!.isEnabled)
     }
@@ -107,21 +99,21 @@ class CheckInRepositoryImplTest {
     @Test
     fun setEnabledPersistsFlagAndIgnoresUnknownServices() = runTest {
         val (repo, dao) = repoWith()
-        repo.setEnabled("studyclub", false)
+        repo.setEnabled("taygedo_nte", false)
         repo.setEnabled("unknown-id", true)
 
-        assertFalse(dao.getService("studyclub")!!.isEnabled)
+        assertFalse(dao.getService("taygedo_nte")!!.isEnabled)
         assertNull(dao.getService("unknown-id"))
     }
 
     @Test
     fun getServiceReturnsMetaDefaultsWhenNothingPersisted() = runTest {
         val (repo, _) = repoWith()
-        val snapshot = repo.getService("gamepass")
+        val snapshot = repo.getService("taygedo_nte")
 
         assertNotNull(snapshot)
-        assertEquals("gamepass", snapshot!!.serviceId)
-        assertEquals(GamePassDailyProvider.META.isEnabledByDefault, snapshot.isEnabled)
+        assertEquals("taygedo_nte", snapshot!!.serviceId)
+        assertEquals(TaygedoNteProvider.META.isEnabledByDefault, snapshot.isEnabled)
         assertNull(snapshot.lastStatus)
         assertNull(snapshot.lastReward)
         assertNull(snapshot.lastMessage)
@@ -136,19 +128,18 @@ class CheckInRepositoryImplTest {
     @Test
     fun observeServicesMergesCatalogWithPersistedState() = runTest {
         val (repo, _) = repoWith()
-        repo.setEnabled("gamepass", false)
-        repo.saveResult(successResult())
+        repo.setEnabled("taygedo_nte", false)
+        repo.saveResult(successResult("miyoushe_genshin_experimental"))
 
         val snapshots = repo.observeServices().first()
 
         // Every catalog entry is present, ordered by the meta list.
         assertEquals(metas.map { it.id }, snapshots.map { it.serviceId })
-        val gamepass = snapshots.first { it.serviceId == "gamepass" }
-        assertFalse(gamepass.isEnabled)
-        assertEquals(CheckInStatus.SUCCESS, gamepass.lastStatus)
-        val extra = snapshots.first { it.serviceId == "extra" }
-        assertEquals("Extra Service", extra.displayName)
-        assertFalse(extra.isEnabled)
+        val nte = snapshots.first { it.serviceId == "taygedo_nte" }
+        assertFalse(nte.isEnabled)
+        val genshin = snapshots.first { it.serviceId == "miyoushe_genshin_experimental" }
+        assertEquals(CheckInStatus.SUCCESS, genshin.lastStatus)
+        assertEquals(MiyousheProvider.META.displayName, genshin.displayName)
     }
 
     @Test
@@ -156,8 +147,8 @@ class CheckInRepositoryImplTest {
         val (repo, dao) = repoWith()
         dao.upsertService(
             ServiceEntity(
-                serviceId = "gamepass",
-                displayName = "GamePass Daily",
+                serviceId = "taygedo_nte",
+                displayName = "异环游戏签到",
                 isEnabled = true,
                 lastStatus = "NOT_A_STATUS",
                 lastRewardType = "NOT_A_REWARD",
@@ -169,8 +160,8 @@ class CheckInRepositoryImplTest {
         dao.insertRecord(
             CheckInRecordEntity(
                 id = "r1",
-                serviceId = "gamepass",
-                serviceName = "GamePass Daily",
+                serviceId = "taygedo_nte",
+                serviceName = "异环游戏签到",
                 status = "NOT_A_STATUS",
                 rewardType = "NOT_A_REWARD",
                 rewardAmount = 7,
@@ -181,7 +172,7 @@ class CheckInRepositoryImplTest {
             )
         )
 
-        val snapshot = repo.observeServices().first().first { it.serviceId == "gamepass" }
+        val snapshot = repo.observeServices().first().first { it.serviceId == "taygedo_nte" }
         assertNull(snapshot.lastStatus)
         assertNull(snapshot.lastReward)
 
@@ -193,56 +184,12 @@ class CheckInRepositoryImplTest {
     @Test
     fun clearHistoryRemovesRecordsButKeepsServices() = runTest {
         val (repo, dao) = repoWith()
-        repo.ensureSeeded()
+        repo.setEnabled("taygedo_nte", true)
+        repo.saveResult(successResult("taygedo_nte"))
         repo.clearHistory()
 
         assertEquals(0, dao.countRecords())
         assertTrue(dao.countServices() > 0)
-    }
-
-    @Test
-    fun ensureSeededSeedsMockDataExactlyOnce() = runTest {
-        val (repo, dao) = repoWith()
-        repo.ensureSeeded()
-        val recordsAfterFirst = dao.countRecords()
-        val servicesAfterFirst = dao.countServices()
-        repo.ensureSeeded()
-
-        assertEquals(3, recordsAfterFirst)
-        assertEquals(3, servicesAfterFirst)
-        assertEquals(recordsAfterFirst, dao.countRecords())
-        assertEquals(servicesAfterFirst, dao.countServices())
-    }
-
-    @Test
-    fun resetDemoDataWipesAndReseeds() = runTest {
-        val (repo, dao) = repoWith()
-        repo.ensureSeeded()
-        repo.setEnabled("extra", true)
-        repo.saveResult(successResult())
-        assertTrue(dao.countRecords() > 3)
-        assertTrue(dao.countServices() > 3)
-
-        repo.resetDemoData()
-
-        assertEquals(3, dao.countRecords())
-        assertEquals(3, dao.countServices())
-        // The re-seed restores the scripted cloudbox expired state.
-        val cloudbox = repo.observeServices().first().first { it.serviceId == "cloudbox" }
-        assertEquals(CheckInStatus.LOGIN_EXPIRED, cloudbox.lastStatus)
-    }
-
-    @Test
-    fun seededSnapshotsExposeScriptedOutcomes() = runTest {
-        val (repo, _) = repoWith()
-        repo.ensureSeeded()
-
-        val snapshots = repo.observeServices().first()
-        val byId = snapshots.associateBy(ServiceSnapshot::serviceId)
-
-        assertEquals(CheckInStatus.SUCCESS, byId.getValue("gamepass").lastStatus)
-        assertEquals(CheckInStatus.LOGIN_EXPIRED, byId.getValue("cloudbox").lastStatus)
-        assertEquals(CheckInStatus.ALREADY_CHECKED_IN, byId.getValue("studyclub").lastStatus)
     }
 }
 

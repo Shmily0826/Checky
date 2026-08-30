@@ -3,9 +3,13 @@ package com.checky.app.domain
 import com.checky.app.data.model.CheckInRecord
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.data.repository.CheckInRepository
+import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CheckInResult
+import com.checky.app.domain.model.CheckInStatus
+import com.checky.app.domain.model.ProviderMeta
+import com.checky.app.domain.model.Reward
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 
 /** Minimal in-memory fake used by the check-in flow tests. */
@@ -20,8 +24,6 @@ class FakeCheckInRepository : CheckInRepository {
         saved.add(result)
     }
     override suspend fun clearHistory() {}
-    override suspend fun ensureSeeded() {}
-    override suspend fun resetDemoData() {}
 }
 
 /** In-memory credential store with per-provider isolation. */
@@ -45,15 +47,54 @@ class FakeCredentialStore(
     }
 }
 
-/** Deterministic mock-scenario store for tests. */
-class FakeMockScenarioStore(
-    initial: MockScenario = MockScenario.DEFAULT
-) : MockScenarioStore {
-    private val _scenario = MutableStateFlow(initial)
+/**
+ * Deterministic [CheckInProvider] for orchestration tests: emits a progress
+ * event then a single [CheckInStatus] outcome with the given reward.
+ */
+class ScriptedCheckInProvider(
+    override val meta: ProviderMeta = testProviderMeta(),
+    private val status: CheckInStatus,
+    private val reward: Reward = Reward.empty(),
+    /** Virtual-time pause before the outcome, so cancel tests can interleave. */
+    private val delayMs: Long = 150
+) : CheckInProvider {
 
-    override fun scenario(): Flow<MockScenario> = _scenario
-
-    override suspend fun setScenario(scenario: MockScenario) {
-        _scenario.value = scenario
+    override fun checkIn(): Flow<CheckInEvent> = flow {
+        emit(CheckInEvent.Progress(0.5f, "working"))
+        kotlinx.coroutines.delay(delayMs)
+        emit(
+            CheckInEvent.Done(
+                CheckInResult(
+                    serviceId = meta.id,
+                    serviceName = meta.displayName,
+                    outcome = outcomeFor(status, reward),
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        )
     }
+
+    override suspend fun validateCredentials(secret: String) = CredentialValidation.Valid
 }
+
+private fun outcomeFor(
+    status: CheckInStatus,
+    reward: Reward
+): CheckInOutcome = when (status) {
+    CheckInStatus.SUCCESS -> CheckInOutcome.Success("ok", "SUCCESS", reward)
+    CheckInStatus.ALREADY_CHECKED_IN -> CheckInOutcome.AlreadyCompleted("already", "ALREADY", reward)
+    CheckInStatus.LOGIN_EXPIRED -> CheckInOutcome.AuthenticationExpired("expired")
+    CheckInStatus.USER_ACTION_REQUIRED -> CheckInOutcome.ActionRequired("action")
+    else -> CheckInOutcome.TemporaryFailure("failed")
+}
+
+/** Catalog meta for test-only providers. */
+fun testProviderMeta(id: String = "test_${System.nanoTime()}"): ProviderMeta = ProviderMeta(
+    id = id,
+    displayName = "Test Provider",
+    description = "",
+    category = "Test",
+    iconKey = "star",
+    accentColor = 0xFF000000,
+    isEnabledByDefault = true
+)

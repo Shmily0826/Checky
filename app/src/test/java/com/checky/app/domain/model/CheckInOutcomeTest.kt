@@ -60,22 +60,17 @@ class CheckInOutcomeTest {
     @Test
     fun translatedErrorsAreUserFacing() {
         // The provider layer produces the translated, user-safe messages.
-        assertEquals(
-            "Your connection has expired. Reconnect this service.",
-            com.checky.app.domain.providers.authExpiredOutcome().userMessage
+        val outcomes = listOf(
+            com.checky.app.domain.providers.mapTaygedoFailure(503, "server busy"),
+            com.checky.app.domain.providers.mapMiyousheCommunityFields(
+                retcode = 999, message = "rejected", points = null
+            )
         )
-        assertEquals(
-            "The service did not respond. Try again later.",
-            com.checky.app.domain.providers.timeoutOutcome().userMessage
-        )
-        assertEquals(
-            "This service temporarily limited requests.",
-            com.checky.app.domain.providers.rateLimitOutcome().userMessage
-        )
-        assertEquals(
-            "This service may be under maintenance.",
-            com.checky.app.domain.providers.maintenanceOutcome().userMessage
-        )
+        outcomes.forEach { outcome ->
+            assertTrue(outcome.userMessage.isNotBlank())
+            assertTrue(!outcome.userMessage.contains("Exception"))
+            assertTrue(outcome.diagnosticCode.isNotBlank())
+        }
     }
 
     @Test

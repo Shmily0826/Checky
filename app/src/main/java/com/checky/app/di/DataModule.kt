@@ -4,13 +4,11 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
-import com.checky.app.data.preferences.MockScenarioStoreImpl
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.data.repository.CheckInRepositoryImpl
 import com.checky.app.data.security.KeystoreCredentialStore
 import com.checky.app.domain.CredentialStore
-import com.checky.app.domain.MockScenarioStore
 import com.checky.app.domain.model.ProviderMeta
 import dagger.Binds
 import dagger.Module
@@ -41,12 +39,6 @@ object DataModule {
     fun provideUserPreferencesRepository(
         @Named("userPrefs") dataStore: DataStore<Preferences>
     ): UserPreferencesRepository = UserPreferencesRepository(dataStore)
-
-    @Provides
-    @Singleton
-    fun provideMockScenarioStore(
-        @Named("userPrefs") dataStore: DataStore<Preferences>
-    ): MockScenarioStore = MockScenarioStoreImpl(dataStore)
 
     /**
      * Production credential vault. Secrets are encrypted with an Android

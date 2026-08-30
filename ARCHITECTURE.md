@@ -20,7 +20,6 @@ DataStore, Coroutines/Flow, Hilt.
 │  CheckInAllUseCase (orchestrator: concurrency, guard,       │
 │                  continue-on-failure, cancellation, summary)│
 │  CredentialStore (per-provider vault contract)              │
-│  MockScenarioStore (dev overrides)                          │
 ├─────────────────────────────────────────────────────────────┤
 │  Data                                                        │
 │  Room: check_in_records (history) + services (state)        │
@@ -55,10 +54,6 @@ DataStore, Coroutines/Flow, Hilt.
 - The MiYouShe Genshin and MiYouShe community Providers intentionally own separate credential entries and separate QR flows. Community disconnect removes only its own app-authorized session; an expired session produces a reconnect outcome for that Provider and does not silently affect the other entry.
 - The two Tajiduo Providers share one Keystore-backed session entry through `TaygedoClient`; disconnecting either removes that shared Tajiduo session. Their current mutation allowlist is limited to daily sign-in endpoints and the community browse-post detail flow.
 
-### Developer mock controls
-
-- `SettingsViewModel` writes a `MockScenario` to DataStore; every mock provider maps the scenario to an outcome via `outcomeForScenario(...)` (success / already / auth expired / network failure / action required).
-
 ## Design decisions
 
 | Decision | Rationale |
@@ -66,12 +61,11 @@ DataStore, Coroutines/Flow, Hilt.
 | `minSdk 26` | Covers ~98% of active devices, allows modern Java/Kotlin APIs, and gives a reliable Keystore + notification baseline; API < 26 devices are negligible for a prototype. |
 | Provider contract = streaming `Flow<CheckInEvent>` | Gives live progress for free and is easy for real providers to implement (retrofit calls inside the flow). |
 | Sealed `CheckInOutcome` instead of raw statuses at the boundary | Forces every provider to return **safe, user-facing** results (message + code + retry hint), never raw exceptions/headers/bodies. |
-| `CredentialStore` abstraction | The mock (in-memory) and real (Keystore AES/GCM) implementations are interchangeable in DI; tests use the deterministic mock. |
+| `CredentialStore` abstraction | The in-memory implementation is test-only infrastructure; production always binds the Keystore AES/GCM vault. |
 | Single `CheckInAllUseCase` | One place for concurrency limits, duplicate guard, continue-on-failure, cancellation, persistence, summary — unit-testable with fakes. |
-| Mock outcome overrides in DataStore | Lets a developer force every failure/success state from Settings without touching provider code. |
 | Direct OkHttp for experimental providers | The current MiYouShe and Tajiduo experiments use provider-local OkHttp calls with HTTPS/host-policy checks; Retrofit is reserved for a future stable provider. |
 
 ## Testing strategy
 
-- **JVM unit tests** (deterministic, `runTest` + fake stores/repos): use-case orchestration (all-providers, continue-on-failure, sequential mode, duplicate guard, cancellation), mock and experimental-provider response mapping, malformed-state fail-closed behavior, browse-task allowlisting, credential lifecycle + isolation + delete-all, redaction, host allowlist, and HomeViewModel state transitions. These do not verify live third-party accounts.
-- **Instrumented tests** (compile-verified; run on device/emulator): Room persistence + v1→v2 migration, Compose UI "Check in all" flow.
+- **JVM unit tests** (deterministic, `runTest` + fake stores/repos): use-case orchestration (all-providers, continue-on-failure, sequential mode, duplicate guard, cancellation), experimental-provider response mapping, malformed-state fail-closed behavior, browse-task allowlisting, credential lifecycle + isolation + delete-all, redaction, host allowlist, Room DAO (Robolectric), both DataStore-backed preference stores, and ViewModel state transitions. These do not verify live third-party accounts.
+- **Instrumented tests** (run on device/emulator): Room persistence + v1→v2 migration, and an onboarding → dashboard → catalog UI smoke flow that never triggers real mutations.
