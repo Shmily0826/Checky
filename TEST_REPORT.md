@@ -3,8 +3,17 @@
 > Last full run: 2026-08-30 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
 > Command: `./gradlew testDebugUnitTest` · Result: **137 tests, 0 failures, 0 errors, 0 skipped**
 > Instrumented run: 2026-08-30 on emulator `Checky_Android14` (API 34) — **5/5 pass**.
-> Lint: `./gradlew lintDebug` — **0 errors, 74 warnings** (mostly
-> dependency-upgrade suggestions; AGP/Compose BOM upgrades left as future work).
+> Lint: `./gradlew lintRelease` — **0 errors, 53 warnings**.
+> CI: GitHub Actions (`.github/workflows/ci.yml`) runs unit tests + lint and
+> the instrumented suite on an API 34 emulator for every push/PR.
+>
+> 2026-08-30 release hardening: R8 minification + resource shrinking enabled
+> and smoke-verified on the emulator; release signing reads an untracked
+> `keystore.properties` (keystore lives outside the repo, debug-key fallback
+> otherwise). Dependencies upgraded: AGP 8.7.3, Compose BOM 2024.09.03
+> (compose 1.7 — fixes the R8 `LocalLifecycleOwner` crash of compose 1.6),
+> lifecycle 2.8.7, activity-compose 1.9.3, core-ktx 1.15.0, navigation
+> 2.8.3, work 2.9.1. All suites re-run green after the upgrade.
 >
 > 2026-08-30: all demo/mock providers (GamePass, CloudBox, StudyClub), the
 > VideoShelf placeholder, the developer mock-scenario controls and the demo

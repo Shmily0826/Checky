@@ -21,3 +21,11 @@ artifacts/tajiduo-official.apk
 
 # OS
 .DS_Store
+
+# Release signing (local only — never commit)
+keystore.properties
+*.jks
+*.keystore
+
+# Local verification screenshots
+.codex-live-home.png
