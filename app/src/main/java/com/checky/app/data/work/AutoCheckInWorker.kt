@@ -11,6 +11,8 @@ import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.model.CheckInAllProgress
+import com.checky.app.domain.model.expiredServiceNames
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -40,7 +42,14 @@ class AutoCheckInWorker(
         val providers = entryPoint.providers().filter { it.meta.id in enabledIds }
         if (providers.isEmpty()) return Result.success()
 
-        entryPoint.useCase()(providers, parallel = false).last()
+        val finalProgress = entryPoint.useCase()(providers, parallel = false).last()
+        // Background runs have no UI: surface expired sessions as a notification.
+        if (finalProgress is CheckInAllProgress.Finished) {
+            NotificationHelper.showReconnectRequired(
+                applicationContext,
+                expiredServiceNames(finalProgress.states.values)
+            )
+        }
         return Result.success()
     }
 

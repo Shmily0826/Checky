@@ -25,3 +25,7 @@ data class CheckInSummary(
     val handled: Int
         get() = succeeded + alreadyCheckedIn + failed + attention
 }
+
+/** Display names of the services whose session expired and need a reconnect. */
+fun expiredServiceNames(states: Collection<ServiceCheckInState>): List<String> =
+    states.filter { it.status == CheckInStatus.LOGIN_EXPIRED }.map { it.meta.displayName }

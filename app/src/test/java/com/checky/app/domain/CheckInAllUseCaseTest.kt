@@ -3,6 +3,7 @@ package com.checky.app.domain
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.model.CheckInStatus
+import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RewardType
 import kotlinx.coroutines.flow.Flow
@@ -135,6 +136,48 @@ class CheckInAllUseCaseTest {
 
         assertTrue(progress.none { it is CheckInAllProgress.Finished })
         assertTrue("no results should be persisted after cancellation", repo.saved.isEmpty())
+    }
+
+    @Test
+    fun temporaryFailureIsRetriedOnceAndFinalResultIsSaved() = runTest {
+        val repo = FakeCheckInRepository()
+        val useCase = CheckInAllUseCase(repo).apply { retryDelayMs = 500 }
+        val flaky = SequenceCheckInProvider(
+            testProviderMeta("flaky"),
+            CheckInOutcome.TemporaryFailure("network blip"),
+            CheckInOutcome.Success("recovered", "SUCCESS", Reward(RewardType.POINTS, 5))
+        )
+
+        val progress = mutableListOf<CheckInAllProgress>()
+        val job = launch { useCase(listOf(flaky)).toList(progress) }
+        advanceUntilIdle()
+        job.join()
+
+        val finished = progress.filterIsInstance<CheckInAllProgress.Finished>().single()
+        assertEquals(1, finished.summary.succeeded)
+        assertEquals(0, finished.summary.failed)
+        assertEquals(1, repo.saved.size)
+        assertEquals(2, flaky.attempts)
+        assertTrue(progress.any { run -> run.states.values.any { it.message.contains("重试") } })
+    }
+
+    @Test
+    fun permanentFailureIsNotRetried() = runTest {
+        val repo = FakeCheckInRepository()
+        val useCase = CheckInAllUseCase(repo).apply { retryDelayMs = 500 }
+        val broken = SequenceCheckInProvider(
+            testProviderMeta("broken"),
+            CheckInOutcome.PermanentFailure("unsupported")
+        )
+
+        val progress = mutableListOf<CheckInAllProgress>()
+        val job = launch { useCase(listOf(broken)).toList(progress) }
+        advanceUntilIdle()
+        job.join()
+
+        assertEquals(1, broken.attempts)
+        assertEquals(1, repo.saved.size)
+        assertEquals(CheckInStatus.FAILED, repo.saved.single().status)
     }
 }
 
