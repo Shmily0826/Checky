@@ -155,6 +155,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
 
+    // Home-screen widget
+    implementation(libs.androidx.glance.appwidget)
+
     // Network (prepared for future HTTP-based providers)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)

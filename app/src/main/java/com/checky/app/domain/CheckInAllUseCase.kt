@@ -44,6 +44,9 @@ class CheckInAllUseCase @Inject constructor(
     /** Maximum providers executed at once in parallel mode. */
     private val maxParallelism = 3
 
+    /** Pause before the single automatic retry of a temporary failure. */
+    internal var retryDelayMs: Long = 15_000L
+
     operator fun invoke(
         providers: List<CheckInProvider>,
         parallel: Boolean = true
@@ -78,11 +81,10 @@ class CheckInAllUseCase @Inject constructor(
                     }
                 }
 
-                suspend fun runOne(provider: CheckInProvider) {
+                /** One attempt: streams the provider, returns its terminal result. */
+                suspend fun runAttempt(provider: CheckInProvider): CheckInResult {
                     val startMark = TimeSource.Monotonic.markNow()
-                    patch(provider.meta.id) {
-                        copy(status = CheckInStatus.RUNNING, progress = 0f, message = "Starting…")
-                    }
+                    var terminal: CheckInResult? = null
                     try {
                         provider.checkIn().collect { event ->
                             when (event) {
@@ -94,46 +96,62 @@ class CheckInAllUseCase @Inject constructor(
                                     )
                                 }
                                 is CheckInEvent.Done -> {
-                                    val result = event.result.copy(
+                                    terminal = event.result.copy(
                                         durationMs = startMark.elapsedNow().inWholeMilliseconds
                                     )
-                                    patch(provider.meta.id) {
-                                        copy(
-                                            status = result.status,
-                                            progress = 1f,
-                                            message = result.message,
-                                            reward = result.reward,
-                                            timestamp = result.timestamp
-                                        )
-                                    }
-                                    repository.saveResult(result)
                                 }
                             }
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        val outcome = CheckInOutcome.TemporaryFailure(
+                        // fall through to the fail-safe result below
+                    }
+                    return terminal ?: CheckInResult(
+                        serviceId = provider.meta.id,
+                        serviceName = provider.meta.displayName,
+                        outcome = CheckInOutcome.TemporaryFailure(
                             userMessage = "The service did not respond. Try again later."
-                        )
-                        val failed = CheckInResult(
-                            serviceId = provider.meta.id,
-                            serviceName = provider.meta.displayName,
-                            outcome = outcome,
-                            timestamp = System.currentTimeMillis(),
-                            durationMs = startMark.elapsedNow().inWholeMilliseconds
-                        )
+                        ),
+                        timestamp = System.currentTimeMillis(),
+                        durationMs = startMark.elapsedNow().inWholeMilliseconds
+                    )
+                }
+
+                suspend fun runOne(provider: CheckInProvider) {
+                    val startMark = TimeSource.Monotonic.markNow()
+                    patch(provider.meta.id) {
+                        copy(status = CheckInStatus.RUNNING, progress = 0f, message = "Starting…")
+                    }
+                    var result = runAttempt(provider)
+
+                    // Temporary failures (network blips, server hiccups) get
+                    // exactly one automatic retry after a short pause.
+                    if (result.outcome is CheckInOutcome.TemporaryFailure) {
                         patch(provider.meta.id) {
                             copy(
-                                status = CheckInStatus.FAILED,
+                                status = CheckInStatus.RUNNING,
                                 progress = 1f,
-                                message = failed.message,
-                                reward = failed.reward,
-                                timestamp = failed.timestamp
+                                message = "临时失败，稍后自动重试…"
                             )
                         }
-                        repository.saveResult(failed)
+                        delay(retryDelayMs)
+                        patch(provider.meta.id) {
+                            copy(status = CheckInStatus.RUNNING, progress = 0f, message = "Retrying…")
+                        }
+                        result = runAttempt(provider)
                     }
+
+                    patch(provider.meta.id) {
+                        copy(
+                            status = result.status,
+                            progress = 1f,
+                            message = result.message,
+                            reward = result.reward,
+                            timestamp = result.timestamp
+                        )
+                    }
+                    repository.saveResult(result)
                 }
 
                 if (parallel) {
