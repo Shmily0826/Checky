@@ -33,5 +33,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".data.widget.CheckInWidgetReceiver"
+            android:exported="false"
+            android:label="Checky check-in">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/check_in_widget_info" />
+        </receiver>
     </application>
 </manifest>
