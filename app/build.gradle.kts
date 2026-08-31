@@ -166,7 +166,7 @@ dependencies {
 
     // Local QR generation for personal account binding. The QR payload is
     // rendered on-device; no QR image or credential is uploaded by Checky.
-    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:core:3.5.4")
 
     // WorkManager (optional daily reminder only)
     implementation(libs.androidx.work.runtime)
