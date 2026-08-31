@@ -1,10 +1,13 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // AGP 9 registers the `kotlin` extension itself (built-in Kotlin), so the
+    // standalone org.jetbrains.kotlin.android plugin can no longer be applied.
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.compose.compiler)
 }
 
 // Release signing comes from an untracked keystore.properties (see
@@ -48,7 +51,7 @@ android {
 
     // Export Room schemas so the migration test can validate v1→v2 on device.
     sourceSets {
-        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+        getByName("androidTest").assets.directories += "$projectDir/schemas"
     }
 
     testOptions {
@@ -99,19 +102,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    // Kotlin 2.x / AGP 9 built-in Kotlin: `kotlinOptions` is gone.
+    kotlin {
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_17
+        }
     }
 
     buildFeatures {
         compose = true
     }
 
-    // Legacy Compose compiler config (the kotlin.plugin.compose artifact is not
-    // available for Kotlin 1.9.24, so we pin the compiler extension explicitly).
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
+    // The Compose compiler is now supplied by org.jetbrains.kotlin.plugin.compose
+    // (see the plugins block), so kotlinCompilerExtensionVersion is gone.
 
     packaging {
         resources {

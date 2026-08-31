@@ -91,15 +91,25 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9)
 
 ## Roadmap
 
-1. Release hardening: a signed release build, `lint` baseline, and CI
-   (GitHub Actions emulator for `connectedDebugAndroidTest`).
-2. Maintain the unofficial integrations: when a provider breaks, follow the
-   documented evidence-gradient diagnosis (see TEST_REPORT.md).
-3. Add instrumented coverage for the **Keystore credential store** on a real
-   device or emulator.
-4. Optional: reminder notification polish, per-provider schedule (e.g. "only
-   weekdays"), and background retry policy for TemporaryFailure.
-5. Maintained provider health checks (declared hosts reachable, API versions).
+### Done
+
+1. Release hardening: signed release build from an untracked `keystore.properties`
+   (falls back to the debug key without it), `lint` baseline, and CI.
+2. CI matrix: `Unit tests & lint` (`testDebugUnitTest`, `assembleRelease`,
+   `lintRelease`) plus `Instrumented tests (API 34 emulator)`
+   (`connectedDebugAndroidTest` + a release-APK R8 smoke check).
+3. Instrumented coverage for the **Keystore credential store**.
+4. Background auto-check-in (opt-in, 24 h periodic), auto-retry and reconnect
+   notifications, history heatmap, and a home-screen widget.
+
+### Next
+
+5. Maintain the unofficial integrations: when a provider breaks, follow the
+   documented evidence-gradient diagnosis (see TEST_REPORT.md). *(ongoing)*
+6. Per-provider schedule (e.g. "only weekdays") — the current auto-check-in is a
+   single global 24 h periodic work request.
+7. Provider health checks (declared hosts reachable, API versions).
+8. Reminder notification polish.
 
 ## minSdk 26 — why
 
