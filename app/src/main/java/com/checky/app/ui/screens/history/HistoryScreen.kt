@@ -1,6 +1,9 @@
 package com.checky.app.ui.screens.history
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +44,7 @@ import com.checky.app.ui.components.RewardBadge
 import com.checky.app.ui.components.StatusChip
 import com.checky.app.ui.preview.previewRecords
 import com.checky.app.ui.theme.CheckyTheme
+import java.time.LocalDate
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -116,6 +121,9 @@ private fun HistoryContent(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize().padding(padding)
             ) {
+                item(key = "heatmap") {
+                    HistoryHeatmapSection(records = records)
+                }
                 items(records, key = { it.id }) { record ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -185,5 +193,42 @@ private fun HistoryPreview() {
             records = previewRecords(),
             onClear = {}
         )
+    }
+}
+
+
+@Composable
+private fun HistoryHeatmapSection(records: List<CheckInRecord>) {
+    val cells = remember(records) {
+        HistoryHeatmap.computeCells(records, today = LocalDate.now())
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Last 4 weeks", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            // 4 rows x 7 columns, oldest top-left, today bottom-right.
+            cells.chunked(7).forEach { week ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    week.forEach { cell ->
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    color = when (cell.quality) {
+                                        DayQuality.GOOD -> MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+                                        DayQuality.BAD -> MaterialTheme.colorScheme.error.copy(alpha = 0.65f)
+                                        DayQuality.EMPTY -> MaterialTheme.colorScheme.surfaceVariant
+                                    },
+                                    shape = MaterialTheme.shapes.small
+                                )
+                        )
+                    }
+                }
+            }
+            Text(
+                text = "Green: all checked in · Red: any failure · Gray: no check-in",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

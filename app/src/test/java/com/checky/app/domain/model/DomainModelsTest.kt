@@ -2,6 +2,7 @@ package com.checky.app.domain.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -152,6 +153,20 @@ class DomainModelsTest {
         assertEquals(states, running.states)
         assertEquals(states, finished.states)
         assertEquals(1, finished.summary.total)
+    }
+
+    @Test
+    fun expiredServiceNamesListsOnlyLoginExpired() {
+        val states = listOf(
+            serviceState(CheckInStatus.SUCCESS),
+            serviceState(CheckInStatus.FAILED),
+            serviceState(CheckInStatus.LOGIN_EXPIRED)
+        ).mapIndexed { index, state ->
+            // distinct display names per status
+            state.copy(meta = state.meta.copy(displayName = "service-$index"))
+        }
+
+        assertEquals(listOf("service-2"), expiredServiceNames(states))
     }
 
     private fun serviceState(status: CheckInStatus) = ServiceCheckInState(

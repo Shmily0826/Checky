@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Checky</string>
     <string name="app_tagline">Your daily check-in buddy.</string>
+    <string name="widget_description">Run every enabled check-in with one tap.</string>
 </resources>
