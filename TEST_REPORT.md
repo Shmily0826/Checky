@@ -1,7 +1,7 @@
 # TEST_REPORT — Test Coverage & Verification Status
 
 > Last full run: 2026-08-30 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
-> Command: `./gradlew testDebugUnitTest` · Result: **137 tests, 0 failures, 0 errors, 0 skipped**
+> Command: `./gradlew testDebugUnitTest` · Result: **144 tests, 0 failures, 0 errors, 0 skipped**
 > Instrumented run: 2026-08-30 on emulator `Checky_Android14` (API 34) — **5/5 pass**.
 > Lint: `./gradlew lintRelease` — **0 errors, 53 warnings**.
 > CI: GitHub Actions (`.github/workflows/ci.yml`) runs unit tests + lint and
@@ -11,6 +11,12 @@
 > it locally), and the follow-up navigate() ran on an IO thread (NavController
 > main-thread assertion). Both fixed; gradlew also needed its executable bit
 > restored for Linux runners.
+>
+> 2026-08-30 product features: one automatic retry for TemporaryFailure
+> outcomes (15 s pause, once per provider per run), reconnect-required
+> notifications for background runs, a 4-week check-in heatmap on the
+> history screen, and a home-screen "Check in all" widget (Glance) that
+> enqueues the same auto check-in worker.
 >
 > 2026-08-30 release hardening: R8 minification + resource shrinking enabled
 > and smoke-verified on the emulator; release signing reads an untracked

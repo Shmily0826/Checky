@@ -98,3 +98,27 @@ fun testProviderMeta(id: String = "test_${System.nanoTime()}"): ProviderMeta = P
     accentColor = 0xFF000000,
     isEnabledByDefault = true
 )
+
+/**
+ * A provider whose attempts return the given outcomes in order (the last one
+ * repeats). Tracks how many times [checkIn] was invoked.
+ */
+class SequenceCheckInProvider(
+    override val meta: ProviderMeta = testProviderMeta(),
+    private vararg val outcomes: CheckInOutcome
+) : CheckInProvider {
+    var attempts = 0
+        private set
+
+    override fun checkIn(): Flow<CheckInEvent> = flow {
+        attempts++
+        val outcome = outcomes.getOrElse((attempts - 1).coerceAtMost(outcomes.size - 1)) {
+            outcomes.first()
+        }
+        emit(CheckInEvent.Progress(0.5f, "working"))
+        kotlinx.coroutines.delay(50)
+        emit(CheckInEvent.Done(CheckInResult(meta.id, meta.displayName, outcome, System.currentTimeMillis())))
+    }
+
+    override suspend fun validateCredentials(secret: String) = CredentialValidation.Valid
+}
