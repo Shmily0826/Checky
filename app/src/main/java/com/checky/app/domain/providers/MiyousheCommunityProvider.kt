@@ -111,15 +111,22 @@ class MiyousheCommunityProvider(
         }
 
         val json = JSONObject(response)
-        if (json.optInt("retcode", 0) in QR_EXPIRED_RETCODES) {
+        val retcode = json.optInt("retcode", 0)
+        if (retcode in QR_EXPIRED_RETCODES) {
             return@withContext QrLoginPollResult.Expired()
         }
-        if (json.optInt("retcode", 0) != 0) {
-            return@withContext QrLoginPollResult.Failed("米游社拒绝了社区二维码请求，请重新生成。")
+        if (retcode != 0) {
+            // Surfacing the code matters here: the app logs nothing, so the
+            // on-screen text is the only way to tell a rejection from an
+            // expired or malformed ticket.
+            return@withContext QrLoginPollResult.Failed(
+                "米游社拒绝了社区二维码请求（错误码 $retcode），请重新生成。"
+            )
         }
         val data = json.optJSONObject("data") ?:
             return@withContext QrLoginPollResult.Failed("米游社返回了无法识别的二维码状态。")
-        when (data.optString("status").ifBlank { data.optString("stat") }) {
+        val status = data.optString("status").ifBlank { data.optString("stat") }
+        when (status) {
             "Init", "Created" -> QrLoginPollResult.Waiting
             "Scanned" -> QrLoginPollResult.Scanned
             "Confirmed" -> {
@@ -130,7 +137,14 @@ class MiyousheCommunityProvider(
                 val mid = data.optJSONObject("user_info")?.optString("mid").orEmpty()
                 val accountId = data.optJSONObject("user_info")?.optString("aid").orEmpty()
                 if (accountId.isBlank() || mid.isBlank() || token.isBlank()) {
-                    QrLoginPollResult.Failed("扫码已确认，但米游社没有返回可用的社区凭证。")
+                    val missing = buildList {
+                        if (token.isBlank()) add("token")
+                        if (mid.isBlank()) add("mid")
+                        if (accountId.isBlank()) add("aid")
+                    }.joinToString("、")
+                    QrLoginPollResult.Failed(
+                        "扫码已确认，但米游社返回的社区凭证缺少 $missing，请重新生成二维码。"
+                    )
                 } else {
                     runCatching { buildCommunityCookie(token, mid, accountId) }
                         .fold(
@@ -139,7 +153,9 @@ class MiyousheCommunityProvider(
                         )
                 }
             }
-            else -> QrLoginPollResult.Failed("米游社返回了未知的二维码状态。")
+            else -> QrLoginPollResult.Failed(
+                "米游社返回了未知的二维码状态（$status），请重新生成。"
+            )
         }
     }
 
