@@ -72,6 +72,7 @@ fun SettingsScreen(
         onReminderTime = viewModel::setReminderTime,
         onAutoCheckInEnabled = viewModel::setAutoCheckInEnabled,
         onAutoCheckInTime = viewModel::setAutoCheckInTime,
+        onCheckInResultNotify = viewModel::setCheckInResultNotify,
         onRunMode = viewModel::setRunMode,
         onClearHistory = viewModel::clearHistory,
         onDeleteCredentials = viewModel::deleteAllCredentials,
@@ -100,6 +101,7 @@ private fun SettingsContent(
     onReminderTime: (Int, Int) -> Unit,
     onAutoCheckInEnabled: (Boolean) -> Unit,
     onAutoCheckInTime: (Int, Int) -> Unit,
+    onCheckInResultNotify: (Boolean) -> Unit,
     onRunMode: (RunMode) -> Unit,
     onClearHistory: () -> Unit,
     onDeleteCredentials: () -> Unit,
@@ -198,6 +200,14 @@ private fun SettingsContent(
                             TextButton(onClick = { showAutoTimePicker = true }) {
                                 Text("%02d:%02d".format(prefs.autoCheckInHour, prefs.autoCheckInMinute), style = MaterialTheme.typography.titleMedium)
                             }
+                        }
+                        Spacer(Modifier.padding(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("签到结果通知", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("自动签到完成后在通知栏显示成功 / 失败汇总。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = prefs.checkInResultNotify, onCheckedChange = onCheckInResultNotify)
                         }
                     }
                 }
@@ -353,6 +363,7 @@ private fun SettingsPreview() {
             onReminderTime = { _, _ -> },
             onAutoCheckInEnabled = {},
             onAutoCheckInTime = { _, _ -> },
+            onCheckInResultNotify = {},
             onRunMode = {},
             onClearHistory = {},
             onDeleteCredentials = {},

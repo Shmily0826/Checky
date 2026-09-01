@@ -17,6 +17,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.checky.app.MainActivity
+import com.checky.app.domain.model.CheckInSummary
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
@@ -71,6 +72,7 @@ object NotificationHelper {
     private const val CHANNEL_ID = "checky_reminders"
     private const val NOTIFICATION_ID = 1001
     private const val RECONNECT_NOTIFICATION_ID = 1002
+    private const val RESULT_NOTIFICATION_ID = 1003
 
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
@@ -137,5 +139,53 @@ object NotificationHelper {
         if (canNotify) {
             NotificationManagerCompat.from(context).notify(RECONNECT_NOTIFICATION_ID, notification)
         }
+    }
+
+    /** Surfaces the result of an auto check-in run (success + failure summary). */
+    fun showCheckInResult(context: Context, summary: CheckInSummary) {
+        val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!canNotify) return
+
+        val needsAttention = summary.failed + summary.attention
+        val title = if (needsAttention == 0) {
+            "Checky — 今日签到完成"
+        } else {
+            "Checky — 签到完成，${needsAttention} 项需关注"
+        }
+        val content = buildString {
+            append("成功 ${summary.succeeded}")
+            if (summary.alreadyCheckedIn > 0) append(" · 已签到 ${summary.alreadyCheckedIn}")
+            if (summary.failed > 0) append(" · 失败 ${summary.failed}")
+            if (summary.attention > 0) append(" · 需重连 ${summary.attention}")
+        }
+        val bigText = buildString {
+            append("成功 ${summary.succeeded} 项")
+            if (summary.alreadyCheckedIn > 0) append("，已签到 ${summary.alreadyCheckedIn} 项")
+            if (summary.failed > 0) append("，失败 ${summary.failed} 项")
+            if (summary.attention > 0) append("，需重新连接 ${summary.attention} 项")
+            if (summary.totalPoints > 0) append("。共获得 ${summary.totalPoints} 积分")
+            if (summary.totalXp > 0) append("、${summary.totalXp} 经验")
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(RESULT_NOTIFICATION_ID, notification)
     }
 }

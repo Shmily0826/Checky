@@ -30,6 +30,8 @@ data class UserPreferences(
     val autoCheckInEnabled: Boolean = false,
     val autoCheckInHour: Int = 3,
     val autoCheckInMinute: Int = 0,
+    /** Post a notification with the auto check-in result (success/failure summary). */
+    val checkInResultNotify: Boolean = true,
     val runMode: RunMode = RunMode.PARALLEL
 )
 
@@ -50,6 +52,7 @@ class UserPreferencesRepository @Inject constructor(
                 autoCheckInEnabled = prefs[KEY_AUTO_ENABLED] ?: false,
                 autoCheckInHour = prefs[KEY_AUTO_HOUR] ?: 3,
                 autoCheckInMinute = prefs[KEY_AUTO_MINUTE] ?: 0,
+                checkInResultNotify = prefs[KEY_RESULT_NOTIFY] ?: true,
                 runMode = RunMode.valueOf(prefs[KEY_RUN_MODE] ?: RunMode.PARALLEL.name)
             )
         }
@@ -88,6 +91,10 @@ class UserPreferencesRepository @Inject constructor(
         }
     }
 
+    suspend fun setCheckInResultNotify(enabled: Boolean) {
+        dataStore.edit { it[KEY_RESULT_NOTIFY] = enabled }
+    }
+
     suspend fun setRunMode(mode: RunMode) {
         dataStore.edit { it[KEY_RUN_MODE] = mode.name }
     }
@@ -102,6 +109,7 @@ class UserPreferencesRepository @Inject constructor(
         private val KEY_AUTO_ENABLED = booleanPreferencesKey("auto_checkin_enabled")
         private val KEY_AUTO_HOUR = intPreferencesKey("auto_checkin_hour")
         private val KEY_AUTO_MINUTE = intPreferencesKey("auto_checkin_minute")
+        private val KEY_RESULT_NOTIFY = booleanPreferencesKey("checkin_result_notify")
         private val KEY_RUN_MODE = stringPreferencesKey("run_mode")
     }
 }

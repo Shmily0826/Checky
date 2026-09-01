@@ -83,6 +83,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { userPreferencesRepository.setRunMode(mode) }
     }
 
+    fun setCheckInResultNotify(enabled: Boolean) {
+        viewModelScope.launch { userPreferencesRepository.setCheckInResultNotify(enabled) }
+    }
+
     fun clearHistory() {
         viewModelScope.launch { repository.clearHistory() }
     }

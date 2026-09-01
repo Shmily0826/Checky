@@ -43,12 +43,15 @@ class AutoCheckInWorker(
         if (providers.isEmpty()) return Result.success()
 
         val finalProgress = entryPoint.useCase()(providers, parallel = false).last()
-        // Background runs have no UI: surface expired sessions as a notification.
+        // Background runs have no UI: surface results/expired sessions as notifications.
         if (finalProgress is CheckInAllProgress.Finished) {
             NotificationHelper.showReconnectRequired(
                 applicationContext,
                 expiredServiceNames(finalProgress.states.values)
             )
+            if (entryPoint.preferences().preferences.first().checkInResultNotify) {
+                NotificationHelper.showCheckInResult(applicationContext, finalProgress.summary)
+            }
         }
         return Result.success()
     }
@@ -91,4 +94,5 @@ interface AutoCheckInEntryPoint {
     fun repository(): CheckInRepository
     fun useCase(): CheckInAllUseCase
     fun providers(): @JvmSuppressWildcards List<CheckInProvider>
+    fun preferences(): UserPreferencesRepository
 }
