@@ -2,6 +2,9 @@ package com.checky.app.ui.screens.connect
 
 import android.app.Activity
 import android.view.WindowManager
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
@@ -57,8 +61,9 @@ import androidx.navigation.NavHostController
 import com.checky.app.domain.model.CredentialType
 import com.checky.app.ui.components.ProviderIcon
 import com.checky.app.ui.components.qrBitmap
+import com.checky.app.ui.components.saveQrToGallery
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConnectProviderScreen(
     navController: NavHostController,
@@ -313,16 +318,39 @@ fun ConnectProviderScreen(
                                 Text(if (isMiyousheCommunity) "生成社区授权二维码" else "生成米游社网页登录二维码")
                             }
                         } else {
-                            val bitmap = remember(qrSession?.qrPayload) {
-                                qrSession?.qrPayload?.let { qrBitmap(it).asImageBitmap() }
+                            val payload = qrSession?.qrPayload
+                            val bitmap = remember(payload) {
+                                payload?.let { qrBitmap(it).asImageBitmap() }
                             }
-                            if (bitmap != null) {
+                            if (bitmap != null && payload != null) {
+                                val context = LocalContext.current
                                 Image(
                                     bitmap = bitmap,
                                     contentDescription = if (isMiyousheCommunity) "米游社社区授权二维码" else "米游社登录二维码",
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 24.dp)
+                                        // The window sets FLAG_SECURE, so a single-device user
+                                        // cannot screenshot the code. Saving it lets them pick
+                                        // the image from the album in the official app instead.
+                                        .combinedClickable(
+                                            onClick = {},
+                                            onLongClick = {
+                                                val saved = saveQrToGallery(context, payload)
+                                                Toast.makeText(
+                                                    context,
+                                                    if (saved) "二维码已保存到相册，约 3 分钟内有效，用后请删除。"
+                                                    else "保存失败，请检查存储空间后重试。",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        )
+                                )
+                                Text(
+                                    "长按二维码可保存到相册；再用官方 App「扫一扫 → 相册」识别，一台手机也能完成。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.align(Alignment.CenterHorizontally)
                                 )
                             }
                             Text(
