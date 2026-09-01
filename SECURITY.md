@@ -24,13 +24,13 @@ explicitly by the user** from the Checky UI. Nothing runs silently.
 | Data | Where stored | Backed up? |
 |---|---|---|
 | Check-in history (status, reward, safe diagnostic code) | Room (`checky.db`) | No — `allowBackup=false` |
-| Preferences (theme, reminder, run mode, mock scenario) | DataStore (`user_prefs.pb`) | No |
+| Preferences (theme, reminder, run mode, auto-check-in opt-in) | DataStore (`user_prefs.pb`) | No |
 | Provider credentials | `CredentialStore`; default implementation = Android Keystore AES/GCM + private file | No (Keystore key is non-exportable) |
 | Logs | Debug-only println | Never contains secrets |
 
 ## 3. Credential security (mandatory rules)
 
-1. Credentials are stored **per provider** — one provider can never read another's vault entry.
+1. Credentials use provider-scoped or explicitly shared provider-family entries — unrelated providers cannot read another provider's vault entry; the two Taygedo providers intentionally use the shared `taygedo.shared.session` entry.
 2. The real implementation encrypts with **AES-256/GCM** where the key is generated inside **Android Keystore** (non-exportable).
 3. Secrets are **never** written to SharedPreferences, logs, Git, fixtures, or screenshots.
 4. The credential-entry screen sets **`FLAG_SECURE`** so it can't be captured in screenshots/recents.
@@ -69,13 +69,16 @@ explicitly by the user** from the Checky UI. Nothing runs silently.
 
 ## 7. Reporting
 
-This is an MVP prototype with mostly mock providers and disabled, high-risk,
-non-official personal experiments for MiYouShe and Tajiduo. The Genshin
-MiYouShe check-in was manually confirmed in the current development session;
-MiYouShe community and Tajiduo live login/check-in behavior remains unverified.
-All experiments store credentials locally and do not implement likes, comments,
+The production catalog contains four non-official, high-risk HTTP-session
+providers: Miyoushe Genshin sign-in, Miyoushe community sign-in, Taygedo NTE
+game sign-in, and Taygedo community sign-in. Dated live verification for these
+four providers, plus associated login/session and fail-closed checks, is
+recorded in `TEST_REPORT.md`; it is evidence for that tested scope and date,
+not a guarantee of continued upstream availability.
+
+All providers store credentials locally and do not implement likes, comments,
 shares, follows, posts, redemptions, CAPTCHA handling, or risk-control
-workarounds. A successful build or mocked response mapping is not live-provider
-verification.
+workarounds. Provider tests cover malformed and unrecognized responses; they
+must not be interpreted as live-provider verification.
 If you find a real security issue in a future release, report it privately to
 the maintainer; do not post credentials or raw traffic in public issues.

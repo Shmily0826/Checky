@@ -1,8 +1,9 @@
 # TEST_REPORT — Test Coverage & Verification Status
 
-> Last full run: 2026-08-30 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
+> Recorded run: 2026-08-30 · JDK 17 (Temurin 17.0.19) · Gradle 8.9 · Windows
 > Command: `./gradlew testDebugUnitTest` · Result: **144 tests, 0 failures, 0 errors, 0 skipped**
-> Instrumented run: 2026-08-30 on emulator `Checky_Android14` (API 34) — **5/5 pass**.
+> Current tracked toolchain: AGP 9.3.2 · Gradle 9.5 · built-in Kotlin 2.2.10.
+> Recorded instrumented run: 2026-08-30 on emulator `Checky_Android14` (API 34) — **5/5 pass**.
 > Lint: `./gradlew lintRelease` — **0 errors, 53 warnings**.
 > CI: GitHub Actions (`.github/workflows/ci.yml`) runs unit tests + lint and
 > the instrumented suite on a pixel_5-profile API 34 emulator for every
@@ -21,17 +22,15 @@
 > 2026-08-30 release hardening: R8 minification + resource shrinking enabled
 > and smoke-verified on the emulator; release signing reads an untracked
 > `keystore.properties` (keystore lives outside the repo, debug-key fallback
-> otherwise). Dependencies upgraded: AGP 8.7.3, Compose BOM 2024.09.03
+> otherwise). Compose BOM 2024.09.03
 > (compose 1.7 — fixes the R8 `LocalLifecycleOwner` crash of compose 1.6),
 > lifecycle 2.8.7, activity-compose 1.9.3, core-ktx 1.15.0, navigation
 > 2.8.3, work 2.9.1. All suites re-run green after the upgrade.
 >
-> 2026-08-30: all demo/mock providers (GamePass, CloudBox, StudyClub), the
-> VideoShelf placeholder, the developer mock-scenario controls and the demo
-> seed data were removed. The suite now covers only real, live-verified
-> functionality; orchestration tests use deterministic scripted fake
-> providers instead of mock implementations.
-> Instrumented run: 2026-08-29 on emulator `Checky_Android14` (API 34) — see below.
+> 2026-08-30: the demo provider catalog and developer scenario controls were
+> removed. The production catalog now contains four concrete providers;
+> orchestration and UI tests use deterministic scripted fake providers only as
+> test doubles. Instrumented coverage is listed below.
 
 ## Verification levels (keep these distinct)
 
@@ -61,7 +60,7 @@ that a live provider works.
 | `ui.screens.connect.ConnectProviderViewModelTest` | 19 | ✅ | Secret form (blank/valid/invalid), delete+disconnect, QR login (confirm/wait/expire/unsupported/cancel), SMS login, game-account binding |
 | `ui.screens.history.HistoryViewModelTest` | 2 | ✅ | Records streaming, clear-history delegation |
 | `ui.screens.provider.ProviderDetailsViewModelTest` | 4 | ✅ | Meta resolution, service stream, enable toggle |
-| **Total** | **119** | ✅ | |
+| **Current JVM inventory** | **144 @Test methods** | Recorded source inventory | Aggregate was not rerun in this documentation cleanup |
 
 ## Instrumented tests (connectedDebugAndroidTest, emulator Checky_Android14 / API 34)
 
@@ -86,7 +85,9 @@ that a live provider works.
 
 ## Live verification (2026-08-30, emulator, user's own account)
 
-All seven providers were live verified with the user's real accounts:
+Four production providers were live verified with the user's real accounts;
+the remaining rows record related authentication, UI-security, and
+fail-closed checks:
 
 | Flow | Result | Evidence |
 |---|---|---|
@@ -165,13 +166,14 @@ never enters the APK.
 - **KeystoreCredentialStore** is only exercised on-device/emulator; the JVM
   suite covers the mock store only. Android Keystore does not work under
   Robolectric, so a dedicated instrumented test is still the way to cover it.
-- **No live verification**: all provider tests use fakes and scripted
-  responses. The experimental Miyoushe/Taygedo providers remain
-  implemented + unit-tested only, not live-verified.
-- **Dependency upgrades** (lint warnings): AGP 8.7.0, compose BOM 2024.06.00
-  and several androidx libraries have newer versions available. Upgrading the
-  BOM would also lift ui-test beyond the espresso 3.5.0 pin workaround —
-  worth doing in a dedicated change.
+- **Live verification is date- and account-scoped**: the four provider flows
+  listed above were verified on 2026-08-30, while automated provider tests use
+  fakes and scripted responses and do not replace live verification.
+- **Instrumented inventory**: the repository currently contains 13 instrumented
+  `@Test` methods across Room persistence, Keystore storage, and UI smoke
+  classes; the recorded run above reports only the cases it executed. No fresh
+  build, test, emulator, physical-device, or live-provider run was performed
+  for this documentation-only cleanup.
 
 ## Notes for future test authors
 

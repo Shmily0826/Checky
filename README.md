@@ -44,7 +44,7 @@ apps and services into one friendly dashboard, then triggers them with one tap.
 
 ## Setup & build
 
-Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9).
+Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the included Gradle 9.5 wrapper.
 
 ```bash
 # Build the debug APK
@@ -58,9 +58,8 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9)
 ./gradlew connectedDebugAndroidTest
 ```
 
-> This machine originally had no Gradle wrapper; a workspace-local Gradle 8.9
-> in `.buildtools/` was used for the first build and the wrapper has since been
-> generated — Android Studio can sync directly.
+> The project uses AGP 9.3.2, built-in Kotlin 2.2.10, and the included Gradle
+> 9.5 wrapper. Android Studio can sync directly.
 
 ## Screens & flows
 
@@ -76,15 +75,16 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio (or Gradle 8.9)
 
 ## Security model (summary — full details in SECURITY.md)
 
-- Credentials: per-provider `CredentialStore`; real impl is **Android Keystore AES-256/GCM**; never logged, never backed up (`allowBackup=false`).
+- Credentials: provider-scoped or explicitly shared provider-family storage through `CredentialStore`; the production implementation is **Android Keystore AES-256/GCM**; never logged, never backed up (`allowBackup=false`). Miyoushe Genshin and Miyoushe community sessions are separate; both Taygedo providers share `taygedo.shared.session`.
 - Network: **HTTPS only**, per-provider **host allowlist**, and a **redacting interceptor** (Authorization, Cookie, tokens, API keys…); body logging is disabled in release. The experimental providers use direct OkHttp calls and remain subject to upstream API changes.
+- Provider state is fail-closed: malformed, unknown, ambiguous, expired, or verification-required results stop the relevant mutation flow and surface reconnect/action-needed guidance.
 - No AccessibilityService, no cross-app control, no root, no CAPTCHA/anti-bot bypass, no automated financial actions — **explicitly out of scope**.
 - Credential screens use FLAG_SECURE; no analytics or crash reporting.
 
 ## What is intentionally not supported
 
 - UI-automation providers and any form of silent cross-app control.
-- Any check-in that is not a deterministic action initiated by the user.
+- Any check-in that is not a deterministic action from the foreground flow or the user's explicit opt-in background schedule.
 - Purchases, redemptions, lotteries, posting, messaging, or financial actions.
 - Bypassing platform verification, CAPTCHA, or anti-abuse systems.
 - Cloud accounts, backups of credentials, or off-device storage of any kind.

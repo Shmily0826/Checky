@@ -13,7 +13,9 @@ DataStore, Coroutines/Flow, Hilt.
 │  ViewModels (StateFlow, viewModelScope, Hilt-injected)      │
 ├─────────────────────────────────────────────────────────────┤
 │  Domain                                                      │
-│  CheckInProvider (plugin contract)  ← extension point       │
+│  Four concrete providers: Miyoushe Genshin, Miyoushe       │
+│  community, Taygedo NTE, Taygedo community                 │
+│  CheckInProvider contract + opt-in QR/SMS/game-role caps    │
 │  CheckInEvent (Progress / Done)                             │
 │  CheckInOutcome (Success/Already/AuthExpired/ActionRequired │
 │                  /TemporaryFailure/PermanentFailure/Unsup.) │
@@ -23,7 +25,7 @@ DataStore, Coroutines/Flow, Hilt.
 ├─────────────────────────────────────────────────────────────┤
 │  Data                                                        │
 │  Room: check_in_records (history) + services (state)        │
-│  DataStore: user prefs (theme, reminder, run mode, scenario)│
+│  DataStore: user prefs (theme, reminder, run mode, auto-run)│
 │  Security: KeystoreCredentialStore (default) ⇄ MockCredentialStore (tests)│
 │  Network (prepared): HostPolicy allowlist,                  │
 │                      RedactingLoggingInterceptor            │
@@ -50,9 +52,10 @@ DataStore, Coroutines/Flow, Hilt.
 
 - `ConnectProviderScreen` (FLAG_SECURE, secrets hidden, validated before save).
 - `ConnectProviderViewModel` validates via `provider.validateCredentials(...)`, saves through the default Keystore-backed `CredentialStore`, and supports per-provider delete.
-- `CloudBoxProvider` checks the vault each run: no token → `AuthenticationExpired`; token present → success (+1 membership day).
-- The MiYouShe Genshin and MiYouShe community Providers intentionally own separate credential entries and separate QR flows. Community disconnect removes only its own app-authorized session; an expired session produces a reconnect outcome for that Provider and does not silently affect the other entry.
-- The two Tajiduo Providers share one Keystore-backed session entry through `TaygedoClient`; disconnecting either removes that shared Tajiduo session. Their current mutation allowlist is limited to daily sign-in endpoints and the community browse-post detail flow.
+- The four production providers are registered directly in `ProviderModule`: Miyoushe Genshin, Miyoushe community, Taygedo NTE, and Taygedo community. QR login, SMS login, and game-role selection are opt-in capability interfaces implemented only where supported; they are not a plugin marketplace.
+- The Miyoushe Genshin and Miyoushe community providers intentionally own separate credential entries and separate QR flows. Disconnecting the community provider removes only its own session.
+- The two Taygedo providers share one Keystore-backed session entry, `taygedo.shared.session`, through `TaygedoClient`; disconnecting either removes that shared session.
+- Fail-closed classification applies to response and state parsing: malformed, unknown, ambiguous, authentication-expired, or verification-required results stop the relevant flow. In multi-step mutation flows, only a confirmed `Success` or `AlreadyCompleted` permits the next mutation. Taygedo NTE and Taygedo community perform provider-specific sign-in state reads before their mutations; Miyoushe community submits its once-daily sign-in after confirming that a session is present.
 
 ## Design decisions
 
@@ -63,7 +66,7 @@ DataStore, Coroutines/Flow, Hilt.
 | Sealed `CheckInOutcome` instead of raw statuses at the boundary | Forces every provider to return **safe, user-facing** results (message + code + retry hint), never raw exceptions/headers/bodies. |
 | `CredentialStore` abstraction | The in-memory implementation is test-only infrastructure; production always binds the Keystore AES/GCM vault. |
 | Single `CheckInAllUseCase` | One place for concurrency limits, duplicate guard, continue-on-failure, cancellation, persistence, summary — unit-testable with fakes. |
-| Direct OkHttp for experimental providers | The current MiYouShe and Tajiduo experiments use provider-local OkHttp calls with HTTPS/host-policy checks; Retrofit is reserved for a future stable provider. |
+| Direct OkHttp for current providers | The four current Miyoushe/Taygedo providers use provider-local OkHttp calls with HTTPS/host-policy checks; Retrofit remains available for a future stable integration. |
 
 ## Testing strategy
 
