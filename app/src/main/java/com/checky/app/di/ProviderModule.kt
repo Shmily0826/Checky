@@ -19,16 +19,13 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object ProviderModule {
 
-    /** Catalog of every connectable provider. */
+    /** Metadata catalog derived from the authoritative runtime registrations. */
     @Provides
     @Singleton
     @JvmSuppressWildcards
-    fun provideProviderCatalog(): List<ProviderMeta> = listOf(
-        MiyousheProvider.META,
-        MiyousheCommunityProvider.META,
-        TaygedoNteProvider.META,
-        TaygedoCommunityProvider.META
-    )
+    fun provideProviderCatalog(
+        providers: List<CheckInProvider>
+    ): List<ProviderMeta> = providers.map { it.meta }
 
     /** Only connectable providers are registered here. */
     @Provides
