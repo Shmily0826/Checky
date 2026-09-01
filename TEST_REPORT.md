@@ -60,7 +60,7 @@ that a live provider works.
 | `ui.screens.connect.ConnectProviderViewModelTest` | 19 | ✅ | Secret form (blank/valid/invalid), delete+disconnect, QR login (confirm/wait/expire/unsupported/cancel), SMS login, game-account binding |
 | `ui.screens.history.HistoryViewModelTest` | 2 | ✅ | Records streaming, clear-history delegation |
 | `ui.screens.provider.ProviderDetailsViewModelTest` | 4 | ✅ | Meta resolution, service stream, enable toggle |
-| **Current JVM inventory** | **144 @Test methods** | Recorded source inventory | Aggregate was not rerun in this documentation cleanup |
+| **Current JVM inventory** | **145 @Test methods** | Recorded source inventory | Aggregate was not rerun in this documentation cleanup |
 
 ## Instrumented tests (connectedDebugAndroidTest, emulator Checky_Android14 / API 34)
 
