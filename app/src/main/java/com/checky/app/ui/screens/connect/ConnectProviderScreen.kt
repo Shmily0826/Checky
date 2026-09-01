@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
@@ -29,12 +30,17 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -182,12 +188,27 @@ fun ConnectProviderScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         gameRoles.forEachIndexed { index, role ->
-                                            OutlinedButton(
+                                            val picked = gameUid == role.config.uid
+                                            FilterChip(
+                                                selected = picked,
                                                 onClick = { viewModel.pickGameRole(index) },
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text("${role.label}（UID ${role.config.uid}）")
-                                            }
+                                                modifier = Modifier.fillMaxWidth(),
+                                                label = { Text("${role.label}（UID ${role.config.uid}）") },
+                                                leadingIcon = {
+                                                    if (picked) {
+                                                        Icon(
+                                                            Icons.Filled.Check,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                                        )
+                                                    }
+                                                },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                            )
                                         }
                                     }
                                     !gameAccountSaved -> {
@@ -210,14 +231,23 @@ fun ConnectProviderScreen(
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(
+                                Text(
+                                    "区服（默认官服）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                                    SegmentedButton(
+                                        selected = gameRegion == "cn_gf01",
                                         onClick = { viewModel.updateGameRegion("cn_gf01") },
-                                        enabled = !savingGameAccount && gameRegion != "cn_gf01"
+                                        enabled = !savingGameAccount,
+                                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                                     ) { Text("官服") }
-                                    OutlinedButton(
+                                    SegmentedButton(
+                                        selected = gameRegion == "cn_qd01",
                                         onClick = { viewModel.updateGameRegion("cn_qd01") },
-                                        enabled = !savingGameAccount && gameRegion != "cn_qd01"
+                                        enabled = !savingGameAccount,
+                                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                                     ) { Text("B服") }
                                 }
                                 Button(
