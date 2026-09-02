@@ -86,7 +86,7 @@ class CheckInRepositoryImplTest {
     }
 
     @Test
-    fun saveResultDefaultsEnabledFromMetaWhenNoServiceRowExists() = runTest {
+    fun saveResultDoesNotSelectProviderWhenNoServiceRowExists() = runTest {
         val (repo, _) = repoWith()
         // The community provider defaults to disabled and has no row yet.
         repo.saveResult(successResult("miyoushe_community_signin"))
@@ -107,16 +107,18 @@ class CheckInRepositoryImplTest {
     }
 
     @Test
-    fun getServiceReturnsMetaDefaultsWhenNothingPersisted() = runTest {
+    fun getServiceReturnsNullWhenNothingPersisted() = runTest {
         val (repo, _) = repoWith()
         val snapshot = repo.getService("taygedo_nte")
 
-        assertNotNull(snapshot)
-        assertEquals("taygedo_nte", snapshot!!.serviceId)
-        assertEquals(TaygedoNteProvider.META.isEnabledByDefault, snapshot.isEnabled)
-        assertNull(snapshot.lastStatus)
-        assertNull(snapshot.lastReward)
-        assertNull(snapshot.lastMessage)
+        assertNull(snapshot)
+    }
+
+    @Test
+    fun freshInstallHasNoConnectedServices() = runTest {
+        val (repo, _) = repoWith()
+
+        assertTrue(repo.observeServices().first().isEmpty())
     }
 
     @Test
@@ -133,8 +135,8 @@ class CheckInRepositoryImplTest {
 
         val snapshots = repo.observeServices().first()
 
-        // Every catalog entry is present, ordered by the meta list.
-        assertEquals(metas.map { it.id }, snapshots.map { it.serviceId })
+        // Only explicitly persisted services are connected services.
+        assertEquals(listOf("taygedo_nte", "miyoushe_genshin_experimental"), snapshots.map { it.serviceId })
         val nte = snapshots.first { it.serviceId == "taygedo_nte" }
         assertFalse(nte.isEnabled)
         val genshin = snapshots.first { it.serviceId == "miyoushe_genshin_experimental" }

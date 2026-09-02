@@ -11,6 +11,8 @@ import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.expiredServiceNames
 import dagger.hilt.EntryPoint
@@ -39,7 +41,7 @@ class AutoCheckInWorker(
         )
         val services = entryPoint.repository().observeServices().first()
         val enabledIds = services.filter { it.isEnabled }.map { it.serviceId }.toSet()
-        val providers = entryPoint.providers().filter { it.meta.id in enabledIds }
+        val providers = selectExecutableProviders(enabledIds, entryPoint.providers(), entryPoint.credentials())
         if (providers.isEmpty()) return Result.success()
 
         val finalProgress = entryPoint.useCase()(providers, parallel = false).last()
@@ -88,6 +90,14 @@ class AutoCheckInWorker(
     }
 }
 
+internal suspend fun selectExecutableProviders(
+    enabledIds: Set<String>,
+    providers: List<CheckInProvider>,
+    credentials: CredentialStore
+): List<CheckInProvider> = providers.filter {
+    it.meta.id in enabledIds && ProviderConnectionGate.isConnected(it, credentials)
+}
+
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface AutoCheckInEntryPoint {
@@ -95,4 +105,5 @@ interface AutoCheckInEntryPoint {
     fun useCase(): CheckInAllUseCase
     fun providers(): @JvmSuppressWildcards List<CheckInProvider>
     fun preferences(): UserPreferencesRepository
+    fun credentials(): CredentialStore
 }

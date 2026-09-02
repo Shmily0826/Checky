@@ -2,9 +2,11 @@ package com.checky.app.ui.screens.home
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.checky.app.data.preferences.UserPreferencesRepository
+import com.checky.app.domain.FakeCredentialStore
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.FakeCheckInRepository
 import com.checky.app.domain.ScriptedCheckInProvider
+import com.checky.app.domain.SequenceCheckInProvider
 import com.checky.app.domain.testProviderMeta
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.domain.model.CheckInAllProgress
@@ -66,6 +68,7 @@ class HomeViewModelTest {
             repository = repo,
             userPreferencesRepository = prefsRepo(this),
             checkInAllUseCase = useCase,
+            credentialStore = FakeCredentialStore(),
             providers = providers,
             metas = providers.map { it.meta }
         )
@@ -114,6 +117,7 @@ class HomeViewModelTest {
             repository = repo,
             userPreferencesRepository = prefsRepo(this),
             checkInAllUseCase = useCase,
+            credentialStore = FakeCredentialStore(),
             providers = providers,
             metas = providers.map { it.meta }
         )
@@ -150,6 +154,7 @@ class HomeViewModelTest {
             repository = repo,
             userPreferencesRepository = prefsRepo(this),
             checkInAllUseCase = useCase,
+            credentialStore = FakeCredentialStore(),
             providers = providers,
             metas = providers.map { it.meta }
         )
@@ -186,6 +191,7 @@ class HomeViewModelTest {
             repository = repo,
             userPreferencesRepository = prefsRepo(this),
             checkInAllUseCase = CheckInAllUseCase(repo),
+            credentialStore = FakeCredentialStore(),
             providers = listOf(provider),
             metas = listOf(provider.meta)
         )
@@ -195,6 +201,63 @@ class HomeViewModelTest {
 
         assertEquals(0, provider.attempts)
         assertNull(vm.progress.value)
+    }
+
+    @Test
+    fun selectedCredentialProviderWithoutConnectionIsNotExecutable() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = SequenceCheckInProvider(
+            meta = testProviderMeta("auth-only").copy(
+                credentialType = com.checky.app.domain.model.CredentialType.SESSION_TOKEN
+            ),
+            com.checky.app.domain.model.CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
+        )
+        val repo = FakeCheckInRepository(listOf(service(provider.meta.id)))
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo),
+            credentialStore = FakeCredentialStore(),
+            providers = listOf(provider),
+            metas = listOf(provider.meta)
+        )
+        backgroundScope.launch { vm.services.collect {} }
+        advanceUntilIdle()
+
+        vm.checkInAll()
+        advanceUntilIdle()
+
+        assertEquals(0, provider.attempts)
+        assertNull(vm.progress.value)
+    }
+
+    @Test
+    fun credentialedSelectedProviderRemainsExecutable() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = SequenceCheckInProvider(
+            meta = testProviderMeta("credentialed").copy(
+                credentialType = com.checky.app.domain.model.CredentialType.SESSION_TOKEN
+            ),
+            com.checky.app.domain.model.CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
+        )
+        val repo = FakeCheckInRepository(listOf(service(provider.meta.id)))
+        val credentials = FakeCredentialStore()
+        credentials.save(provider.meta.id, "synthetic-test-secret")
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo),
+            credentialStore = credentials,
+            providers = listOf(provider),
+            metas = listOf(provider.meta)
+        )
+        backgroundScope.launch { vm.services.collect {} }
+        advanceUntilIdle()
+
+        vm.checkInAll()
+        advanceUntilIdle()
+
+        assertEquals(1, provider.attempts)
     }
 
     private fun prefsRepo(testScope: TestScope): UserPreferencesRepository {

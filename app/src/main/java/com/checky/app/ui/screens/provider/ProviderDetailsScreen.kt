@@ -131,7 +131,7 @@ private fun ProviderDetailsContent(
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Enabled", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        Switch(checked = service?.isEnabled ?: true, onCheckedChange = onToggle)
+                        Switch(checked = service?.isEnabled ?: false, onCheckedChange = onToggle)
                     }
                 }
             }

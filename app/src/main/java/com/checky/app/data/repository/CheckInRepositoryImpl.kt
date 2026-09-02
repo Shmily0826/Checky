@@ -27,22 +27,22 @@ class CheckInRepositoryImpl @Inject constructor(
 
     override fun observeServices(): Flow<List<ServiceSnapshot>> =
         dao.observeServices().map { entities ->
-            metas.map { meta ->
-                val entity = entities.firstOrNull { it.serviceId == meta.id }
+            entities.mapNotNull { entity ->
+                val meta = metaById[entity.serviceId] ?: return@mapNotNull null
                 ServiceSnapshot(
                     serviceId = meta.id,
                     displayName = meta.displayName,
-                    isEnabled = entity?.isEnabled ?: meta.isEnabledByDefault,
-                    lastStatus = entity?.lastStatus?.let {
+                    isEnabled = entity.isEnabled,
+                    lastStatus = entity.lastStatus?.let {
                         runCatching { CheckInStatus.valueOf(it) }.getOrNull()
                     },
-                    lastReward = if (entity?.lastRewardType != null) {
+                    lastReward = if (entity.lastRewardType != null) {
                         runCatching {
                             Reward(RewardType.valueOf(entity.lastRewardType), entity.lastRewardAmount)
                         }.getOrNull()
                     } else null,
-                    lastMessage = entity?.lastMessage,
-                    lastTimestamp = entity?.lastTimestamp
+                    lastMessage = entity.lastMessage,
+                    lastTimestamp = entity.lastTimestamp
                 )
             }
         }
@@ -50,16 +50,17 @@ class CheckInRepositoryImpl @Inject constructor(
     override suspend fun getService(id: String): ServiceSnapshot? {
         val entity = dao.getService(id)
         val meta = metaById[id] ?: return null
+        if (entity == null) return null
         return ServiceSnapshot(
             serviceId = meta.id,
             displayName = meta.displayName,
-            isEnabled = entity?.isEnabled ?: meta.isEnabledByDefault,
-            lastStatus = entity?.lastStatus?.let { runCatching { CheckInStatus.valueOf(it) }.getOrNull() },
-            lastReward = entity?.lastRewardType?.let {
+            isEnabled = entity.isEnabled,
+            lastStatus = entity.lastStatus?.let { runCatching { CheckInStatus.valueOf(it) }.getOrNull() },
+            lastReward = entity.lastRewardType?.let {
                 runCatching { Reward(RewardType.valueOf(it), entity.lastRewardAmount) }.getOrNull()
             },
-            lastMessage = entity?.lastMessage,
-            lastTimestamp = entity?.lastTimestamp
+            lastMessage = entity.lastMessage,
+            lastTimestamp = entity.lastTimestamp
         )
     }
 
@@ -95,7 +96,7 @@ class CheckInRepositoryImpl @Inject constructor(
             )
         )
         val existing = dao.getService(result.serviceId)
-        val isEnabled = existing?.isEnabled ?: metaById[result.serviceId]?.isEnabledByDefault ?: true
+        val isEnabled = existing?.isEnabled ?: false
         dao.upsertService(
             com.checky.app.data.local.entity.ServiceEntity(
                 serviceId = result.serviceId,

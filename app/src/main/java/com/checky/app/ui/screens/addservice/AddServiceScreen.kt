@@ -106,7 +106,9 @@ private fun AddServiceContent(
                 )
             }
             items(supported, key = { it.id }) { meta ->
-                val enabled = enabledById[meta.id] ?: meta.isEnabledByDefault
+                // A catalog default is only a presentation hint. It must not
+                // select an account before the user explicitly enables it.
+                val enabled = enabledById[meta.id] ?: false
                 ProviderRow(
                     meta = meta,
                     enabled = enabled,

@@ -1,0 +1,37 @@
+package com.checky.app.domain
+
+import com.checky.app.domain.model.CredentialType
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ProviderConnectionGateTest {
+    @Test
+    fun credentialRequiredProviderIsBlockedWithoutCredential() = runTest {
+        val provider = fakeProvider("auth", CredentialType.SESSION_TOKEN)
+        assertFalse(ProviderConnectionGate.isConnected(provider, FakeCredentialStore()))
+    }
+
+    @Test
+    fun credentialRequiredProviderIsAllowedWithCredential() = runTest {
+        val store = FakeCredentialStore()
+        store.save("auth", "synthetic")
+        assertTrue(ProviderConnectionGate.isConnected(fakeProvider("auth", CredentialType.SESSION_TOKEN), store))
+    }
+
+    @Test
+    fun credentialFreeProviderIsAllowedWithoutCredential() = runTest {
+        assertTrue(ProviderConnectionGate.isConnected(fakeProvider("public", CredentialType.NONE), FakeCredentialStore()))
+    }
+
+    private fun fakeProvider(id: String, credentialType: CredentialType) = object : CheckInProvider {
+        override val meta = com.checky.app.domain.model.ProviderMeta(
+            id, id, "", "", "", 0L, false, credentialType = credentialType
+        )
+        override fun checkIn(): Flow<CheckInEvent> = emptyFlow()
+        override suspend fun validateCredentials(secret: String) = CredentialValidation.Valid
+    }
+}

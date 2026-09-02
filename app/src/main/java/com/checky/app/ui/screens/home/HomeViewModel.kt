@@ -8,11 +8,14 @@ import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.ProviderMeta
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,11 +30,20 @@ class HomeViewModel @Inject constructor(
     private val repository: CheckInRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val checkInAllUseCase: CheckInAllUseCase,
+    private val credentialStore: CredentialStore,
     private val providers: @JvmSuppressWildcards List<CheckInProvider>,
     val metas: @JvmSuppressWildcards List<ProviderMeta>
 ) : ViewModel() {
 
+    private val connectionRefresh = MutableStateFlow(0)
+
     val services = repository.observeServices()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Services selected by the user and backed by a currently connected account. */
+    val connectedServices = services
+        .combine(connectionRefresh) { list, _ -> list }
+        .map { list -> list.filter { service -> isConnected(service.serviceId) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Eagerly-collected preferences so run mode is always current without suspension. */
@@ -50,9 +62,9 @@ class HomeViewModel @Inject constructor(
     /** Run every enabled provider ("Check in all"). */
     fun checkInAll() {
         if (_progress.value is CheckInAllProgress.Running) return
-        val targets = enabledProviders()
-        if (targets.isEmpty()) return
         runningJob = viewModelScope.launch {
+            val targets = enabledProviders()
+            if (targets.isEmpty()) return@launch
             val parallel = prefs.value.runMode == RunMode.PARALLEL
             checkInAllUseCase(targets, parallel = parallel).collect { _progress.value = it }
         }
@@ -63,6 +75,7 @@ class HomeViewModel @Inject constructor(
         if (_progress.value is CheckInAllProgress.Running) return
         val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return
         runningJob = viewModelScope.launch {
+            if (!isConnected(serviceId)) return@launch
             checkInAllUseCase(listOf(provider), parallel = false).collect { _progress.value = it }
         }
     }
@@ -78,12 +91,21 @@ class HomeViewModel @Inject constructor(
         _progress.value = null
     }
 
+    fun refreshConnections() {
+        connectionRefresh.value++
+    }
+
     fun setEnabled(serviceId: String, enabled: Boolean) {
         viewModelScope.launch { repository.setEnabled(serviceId, enabled) }
     }
 
-    private fun enabledProviders(): List<CheckInProvider> {
+    private suspend fun enabledProviders(): List<CheckInProvider> {
         val enabled = services.value.filter { it.isEnabled }.map { it.serviceId }.toSet()
-        return providers.filter { it.meta.id in enabled }
+        return providers.filter { it.meta.id in enabled && isConnected(it.meta.id) }
+    }
+
+    private suspend fun isConnected(serviceId: String): Boolean {
+        val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return false
+        return ProviderConnectionGate.isConnected(provider, credentialStore)
     }
 }
