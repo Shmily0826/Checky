@@ -119,6 +119,39 @@ class SettingsViewModelTest {
         }
     }
 
+    private fun currentWork(uniqueName: String): androidx.work.WorkInfo =
+        WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(uniqueName)
+            .get(10, TimeUnit.SECONDS)
+            .single()
+
+    private fun awaitReplacement(uniqueName: String, previousId: UUID): androidx.work.WorkInfo {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (true) {
+            val work = currentWork(uniqueName)
+            if (work.id != previousId) return work
+            if (System.currentTimeMillis() >= deadline) {
+                throw AssertionError("Timed out waiting for replacement: $uniqueName")
+            }
+            Thread.sleep(25)
+        }
+    }
+
+    private fun awaitWorkState(
+        uniqueName: String,
+        state: androidx.work.WorkInfo.State
+    ): androidx.work.WorkInfo {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (true) {
+            val work = currentWork(uniqueName)
+            if (work.state == state) return work
+            if (System.currentTimeMillis() >= deadline) {
+                throw AssertionError("Timed out waiting for $uniqueName to become $state")
+            }
+            Thread.sleep(25)
+        }
+    }
+
     @Test
     fun setThemeModePersists() {
         val vm = buildVm()
@@ -148,17 +181,28 @@ class SettingsViewModelTest {
 
         vm.setReminderEnabled(false)
         assertFalse(awaitPref { !it.reminderEnabled }.reminderEnabled)
+        assertEquals(
+            androidx.work.WorkInfo.State.CANCELLED,
+            awaitWorkState("checky_daily_reminder", androidx.work.WorkInfo.State.CANCELLED).state
+        )
     }
 
     @Test
     fun setReminderTimePersistsAndReschedulesWhenEnabled() {
         val vm = buildVm()
 
+        vm.setReminderEnabled(true)
+        awaitWork("checky_daily_reminder")
+        val first = currentWork("checky_daily_reminder")
+
         vm.setReminderTime(7, 45)
 
         val prefs = awaitPref { it.reminderHour == 7 && it.reminderMinute == 45 }
         assertEquals(7, prefs.reminderHour)
         assertEquals(45, prefs.reminderMinute)
+        val second = awaitReplacement("checky_daily_reminder", first.id)
+        assertTrue(first.id != second.id)
+        assertEquals(androidx.work.WorkInfo.State.ENQUEUED, second.state)
     }
 
     @Test
@@ -173,6 +217,27 @@ class SettingsViewModelTest {
         assertEquals(5, prefs.autoCheckInHour)
         assertEquals(30, prefs.autoCheckInMinute)
         awaitWork("checky_auto_checkin")
+    }
+
+    @Test
+    fun changingEnabledAutoCheckInTimeReplacesPeriodicRequest() {
+        val vm = buildVm()
+
+        vm.setAutoCheckInEnabled(true)
+        awaitWork("checky_auto_checkin")
+        val first = currentWork("checky_auto_checkin")
+
+        vm.setAutoCheckInTime(5, 30)
+        val second = awaitReplacement("checky_auto_checkin", first.id)
+
+        assertTrue(first.id != second.id)
+        assertEquals(androidx.work.WorkInfo.State.ENQUEUED, second.state)
+
+        vm.setAutoCheckInEnabled(false)
+        assertEquals(
+            androidx.work.WorkInfo.State.CANCELLED,
+            awaitWorkState("checky_auto_checkin", androidx.work.WorkInfo.State.CANCELLED).state
+        )
     }
 
     @Test

@@ -67,7 +67,10 @@ class AutoCheckInWorker(
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 UNIQUE_WORK,
-                ExistingPeriodicWorkPolicy.UPDATE,
+                // The target is a wall-clock time. UPDATE preserves the
+                // existing periodic work's enqueue time, so a changed target
+                // could otherwise retain the old cycle.
+                ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
                 request
             )
         }

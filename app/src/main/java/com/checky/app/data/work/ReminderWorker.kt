@@ -45,7 +45,9 @@ class ReminderWorker(
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 UNIQUE_WORK,
-                ExistingPeriodicWorkPolicy.UPDATE,
+                // The target is a wall-clock time; reset the periodic cycle
+                // when the user changes it.
+                ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
                 request
             )
         }

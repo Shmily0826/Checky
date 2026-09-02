@@ -54,7 +54,9 @@ DataStore, Coroutines/Flow, Hilt.
 The opt-in `AutoCheckInWorker`, including the home-screen widget entry point,
 uses the same connection gate before invoking the use case. A catalog default or
 an enabled Room row alone is never sufficient to execute a credential-required
-provider.
+provider. Its daily WorkManager request is rebuilt when the wall-clock target
+changes; WorkManager provides an earliest eligible time rather than exact-alarm
+delivery, so Android may still run it later.
 
 ### Connect flow (credentials)
 

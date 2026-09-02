@@ -5,7 +5,7 @@
 Recorded 2026-09-02 on Windows with JDK 17 (Temurin 17.0.19) and the
 repository's Gradle 9.5.0 wrapper:
 
-- `:app:testDebugUnitTest`: **153 tests, 0 failures, 0 errors, 0 skipped**.
+- `:app:testDebugUnitTest`: **154 tests, 0 failures, 0 errors, 0 skipped**.
   The count is the sum of the 21 XML result suites below.
 - `:app:assembleDebug`: passed.
 - `:app:lintDebug`: passed, 16 warnings and 0 errors.
@@ -50,8 +50,8 @@ current availability guarantees.
 | `ui.screens.history.HistoryViewModelTest` | 2 | passed |
 | `ui.screens.home.HomeViewModelTest` | 6 | passed |
 | `ui.screens.provider.ProviderDetailsViewModelTest` | 4 | passed |
-| `ui.screens.settings.SettingsViewModelTest` | 8 | passed |
-| **Total** | **153** | **0 failures/errors/skipped** |
+| `ui.screens.settings.SettingsViewModelTest` | 9 | passed |
+| **Total** | **154** | **0 failures/errors/skipped** |
 
 The provider count is four actual `CheckInProvider` integrations: Miyoushe
 Genshin, Miyoushe community, Taygedo NTE game, and Taygedo community. QR, SMS,

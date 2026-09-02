@@ -39,11 +39,12 @@ apps and services into one friendly dashboard, then triggers them with one tap.
 - Credentials use the **Keystore-backed encrypted** implementation. The
   in-memory mock store remains available for JVM tests only.
 - Optional daily **reminder** via WorkManager, plus an explicitly opt-in
-  background auto-check-in schedule for enabled providers. Android may run it
-  later than the selected time.
+  background auto-check-in schedule for selected and connected providers. A
+  changed wall-clock target rebuilds the periodic request; Android may still
+  run it later than the selected time because WorkManager is not an exact alarm.
 - Genshin roles are auto-fetched from the miyoushe binding API after QR
   connect; manual UID entry is only a fallback.
-- Current validation (2026-09-02): 153 JVM tests passed with 0 failures,
+- Current validation (2026-09-02): 154 JVM tests passed with 0 failures,
   errors, or skips; `assembleDebug` passed; `lintDebug` passed with 16 warnings
   and 0 errors. Targeted API 34 emulator UI checks passed for fresh-install and
   unconnected states. The full `connectedDebugAndroidTest` suite timed out and
