@@ -37,7 +37,10 @@ DataStore, Coroutines/Flow, Hilt.
 
 ### "Check in all" (orchestration)
 
-1. `HomeViewModel.checkInAll()` filters providers to those **enabled** in Room.
+1. `HomeViewModel.checkInAll()` filters providers to those **selected** in Room
+   and currently **connected/executable**. Credential-required providers must
+   have a stored credential; SMS providers must report a local session; a
+   credential-free provider may run without a credential.
 2. It reads the user's **run mode**: `PARALLEL` (semaphore-limited to 3) or `SEQUENTIAL`.
 3. `CheckInAllUseCase.invoke(providers, parallel)`:
    - sets an `AtomicBoolean` guard → duplicate triggers are ignored;
@@ -47,6 +50,11 @@ DataStore, Coroutines/Flow, Hilt.
    - cancellation propagates cleanly and persists nothing;
    - finishes with one `CheckInAllProgress.Finished(states, summary)` (points/XP/membership days/durations).
 4. Home renders live progress per service card and a final summary banner; individual **Retry** (FAILED) and **Reconnect → Connect screen** (LOGIN_EXPIRED) actions are available per card.
+
+The opt-in `AutoCheckInWorker`, including the home-screen widget entry point,
+uses the same connection gate before invoking the use case. A catalog default or
+an enabled Room row alone is never sufficient to execute a credential-required
+provider.
 
 ### Connect flow (credentials)
 
@@ -71,4 +79,4 @@ DataStore, Coroutines/Flow, Hilt.
 ## Testing strategy
 
 - **JVM unit tests** (deterministic, `runTest` + fake stores/repos): use-case orchestration (all-providers, continue-on-failure, sequential mode, duplicate guard, cancellation), experimental-provider response mapping, malformed-state fail-closed behavior, browse-task allowlisting, credential lifecycle + isolation + delete-all, redaction, host allowlist, Room DAO (Robolectric), both DataStore-backed preference stores, and ViewModel state transitions. These do not verify live third-party accounts.
-- **Instrumented tests** (run on device/emulator): Room persistence + v1→v2 migration, and an onboarding → dashboard → catalog UI smoke flow that never triggers real mutations.
+- **Instrumented tests** (run on device/emulator): Room persistence + v1→v2 migration, and an onboarding → dashboard → catalog UI smoke flow that never triggers real mutations. The targeted API 34 emulator acceptance passed for fresh-install and unconnected Home states; the full connected suite currently remains unverified after a timeout.

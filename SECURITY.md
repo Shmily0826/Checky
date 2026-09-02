@@ -16,8 +16,10 @@ trusts, what it protects, and what it deliberately refuses to do.
 | Other apps on the device | ❌ No | Checky never reads another app's credentials, never uses AccessibilityService, never controls other apps. |
 | Advertisers / analytics | ❌ No | No analytics, no crash reporting, no ads, no trackers. |
 
-The user is always in control: check-ins are **deterministic actions initiated
-explicitly by the user** from the Checky UI. Nothing runs silently.
+The user is always in control: foreground check-ins are deterministic actions
+initiated explicitly from the Checky UI. A separate background schedule exists
+only after explicit opt-in and still runs only providers that pass the
+selected-and-connected execution gate.
 
 ## 2. Data inventory
 
@@ -74,7 +76,8 @@ providers: Miyoushe Genshin sign-in, Miyoushe community sign-in, Taygedo NTE
 game sign-in, and Taygedo community sign-in. Dated live verification for these
 four providers, plus associated login/session and fail-closed checks, is
 recorded in `TEST_REPORT.md`; it is evidence for that tested scope and date,
-not a guarantee of continued upstream availability.
+not a guarantee of continued upstream availability. The latest emulator
+acceptance did not perform live Provider authentication or mutation.
 
 All providers store credentials locally and do not implement likes, comments,
 shares, follows, posts, redemptions, CAPTCHA handling, or risk-control

@@ -26,12 +26,14 @@ apps and services into one friendly dashboard, then triggers them with one tap.
 
 ## Current status
 
-- **Four real providers, all live-verified** (2026-08-30, on emulator with the
-  owner's accounts): Miyoushe Genshin sign-in, Miyoushe community sign-in,
-  Taygedo NTE game sign-in, and Taygedo community sign-in (APP + section).
-  They use non-official HTTP surfaces, may stop working after platform
-  changes, and perform no likes, comments, shares, redemptions, CAPTCHA
-  handling, or risk-control workarounds.
+- **Four implemented production providers**: Miyoushe Genshin sign-in,
+  Miyoushe community sign-in, Taygedo NTE game sign-in, and Taygedo community
+  sign-in (APP + section). Historical live verification of these four flows was
+  recorded on 2026-08-30 using the owner's accounts; it is date- and
+  account-scoped evidence, not a current availability guarantee. They use
+  non-official HTTP surfaces, may stop working after platform changes, and
+  perform no likes, comments, shares, redemptions, CAPTCHA handling, or
+  risk-control workarounds.
 - No cloud account, no sync, no remote credential storage, no analytics.
 - High-risk providers (UI automation) are out of scope entirely.
 - Credentials use the **Keystore-backed encrypted** implementation. The
@@ -41,6 +43,11 @@ apps and services into one friendly dashboard, then triggers them with one tap.
   later than the selected time.
 - Genshin roles are auto-fetched from the miyoushe binding API after QR
   connect; manual UID entry is only a fallback.
+- Current validation (2026-09-02): 153 JVM tests passed with 0 failures,
+  errors, or skips; `assembleDebug` passed; `lintDebug` passed with 16 warnings
+  and 0 errors. Targeted API 34 emulator UI checks passed for fresh-install and
+  unconnected states. The full `connectedDebugAndroidTest` suite timed out and
+  remains unverified.
 
 ## Setup & build
 
@@ -96,8 +103,7 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 1. Release hardening: signed release build from an untracked `keystore.properties`
    (falls back to the debug key without it), `lint` baseline, and CI.
 2. CI matrix: `Unit tests & lint` (`testDebugUnitTest`, `assembleRelease`,
-   `lintRelease`) plus `Instrumented tests (API 34 emulator)`
-   (`connectedDebugAndroidTest` + a release-APK R8 smoke check).
+   `lintRelease`) plus an instrumented-test job targeting an API 34 emulator.
 3. Instrumented coverage for the **Keystore credential store**.
 4. Background auto-check-in (opt-in, 24 h periodic), auto-retry and reconnect
    notifications, history heatmap, and a home-screen widget.
