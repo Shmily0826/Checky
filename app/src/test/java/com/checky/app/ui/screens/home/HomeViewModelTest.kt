@@ -6,11 +6,15 @@ import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.FakeCheckInRepository
 import com.checky.app.domain.ScriptedCheckInProvider
 import com.checky.app.domain.testProviderMeta
+import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.CheckInStatus
 import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RewardType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -44,8 +48,6 @@ class HomeViewModelTest {
     @Test
     fun checkInAllTransitionsThroughRunningThenFinished() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val repo = FakeCheckInRepository()
-        val useCase = CheckInAllUseCase(repo)
         val providers = listOf(
             ScriptedCheckInProvider(
                 testProviderMeta("alpha"),
@@ -58,6 +60,8 @@ class HomeViewModelTest {
                 reward = Reward(RewardType.EXPERIENCE, 5)
             )
         )
+        val repo = FakeCheckInRepository(providers.map { service(it.meta.id) })
+        val useCase = CheckInAllUseCase(repo)
         val vm = HomeViewModel(
             repository = repo,
             userPreferencesRepository = prefsRepo(this),
@@ -65,18 +69,21 @@ class HomeViewModelTest {
             providers = providers,
             metas = providers.map { it.meta }
         )
+        backgroundScope.launch { vm.services.collect {} }
+        advanceUntilIdle()
 
         val events = mutableListOf<CheckInAllProgress>()
         val collector = backgroundScope.launch {
             vm.progress.collect { it?.let(events::add) }
         }
+        val finishedProgress = async { vm.progress.first { it is CheckInAllProgress.Finished } }
 
         vm.checkInAll()
         advanceUntilIdle()
 
         // Transitions: at least one Running snapshot, then a Finished summary.
         assertTrue(events.any { it is CheckInAllProgress.Running })
-        val finished = events.last() as CheckInAllProgress.Finished
+        val finished = finishedProgress.await() as CheckInAllProgress.Finished
         assertEquals(2, finished.summary.total)
         assertEquals(1, finished.summary.succeeded)
         assertEquals(1, finished.summary.alreadyCheckedIn)
@@ -89,8 +96,6 @@ class HomeViewModelTest {
     @Test
     fun retrySingleProviderRunsOnlyThatProvider() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val repo = FakeCheckInRepository()
-        val useCase = CheckInAllUseCase(repo)
         val providers = listOf(
             ScriptedCheckInProvider(
                 testProviderMeta("alpha"),
@@ -103,6 +108,8 @@ class HomeViewModelTest {
                 reward = Reward(RewardType.EXPERIENCE, 5)
             )
         )
+        val repo = FakeCheckInRepository(providers.map { service(it.meta.id) })
+        val useCase = CheckInAllUseCase(repo)
         val vm = HomeViewModel(
             repository = repo,
             userPreferencesRepository = prefsRepo(this),
@@ -110,6 +117,8 @@ class HomeViewModelTest {
             providers = providers,
             metas = providers.map { it.meta }
         )
+        backgroundScope.launch { vm.services.collect {} }
+        advanceUntilIdle()
 
         vm.retry(providers.first().meta.id)
         advanceUntilIdle()
@@ -123,8 +132,6 @@ class HomeViewModelTest {
     @Test
     fun cancelCheckInAllClearsState() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val repo = FakeCheckInRepository()
-        val useCase = CheckInAllUseCase(repo)
         val providers = listOf(
             ScriptedCheckInProvider(
                 testProviderMeta("alpha"),
@@ -137,6 +144,8 @@ class HomeViewModelTest {
                 delayMs = 1_000
             )
         )
+        val repo = FakeCheckInRepository(providers.map { service(it.meta.id) })
+        val useCase = CheckInAllUseCase(repo)
         val vm = HomeViewModel(
             repository = repo,
             userPreferencesRepository = prefsRepo(this),
@@ -144,6 +153,8 @@ class HomeViewModelTest {
             providers = providers,
             metas = providers.map { it.meta }
         )
+        backgroundScope.launch { vm.services.collect {} }
+        advanceUntilIdle()
 
         val events = mutableListOf<CheckInAllProgress>()
         val collector = backgroundScope.launch {
@@ -163,6 +174,29 @@ class HomeViewModelTest {
         collector.cancel()
     }
 
+    @Test
+    fun checkInAllDoesNotRunProvidersBeforeServicesLoad() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repo = FakeCheckInRepository()
+        val provider = com.checky.app.domain.SequenceCheckInProvider(
+            meta = testProviderMeta("not-loaded"),
+            com.checky.app.domain.model.CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
+        )
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo),
+            providers = listOf(provider),
+            metas = listOf(provider.meta)
+        )
+
+        vm.checkInAll()
+        advanceUntilIdle()
+
+        assertEquals(0, provider.attempts)
+        assertNull(vm.progress.value)
+    }
+
     private fun prefsRepo(testScope: TestScope): UserPreferencesRepository {
         val file = File.createTempFile("checky_prefs", ".preferences_pb").apply { deleteOnExit() }
         val dataStore = PreferenceDataStoreFactory.create(
@@ -171,4 +205,14 @@ class HomeViewModelTest {
         )
         return UserPreferencesRepository(dataStore)
     }
+
+    private fun service(id: String) = ServiceSnapshot(
+        serviceId = id,
+        displayName = id,
+        isEnabled = true,
+        lastStatus = null,
+        lastReward = null,
+        lastMessage = null,
+        lastTimestamp = null
+    )
 }

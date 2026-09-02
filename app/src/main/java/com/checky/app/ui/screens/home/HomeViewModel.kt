@@ -84,8 +84,6 @@ class HomeViewModel @Inject constructor(
 
     private fun enabledProviders(): List<CheckInProvider> {
         val enabled = services.value.filter { it.isEnabled }.map { it.serviceId }.toSet()
-        val filtered = providers.filter { it.meta.id in enabled }
-        // Before the service list loads, fall back to all providers.
-        return if (filtered.isEmpty() && services.value.isEmpty()) providers else filtered
+        return providers.filter { it.meta.id in enabled }
     }
 }

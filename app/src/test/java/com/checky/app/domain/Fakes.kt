@@ -13,11 +13,13 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 
 /** Minimal in-memory fake used by the check-in flow tests. */
-class FakeCheckInRepository : CheckInRepository {
+class FakeCheckInRepository(
+    private val initialServices: List<ServiceSnapshot> = emptyList()
+) : CheckInRepository {
     val saved = mutableListOf<CheckInResult>()
 
     override fun observeRecords(): Flow<List<CheckInRecord>> = flowOf(emptyList())
-    override fun observeServices(): Flow<List<ServiceSnapshot>> = flowOf(emptyList())
+    override fun observeServices(): Flow<List<ServiceSnapshot>> = flowOf(initialServices)
     override suspend fun getService(id: String): ServiceSnapshot? = null
     override suspend fun setEnabled(serviceId: String, enabled: Boolean) {}
     override suspend fun saveResult(result: CheckInResult) {

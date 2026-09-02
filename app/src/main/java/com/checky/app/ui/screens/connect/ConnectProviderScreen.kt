@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +43,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -104,6 +106,7 @@ fun ConnectProviderScreen(
     val smsSent by viewModel.smsSent.collectAsStateWithLifecycle()
     val smsBusy by viewModel.smsBusy.collectAsStateWithLifecycle()
     val isMiyousheCommunity = meta?.id == "miyoushe_community_signin"
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -266,7 +269,7 @@ fun ConnectProviderScreen(
                         }
                     }
                     OutlinedButton(
-                        onClick = viewModel::deleteCredentials,
+                        onClick = { showDeleteConfirmation = true },
                         modifier = Modifier.fillMaxWidth(),
                         colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
                             contentColor = MaterialTheme.colorScheme.error
@@ -453,6 +456,23 @@ fun ConnectProviderScreen(
                 }
             }
         }
+    }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text("Delete credentials?") },
+            text = { Text("This removes the saved connection from this device. You can connect again later.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirmation = false
+                    viewModel.deleteCredentials()
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

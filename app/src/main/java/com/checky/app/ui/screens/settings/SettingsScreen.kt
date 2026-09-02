@@ -110,6 +110,8 @@ private fun SettingsContent(
     val context = LocalContext.current
     var showTimePicker by remember { mutableStateOf(false) }
     var showAutoTimePicker by remember { mutableStateOf(false) }
+    var showClearHistoryConfirmation by remember { mutableStateOf(false) }
+    var showDeleteCredentialsConfirmation by remember { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -236,11 +238,11 @@ private fun SettingsContent(
             }
 
             SectionTitle("Data")
-            OutlinedButton(onClick = onClearHistory, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { showClearHistoryConfirmation = true }, modifier = Modifier.fillMaxWidth()) {
                 Text("Clear check-in history")
             }
             OutlinedButton(
-                onClick = onDeleteCredentials,
+                onClick = { showDeleteCredentialsConfirmation = true },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) {
@@ -304,6 +306,40 @@ private fun SettingsContent(
             onConfirm = { h, m ->
                 onAutoCheckInTime(h, m)
                 showAutoTimePicker = false
+            }
+        )
+    }
+
+    if (showClearHistoryConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryConfirmation = false },
+            title = { Text("Clear check-in history?") },
+            text = { Text("This permanently removes the saved check-in results from this device.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearHistoryConfirmation = false
+                    onClearHistory()
+                }) { Text("Clear") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryConfirmation = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showDeleteCredentialsConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteCredentialsConfirmation = false },
+            title = { Text("Delete all credentials?") },
+            text = { Text("This removes every saved provider connection from this device.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteCredentialsConfirmation = false
+                    onDeleteCredentials()
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteCredentialsConfirmation = false }) { Text("Cancel") }
             }
         )
     }

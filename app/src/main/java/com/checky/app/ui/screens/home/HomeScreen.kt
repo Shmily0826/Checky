@@ -229,6 +229,29 @@ private fun HomeContent(
                 }
             }
 
+            if (cards.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("No services connected", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Connect a service to enable daily check-ins.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Button(onClick = onAddService) { Text("Add service") }
+                        }
+                    }
+                }
+            }
+
             items(cards, key = { it.serviceId }) { card ->
                 ServiceCard(
                     meta = card.meta,
@@ -306,7 +329,7 @@ private fun CheckInAllButton(
         Column(modifier = Modifier.padding(16.dp)) {
             Button(
                 onClick = onClick,
-                enabled = !isRunning,
+                enabled = !isRunning && total > 0,
                 modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
                 Text(

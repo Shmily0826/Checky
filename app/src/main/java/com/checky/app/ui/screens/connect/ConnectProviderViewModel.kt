@@ -337,6 +337,7 @@ class ConnectProviderViewModel @Inject constructor(
             _gameUid.value = ""
             _smsSent.value = false
             _smsCode.value = ""
+            _error.value = null
         }
     }
 
