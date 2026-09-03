@@ -122,6 +122,40 @@ distinguishes that case, and no reduced-session mutation was attempted. The
 raw QR response was not retained, so this run does not expand the narrow
 fail-closed parser contract or claim a newly observed response schema.
 
+## 2026-09-03 lifecycle scheduling verification
+
+On the `Medium_Phone` API 37 x86_64 emulator (`emulator-5554`), a temporary
+test-only harness scheduled one future `checky_auto_checkin` periodic request
+while the persisted global auto-check-in opt-in remained disabled. The direct
+isolated WorkManager schedule/change/cancel method passed. After a host-side
+background process kill, the Checky JobScheduler entry remained registered; an
+explicit relaunch restored the app process without creating a duplicate unique
+request. A host-side `am force-stop com.checky.app` removed the JobScheduler
+entry, and an explicit launch caused WorkManager to register the same unique
+work again. This is Android force-stop behavior, not an app-start reconciliation
+implemented by Checky.
+
+For an ordinary reboot with no force-stop immediately before reboot, the
+pre-reboot entry was `JOB #u0a238/4 ... com.checky.app/...SystemJobService`.
+After `boot_completed=1`, without launching `MainActivity`, six host polls at
+10-second intervals all reported `stopped=false`/`notLaunched=false` and the
+same Checky JobScheduler entry. This proves WorkManager reboot rescheduling on
+this emulator; it does not prove exact wall-clock firing. The merged manifest
+shows WorkManager's `RescheduleReceiver` for `BOOT_COMPLETED`, `TIME_SET`, and
+`TIMEZONE_CHANGED`, plus package-replacement handling. Checky itself declares no
+custom boot, time, or package receiver and has no explicit startup scheduling
+reconciliation.
+
+Source review found no demonstrated need to add reconciliation: disabled
+preferences are rechecked by the worker (and stale work is cancelled by
+Settings), changed times use `CANCEL_AND_REENQUEUE`, and WorkManager owns
+process-death/reboot restoration. The theoretical state “enabled preference,
+missing work” after an interrupted settings coroutine was not reproduced and
+remains an unverified recoverability edge, not a proven defect. No Provider
+traffic, credentials, authentication, or check-in mutation was used. Xiaomi/
+HyperOS, physical-device, exact-alarm, and OEM battery-policy behavior remain
+unverified.
+
 ## Instrumented tests
 
 The repository contains 16 instrumented test methods across Room persistence,
