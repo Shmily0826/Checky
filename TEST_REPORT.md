@@ -156,6 +156,14 @@ traffic, credentials, authentication, or check-in mutation was used. Xiaomi/
 HyperOS, physical-device, exact-alarm, and OEM battery-policy behavior remain
 unverified.
 
+The current Settings copy now makes the OS execution boundary explicit:
+configured automatic check-in does not guarantee background execution, and
+Xiaomi/HyperOS users may need to enable Autostart and unrestricted battery use
+manually. No manufacturer-private intent or background-policy bypass is
+implemented. A rebuilt APK was checked on the generic emulator with
+UIAutomator: Settings rendered the guidance text in a bounded scrollable
+content area (`[189,1221][859,1557]`), with no provider state changes.
+
 ## Instrumented tests
 
 The repository contains 16 instrumented test methods across Room persistence,

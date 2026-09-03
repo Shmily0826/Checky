@@ -191,7 +191,7 @@ private fun SettingsContent(
                         Spacer(Modifier.padding(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Automatic check-in", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Experimental: runs enabled providers in the background. The MiYouShe provider is unofficial, high risk, and for your own account only.", style = MaterialTheme.typography.bodySmall)
+                            Text("Experimental: runs enabled providers in the background. Android and device manufacturers may delay or block background work. On Xiaomi/HyperOS, you may need to allow Autostart and set battery use to No restrictions. The MiYouShe provider is unofficial, high risk, and for your own account only.", style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(checked = prefs.autoCheckInEnabled, onCheckedChange = onAutoCheckInEnabled)
                     }

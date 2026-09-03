@@ -42,9 +42,12 @@ apps and services into one friendly dashboard, then triggers them with one tap.
   background auto-check-in schedule for selected and connected providers. A
   changed wall-clock target rebuilds the periodic request; Android may still
   run it later than the selected time because WorkManager is not an exact alarm.
+  Android or OEM background restrictions can delay or block execution; Xiaomi/
+  HyperOS users may need to allow Autostart and choose unrestricted battery use
+  manually in system settings.
 - Genshin roles are auto-fetched from the miyoushe binding API after QR
   connect; manual UID entry is only a fallback.
-- Current validation (2026-09-02): 154 JVM tests passed with 0 failures,
+- Current validation (2026-09-03): 164 JVM tests passed with 0 failures,
   errors, or skips; `assembleDebug` passed; `lintDebug` passed with 16 warnings
   and 0 errors. Targeted API 34 emulator UI checks passed for fresh-install and
   unconnected states. The full `connectedDebugAndroidTest` suite timed out and
