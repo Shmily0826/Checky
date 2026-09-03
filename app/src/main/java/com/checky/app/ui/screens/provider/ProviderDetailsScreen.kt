@@ -25,6 +25,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +33,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.checky.app.data.model.ServiceSnapshot
@@ -51,12 +55,22 @@ fun ProviderDetailsScreen(
     navController: NavHostController,
     viewModel: ProviderDetailsViewModel = hiltViewModel()
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshConnection()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val service by viewModel.service.collectAsStateWithLifecycle()
+    val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
     val meta = viewModel.meta
     ProviderDetailsContent(
         navController = navController,
         meta = meta,
         service = service,
+        isConnected = isConnected,
         onToggle = viewModel::setEnabled,
         onManageConnection = { navController.navigate("connect/$it") }
     )
@@ -65,12 +79,16 @@ fun ProviderDetailsScreen(
 private fun formatTime(ts: Long?): String =
     if (ts == null) "—" else SimpleDateFormat("MMM d · HH:mm", Locale.getDefault()).format(Date(ts))
 
+internal fun connectionActionLabel(isConnected: Boolean): String =
+    if (isConnected) "Manage connection" else "Reconnect"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProviderDetailsContent(
     navController: NavHostController,
     meta: ProviderMeta?,
     service: ServiceSnapshot?,
+    isConnected: Boolean,
     onToggle: (Boolean) -> Unit,
     onManageConnection: (String) -> Unit
 ) {
@@ -90,7 +108,7 @@ private fun ProviderDetailsContent(
             Text("Unknown service", modifier = Modifier.padding(24.dp))
             return@Scaffold
         }
-        val status = service?.lastStatus ?: CheckInStatus.PENDING
+        val lastCheckInStatus = service?.lastStatus ?: CheckInStatus.PENDING
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -112,7 +130,15 @@ private fun ProviderDetailsContent(
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Status", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        StatusChip(status = status)
+                        Text(
+                            if (isConnected) "Connected" else "Not connected",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Last check-in", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        StatusChip(status = lastCheckInStatus)
                     }
                     val lastMessage = service?.lastMessage
                     if (!lastMessage.isNullOrBlank()) {
@@ -139,7 +165,7 @@ private fun ProviderDetailsContent(
             if (meta.credentialType != com.checky.app.domain.model.CredentialType.NONE) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = { onManageConnection(meta.id) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    Text(if (status == CheckInStatus.LOGIN_EXPIRED) "Reconnect" else "Manage connection")
+                    Text(connectionActionLabel(isConnected))
                 }
             }
         }
@@ -154,6 +180,7 @@ private fun ProviderDetailsPreview() {
             navController = rememberNavController(),
             meta = com.checky.app.ui.preview.PreviewProviderMetas[1],
             service = com.checky.app.ui.preview.previewSnapshots()[1],
+            isConnected = true,
             onToggle = {},
             onManageConnection = {}
         )

@@ -4,7 +4,13 @@ import androidx.lifecycle.SavedStateHandle
 import com.checky.app.data.model.CheckInRecord
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.data.repository.CheckInRepository
+import com.checky.app.domain.FakeCredentialStore
+import com.checky.app.domain.SequenceCheckInProvider
 import com.checky.app.domain.model.CheckInResult
+import com.checky.app.domain.model.CheckInOutcome
+import com.checky.app.domain.model.CheckInStatus
+import com.checky.app.domain.model.Reward
+import com.checky.app.domain.model.RewardType
 import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +25,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -38,6 +45,8 @@ class ProviderDetailsViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = ProviderDetailsViewModel(
             repository = DetailsFakeRepository(),
+            credentialStore = FakeCredentialStore(),
+            providers = emptyList(),
             metas = listOf(TaygedoNteProvider.META, TaygedoCommunityProvider.META),
             savedStateHandle = SavedStateHandle(mapOf("serviceId" to "taygedo_nte"))
         )
@@ -49,6 +58,8 @@ class ProviderDetailsViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = ProviderDetailsViewModel(
             repository = DetailsFakeRepository(),
+            credentialStore = FakeCredentialStore(),
+            providers = emptyList(),
             metas = listOf(TaygedoNteProvider.META),
             savedStateHandle = SavedStateHandle(mapOf("serviceId" to "nope"))
         )
@@ -61,6 +72,8 @@ class ProviderDetailsViewModelTest {
         val repo = DetailsFakeRepository()
         val vm = ProviderDetailsViewModel(
             repository = repo,
+            credentialStore = FakeCredentialStore(),
+            providers = emptyList(),
             metas = listOf(TaygedoNteProvider.META, TaygedoCommunityProvider.META),
             savedStateHandle = SavedStateHandle(mapOf("serviceId" to "miyoushe_community_signin"))
         )
@@ -84,12 +97,50 @@ class ProviderDetailsViewModelTest {
         val repo = DetailsFakeRepository()
         val vm = ProviderDetailsViewModel(
             repository = repo,
+            credentialStore = FakeCredentialStore(),
+            providers = emptyList(),
             metas = listOf(TaygedoNteProvider.META),
             savedStateHandle = SavedStateHandle(mapOf("serviceId" to "taygedo_nte"))
         )
         vm.setEnabled(false)
         advanceUntilIdle()
         assertEquals(listOf("taygedo_nte" to false), repo.enabledCalls)
+    }
+
+    @Test
+    fun historicalSuccessWithMissingCredentialIsDisconnectedAndReconnectable() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = SequenceCheckInProvider(
+            meta = TaygedoNteProvider.META,
+            CheckInOutcome.Success("historical", "SUCCESS", Reward(RewardType.POINTS, 10))
+        )
+        val repo = DetailsFakeRepository().also {
+            it.services.value = listOf(
+                snapshot("taygedo_nte", enabled = true).copy(lastStatus = CheckInStatus.SUCCESS)
+            )
+        }
+        val credentials = FakeCredentialStore()
+        val vm = ProviderDetailsViewModel(
+            repository = repo,
+            credentialStore = credentials,
+            providers = listOf(provider),
+            metas = listOf(TaygedoNteProvider.META),
+            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "taygedo_nte"))
+        )
+
+        val details = async { vm.service.first { it != null } }
+        val disconnected = async { vm.isConnected.first { !it } }
+        advanceUntilIdle()
+
+        assertEquals(CheckInStatus.SUCCESS, details.await()?.lastStatus)
+        assertFalse(disconnected.await())
+        assertEquals("Reconnect", connectionActionLabel(vm.isConnected.value))
+        assertEquals(0, provider.attempts)
+
+        credentials.save(provider.meta.id, "synthetic-test-secret")
+        vm.refreshConnection()
+        assertEquals(true, vm.isConnected.first { it })
+        assertEquals("Manage connection", connectionActionLabel(vm.isConnected.value))
     }
 
     private fun snapshot(id: String, enabled: Boolean) = ServiceSnapshot(

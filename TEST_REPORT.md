@@ -53,6 +53,22 @@ current availability guarantees.
 | `ui.screens.settings.SettingsViewModelTest` | 9 | passed |
 | **Total** | **154** | **0 failures/errors/skipped** |
 
+The recorded 2026-09-02 run above predates the current source inventory. A
+mechanical count of top-level `@Test` annotations in `app/src/test/java` is
+currently **160** after the `a658921` follow-up coverage and the
+`CHECKY-20260903-1401` Provider Details regression test. This task freshly ran
+the current 160-test `:app:testDebugUnitTest` suite successfully (Gradle
+`BUILD SUCCESSFUL`, exit 0) and `:app:assembleDebug` successfully; those fresh
+results are separate from the historical 154-test run recorded above.
+
+The successful JVM run also printed a non-fatal Robolectric/Room invalidation
+tracker background-teardown exception (`Illegal connection pointer`) after
+the test task completed. It did not change the exit code or test result. Its
+stack traces run through the existing Settings/ReminderWorker test harness,
+not the Provider Details changes; no Room production refactor is implied by
+this task. The run should therefore not be described as warning-free or
+exception-free.
+
 The provider count is four actual `CheckInProvider` integrations: Miyoushe
 Genshin, Miyoushe community, Taygedo NTE game, and Taygedo community. QR, SMS,
 game-role, parsing, and orchestration checks are capabilities or test scopes,
