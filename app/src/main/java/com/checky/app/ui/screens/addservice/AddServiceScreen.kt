@@ -61,7 +61,8 @@ fun AddServiceScreen(
         navController = navController,
         catalog = viewModel.catalog,
         enabledById = enabledById,
-        onToggle = viewModel::setEnabled
+        onToggle = viewModel::setEnabled,
+        onConnect = { id -> navController.navigate("connect/$id") }
     )
 }
 
@@ -71,7 +72,8 @@ private fun AddServiceContent(
     navController: NavHostController,
     catalog: List<ProviderMeta>,
     enabledById: Map<String, Boolean>,
-    onToggle: (String, Boolean) -> Unit
+    onToggle: (String, Boolean) -> Unit,
+    onConnect: (String) -> Unit
 ) {
     val supported = catalog.filter { it.supportStatus == SupportStatus.SUPPORTED }
     val notSupported = catalog.filter { it.supportStatus != SupportStatus.SUPPORTED }
@@ -113,7 +115,10 @@ private fun AddServiceContent(
                     meta = meta,
                     enabled = enabled,
                     locked = false,
-                    onToggle = { onToggle(meta.id, it) }
+                    onToggle = { onToggle(meta.id, it) },
+                    onConnect = if (meta.credentialType != CredentialType.NONE) {
+                        { onConnect(meta.id) }
+                    } else null
                 )
             }
             if (notSupported.isNotEmpty()) {
@@ -131,7 +136,7 @@ private fun AddServiceContent(
                     )
                 }
                 items(notSupported, key = { it.id }) { meta ->
-                    ProviderRow(meta = meta, enabled = false, locked = true, onToggle = {})
+                    ProviderRow(meta = meta, enabled = false, locked = true, onToggle = {}, onConnect = null)
                 }
             }
         }
@@ -143,7 +148,8 @@ private fun ProviderRow(
     meta: ProviderMeta,
     enabled: Boolean,
     locked: Boolean,
-    onToggle: (Boolean) -> Unit
+    onToggle: (Boolean) -> Unit,
+    onConnect: (() -> Unit)?
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -177,6 +183,14 @@ private fun ProviderRow(
                 MetaChip(connectionLabel(meta.connectionType), Color(0xFF2F6FED))
                 MetaChip(riskLabel(meta.riskLevel), riskColor(meta.riskLevel))
                 MetaChip(credentialLabel(meta.credentialType), Color(0xFF6B7280))
+            }
+            if (onConnect != null) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onConnect,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Connect / reconnect")
+                }
             }
         }
     }
@@ -240,7 +254,8 @@ private fun AddServicePreview() {
             navController = rememberNavController(),
             catalog = PreviewProviderMetas,
             enabledById = emptyMap(),
-            onToggle = { _, _ -> }
+            onToggle = { _, _ -> },
+            onConnect = {}
         )
     }
 }

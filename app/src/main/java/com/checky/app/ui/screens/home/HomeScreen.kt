@@ -52,19 +52,25 @@ import com.checky.app.ui.preview.previewSnapshots
 import com.checky.app.ui.theme.CheckyTheme
 import androidx.hilt.navigation.compose.hiltViewModel
 
+internal fun currentSummaryServices(
+    services: List<ServiceSnapshot>,
+    connectionById: Map<String, Boolean>
+): List<ServiceSnapshot> = services.filter { connectionById[it.serviceId] == true }
+
 @Composable
 fun HomeScreen(
     navController: NavHostController,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     LaunchedEffect(Unit) { viewModel.refreshConnections() }
-    val services by viewModel.connectedServices.collectAsStateWithLifecycle()
+    val homeServices by viewModel.homeServices.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val isRunning by viewModel.isRunning.collectAsStateWithLifecycle()
 
     HomeContent(
         navController = navController,
-        services = services,
+        services = homeServices.map { it.service },
+        connectionById = homeServices.associate { it.service.serviceId to it.isConnected },
         metas = viewModel.metas,
         progress = progress,
         isRunning = isRunning,
@@ -103,72 +109,65 @@ private fun HomeContent(
     onOpenService: (String) -> Unit,
     onReconnect: (String) -> Unit,
     onRetry: (String) -> Unit,
-    onAddService: () -> Unit
+    onAddService: () -> Unit,
+    connectionById: Map<String, Boolean> = emptyMap()
 ) {
     val metaById = metas.associateBy { it.id }
     val live = progress?.states
-
-    val cards: List<CardInput> = if (live != null) {
-        live.values.map { state ->
-            CardInput(
-                serviceId = state.meta.id,
-                meta = state.meta,
-                status = state.status,
-                progress = state.progress,
-                message = state.message,
-                reward = state.reward,
-                actionLabel = when (state.status) {
-                    CheckInStatus.LOGIN_EXPIRED -> "Reconnect"
-                    CheckInStatus.FAILED -> "Retry"
-                    else -> null
-                },
-                onAction = when (state.status) {
-                    CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(state.meta.id) })
-                    CheckInStatus.FAILED -> ({ onRetry(state.meta.id) })
-                    else -> null
-                }
-            )
+    val cards: List<CardInput> = services.mapNotNull { s ->
+        val meta = metaById[s.serviceId] ?: return@mapNotNull null
+        val connected = connectionById[s.serviceId] == true
+        val liveState = live?.get(s.serviceId)
+        val status = when {
+            !connected -> CheckInStatus.LOGIN_EXPIRED
+            liveState != null -> liveState.status
+            else -> s.lastStatus ?: CheckInStatus.PENDING
         }
-    } else {
-        services.mapNotNull { s ->
-            val meta = metaById[s.serviceId] ?: return@mapNotNull null
-            val status = s.lastStatus ?: CheckInStatus.PENDING
-            CardInput(
-                serviceId = s.serviceId,
-                meta = meta,
-                status = status,
-                progress = if (status == CheckInStatus.RUNNING) 0.5f else 1f,
-                message = s.lastMessage ?: "",
-                reward = s.lastReward,
-                actionLabel = when (status) {
-                    CheckInStatus.LOGIN_EXPIRED -> "Reconnect"
-                    CheckInStatus.FAILED -> "Retry"
-                    else -> null
-                },
-                onAction = when (status) {
-                    CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(s.serviceId) })
-                    CheckInStatus.FAILED -> ({ onRetry(s.serviceId) })
-                    else -> null
-                }
-            )
-        }
+        CardInput(
+            serviceId = s.serviceId,
+            meta = meta,
+            status = status,
+            progress = liveState?.progress ?: if (status == CheckInStatus.RUNNING) 0.5f else 1f,
+            message = if (!connected) {
+                "Not connected. Connect this service before checking in."
+            } else {
+                liveState?.message ?: s.lastMessage.orEmpty()
+            },
+            reward = liveState?.reward ?: s.lastReward,
+            actionLabel = when {
+                !connected -> "Connect"
+                status == CheckInStatus.LOGIN_EXPIRED -> "Reconnect"
+                status == CheckInStatus.FAILED -> "Retry"
+                else -> null
+            },
+            onAction = when {
+                !connected -> ({ onReconnect(s.serviceId) })
+                status == CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(s.serviceId) })
+                status == CheckInStatus.FAILED -> ({ onRetry(s.serviceId) })
+                else -> null
+            }
+        )
     }
 
+    val currentServices = currentSummaryServices(services, connectionById)
+    val executableIds = currentServices.map { it.serviceId }.toSet()
     val doneCount = if (live != null) {
         live.values.count { it.status.isTerminal }
     } else {
-        services.count { it.lastStatus?.isTerminal == true }
+        services.count { it.serviceId in executableIds && it.lastStatus?.isTerminal == true }
     }
-    val completed = services.count {
+    val completed = currentServices.count {
         it.lastStatus == CheckInStatus.SUCCESS || it.lastStatus == CheckInStatus.ALREADY_CHECKED_IN
     }
     val remaining = services.size - completed
-    val attention = services.count { it.lastStatus?.requiresUserAction == true }
-    val points = services.filter { it.lastStatus?.isPositive == true }
+    val attention = services.count {
+        connectionById[it.serviceId] != true || it.lastStatus?.requiresUserAction == true
+    }
+    val points = currentServices.filter { it.lastStatus?.isPositive == true }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.POINTS) r.amount else 0 }
-    val xp = services.filter { it.lastStatus?.isPositive == true }
+    val xp = currentServices.filter { it.lastStatus?.isPositive == true }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.EXPERIENCE) r.amount else 0 }
-    val days = services.filter { it.lastStatus?.isPositive == true }
+    val days = currentServices.filter { it.lastStatus?.isPositive == true }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.MEMBERSHIP_DAY) r.amount else 0 }
 
     Scaffold(
@@ -223,8 +222,8 @@ private fun HomeContent(
                     CheckInAllButton(
                         isRunning = isRunning,
                         doneCount = doneCount,
-                        total = cards.size,
-                        overall = if (cards.isNotEmpty()) doneCount.toFloat() / cards.size else 0f,
+                        total = executableIds.size,
+                        overall = if (executableIds.isNotEmpty()) doneCount.toFloat() / executableIds.size else 0f,
                         onClick = onCheckInAll,
                         onCancel = onCancel
                     )
@@ -412,7 +411,8 @@ private fun HomePreview() {
             onOpenService = {},
             onReconnect = {},
             onRetry = {},
-            onAddService = {}
+            onAddService = {},
+            connectionById = previewSnapshots().associate { it.serviceId to true }
         )
     }
 }
@@ -435,7 +435,8 @@ private fun HomeRunningPreview() {
             onOpenService = {},
             onReconnect = {},
             onRetry = {},
-            onAddService = {}
+            onAddService = {},
+            connectionById = previewSnapshots().associate { it.serviceId to true }
         )
     }
 }

@@ -25,6 +25,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.jvm.JvmSuppressWildcards
 
+data class HomeServiceState(
+    val service: com.checky.app.data.model.ServiceSnapshot,
+    val isConnected: Boolean
+)
+
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: CheckInRepository,
@@ -40,10 +45,14 @@ class HomeViewModel @Inject constructor(
     val services = repository.observeServices()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** Services selected by the user and backed by a currently connected account. */
-    val connectedServices = services
+    /** Enabled services remain visible even when their credential is missing or stale. */
+    val homeServices = services
         .combine(connectionRefresh) { list, _ -> list }
-        .map { list -> list.filter { service -> isConnected(service.serviceId) } }
+        .map { list ->
+            list.filter { it.isEnabled }.map { service ->
+                HomeServiceState(service = service, isConnected = isConnected(service.serviceId))
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Eagerly-collected preferences so run mode is always current without suspension. */
@@ -75,6 +84,7 @@ class HomeViewModel @Inject constructor(
         if (_progress.value is CheckInAllProgress.Running) return
         val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return
         runningJob = viewModelScope.launch {
+            if (services.value.firstOrNull { it.serviceId == serviceId }?.isEnabled != true) return@launch
             if (!isConnected(serviceId)) return@launch
             checkInAllUseCase(listOf(provider), parallel = false).collect { _progress.value = it }
         }

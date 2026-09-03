@@ -66,8 +66,12 @@ class CheckInRepositoryImpl @Inject constructor(
 
     override suspend fun setEnabled(serviceId: String, enabled: Boolean) {
         val meta = metaById[serviceId] ?: return
+        val existing = dao.getService(serviceId)
         dao.upsertService(
-            com.checky.app.data.local.entity.ServiceEntity(
+            existing?.copy(
+                displayName = meta.displayName,
+                isEnabled = enabled
+            ) ?: com.checky.app.data.local.entity.ServiceEntity(
                 serviceId = serviceId,
                 displayName = meta.displayName,
                 isEnabled = enabled,

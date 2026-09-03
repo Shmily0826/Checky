@@ -27,6 +27,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -258,6 +259,70 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         assertEquals(1, provider.attempts)
+    }
+
+    @Test
+    fun enabledDisconnectedServiceRemainsVisibleButCannotBeRetried() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = SequenceCheckInProvider(
+            meta = testProviderMeta("disconnected").copy(
+                credentialType = com.checky.app.domain.model.CredentialType.SESSION_TOKEN
+            ),
+            com.checky.app.domain.model.CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
+        )
+        val repo = FakeCheckInRepository(
+            listOf(
+                service(provider.meta.id).copy(
+                    lastStatus = CheckInStatus.SUCCESS,
+                    lastReward = Reward(RewardType.POINTS, 99)
+                )
+            )
+        )
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo),
+            credentialStore = FakeCredentialStore(),
+            providers = listOf(provider),
+            metas = listOf(provider.meta)
+        )
+
+        val visible = async { vm.homeServices.first { it.isNotEmpty() } }
+        val state = visible.await().single()
+        assertFalse(state.isConnected)
+        assertEquals(CheckInStatus.SUCCESS, state.service.lastStatus)
+        assertEquals(99, state.service.lastReward?.amount)
+        assertTrue(currentSummaryServices(listOf(state.service), mapOf(provider.meta.id to false)).isEmpty())
+
+        vm.retry(provider.meta.id)
+        advanceUntilIdle()
+
+        assertEquals(0, provider.attempts)
+    }
+
+    @Test
+    fun disabledServiceIsNotIncludedOnHome() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = SequenceCheckInProvider(
+            meta = testProviderMeta("disabled").copy(
+                credentialType = com.checky.app.domain.model.CredentialType.SESSION_TOKEN
+            ),
+            com.checky.app.domain.model.CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
+        )
+        val repo = FakeCheckInRepository(listOf(service(provider.meta.id).copy(isEnabled = false)))
+        val credentials = FakeCredentialStore().also { it.save(provider.meta.id, "synthetic-test-secret") }
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo),
+            credentialStore = credentials,
+            providers = listOf(provider),
+            metas = listOf(provider.meta)
+        )
+        backgroundScope.launch { vm.homeServices.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.homeServices.value.isEmpty())
     }
 
     private fun prefsRepo(testScope: TestScope): UserPreferencesRepository {

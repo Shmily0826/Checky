@@ -6,6 +6,8 @@ import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
+import com.checky.app.domain.providers.MiyousheCommunityProvider
+import com.checky.app.domain.providers.MiyousheProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
@@ -57,6 +59,22 @@ class AddServiceViewModelTest {
     }
 
     @Test
+    fun productionCatalogKeepsAllFourProvidersDiscoverable() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = AddServiceViewModel(AddServiceFakeRepository(), catalog())
+
+        assertEquals(
+            listOf(
+                "miyoushe_genshin_experimental",
+                "miyoushe_community_signin",
+                "taygedo_nte",
+                "taygedo_community"
+            ),
+            vm.catalog.map { it.id }
+        )
+    }
+
+    @Test
     fun setEnabledDelegatesToRepository() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val repo = AddServiceFakeRepository()
@@ -66,7 +84,12 @@ class AddServiceViewModelTest {
         assertEquals(listOf("cloudbox" to true), repo.enabledCalls)
     }
 
-    private fun catalog() = listOf(TaygedoNteProvider.META, TaygedoCommunityProvider.META)
+    private fun catalog() = listOf(
+        MiyousheProvider.META,
+        MiyousheCommunityProvider.META,
+        TaygedoNteProvider.META,
+        TaygedoCommunityProvider.META
+    )
 
     private fun snapshot(id: String) = ServiceSnapshot(
         serviceId = id,

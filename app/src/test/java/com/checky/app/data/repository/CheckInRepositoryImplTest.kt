@@ -107,6 +107,49 @@ class CheckInRepositoryImplTest {
     }
 
     @Test
+    fun togglingExistingServicePreservesLatestSummary() = runTest {
+        val (repo, dao) = repoWith()
+        dao.upsertService(
+            ServiceEntity(
+                serviceId = "taygedo_nte",
+                displayName = "旧名称",
+                isEnabled = true,
+                lastStatus = CheckInStatus.SUCCESS.name,
+                lastRewardType = RewardType.POINTS.name,
+                lastRewardAmount = 42,
+                lastMessage = "已完成",
+                lastTimestamp = 9876L
+            )
+        )
+
+        repo.setEnabled("taygedo_nte", false)
+        repo.setEnabled("taygedo_nte", true)
+
+        val saved = dao.getService("taygedo_nte")!!
+        assertTrue(saved.isEnabled)
+        assertEquals(CheckInStatus.SUCCESS.name, saved.lastStatus)
+        assertEquals(RewardType.POINTS.name, saved.lastRewardType)
+        assertEquals(42, saved.lastRewardAmount)
+        assertEquals("已完成", saved.lastMessage)
+        assertEquals(9876L, saved.lastTimestamp)
+    }
+
+    @Test
+    fun enablingNewServiceCreatesRowWithoutHistory() = runTest {
+        val (repo, dao) = repoWith()
+
+        repo.setEnabled("miyoushe_community_signin", true)
+
+        val saved = dao.getService("miyoushe_community_signin")!!
+        assertTrue(saved.isEnabled)
+        assertNull(saved.lastStatus)
+        assertNull(saved.lastRewardType)
+        assertEquals(0, saved.lastRewardAmount)
+        assertNull(saved.lastMessage)
+        assertNull(saved.lastTimestamp)
+    }
+
+    @Test
     fun getServiceReturnsNullWhenNothingPersisted() = runTest {
         val (repo, _) = repoWith()
         val snapshot = repo.getService("taygedo_nte")
