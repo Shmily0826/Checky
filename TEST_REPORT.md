@@ -36,7 +36,7 @@ current availability guarantees.
 | `data.preferences.UserPreferencesRepositoryTest` | 3 | passed |
 | `data.repository.CheckInRepositoryImplTest` | 10 | passed |
 | `data.security.CredentialStoreTest` | 5 | passed |
-| `data.work.AutoCheckInWorkerTest` | 1 | passed |
+| `data.work.AutoCheckInWorkerTest` | 2 | passed |
 | `di.ProviderModuleTest` | 1 | passed |
 | `domain.CheckInAllUseCaseTest` | 7 | passed |
 | `domain.model.CheckInOutcomeTest` | 5 | passed |
@@ -55,14 +55,35 @@ current availability guarantees.
 
 The recorded 2026-09-02 run above predates the current source inventory. A
 mechanical count of top-level `@Test` annotations in `app/src/test/java` is
-currently **163** after the `a658921` follow-up coverage, the
+currently **164** after the `a658921` follow-up coverage, the
 `CHECKY-20260903-1401` Provider Details regression test, and the
 `CHECKY-20260903-1426` Miyoushe community QR parser coverage. The
-`CHECKY-20260903-1519` gate coverage adds one test. This task freshly ran the
-current **163-test** `:app:testDebugUnitTest` suite
-successfully (Gradle `BUILD SUCCESSFUL`, exit 0) and `:app:assembleDebug`
-successfully; those fresh results are separate from the historical 154-test
-run recorded above.
+`CHECKY-20260903-1519` gate coverage adds one test. This task adds one
+fail-closed queued-worker opt-in regression test. A fresh forced run of the
+current **164-test** suite passed, as did `:app:assembleDebug` and
+`:app:lintDebug` (16 warnings, 0 errors). The historical 154-test result
+above remains separate and unchanged.
+
+## 2026-09-03 emulator-first scheduling and notification checkpoint
+
+The source audit confirmed that both periodic schedules use unique names with
+`CANCEL_AND_REENQUEUE`, local `Calendar` time calculation, and explicit 24-hour
+periodic WorkManager semantics. The auto-check-in worker filters enabled,
+connected providers through `ProviderConnectionGate`; this task additionally
+made the worker re-check the persisted global auto-check-in opt-in immediately
+before provider selection, closing a disable/cancellation race.
+
+The existing notification implementation declares `POST_NOTIFICATIONS`, creates
+one stable channel at application startup, checks permission before every post,
+uses stable replacement IDs, and maps result summaries without raw provider
+data. On `Medium_Phone` (SDK 37, x86_64, adb serial `emulator-5554`), the
+focused runtime test passed for channel creation and granted delivery; a
+separate host-denied run passed with `granted=false`, notifications disabled,
+no crash, and `numPostedByApp=0`. The test-only WorkManager runtime check also
+passed enable-equivalent enqueue, schedule replacement, and cancel, with one
+unique work entry and a new work ID after replacement. Exact wall-clock firing
+was not asserted because WorkManager is not an exact alarm. No Provider traffic,
+credentials, QR/SMS flow, or check-in mutation was used.
 
 The prior `CHECKY-20260903-1401` 160-test JVM run also printed a non-fatal
 Robolectric/Room invalidation-tracker background-teardown exception
@@ -103,12 +124,17 @@ fail-closed parser contract or claim a newly observed response schema.
 
 ## Instrumented tests
 
-The repository contains 13 instrumented test methods across Room persistence,
-Keystore storage, and UI smoke classes. A historical 2026-08-30 run on the
-`Checky_Android14` API 34 emulator reported 5/5 pass. The later full connected
-suite timeout recorded above remains unverified. The 2026-09-02 targeted UI
-acceptance verified onboarding, fresh Home, History empty state, Settings, Add
-services, and selected-but-unconnected Home behavior only.
+The repository contains 16 instrumented test methods across Room persistence,
+Keystore storage, UI smoke, and WorkManager/notification runtime classes. A
+historical 2026-08-30 run on the `Checky_Android14` API 34 emulator reported
+5/5 pass. The later full connected suite timeout recorded above remains
+unverified. The WorkManager schedule/change/cancel check passed in the earlier
+focused connected instrumentation run. This task directly ran the granted and
+denied notification methods in separate fresh instrumentation processes on
+`Medium_Phone`; the production Settings automatic-check-in toggle was not
+activated in this safety-bounded task. The existing targeted UI acceptance verified onboarding, fresh Home,
+History empty state, Settings, Add services, and selected-but-unconnected Home
+behavior only.
 
 ## Historical live Provider verification
 

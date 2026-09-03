@@ -7,6 +7,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.checky.app.data.preferences.UserPreferences
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
@@ -39,6 +40,11 @@ class AutoCheckInWorker(
             applicationContext,
             AutoCheckInEntryPoint::class.java
         )
+        // A queued worker can outlive the user's disable action. Re-check the
+        // opt-in at execution time so cancellation races fail closed.
+        if (!shouldRunAutoCheckIn(entryPoint.preferences().preferences.first())) {
+            return Result.success()
+        }
         val services = entryPoint.repository().observeServices().first()
         val enabledIds = services.filter { it.isEnabled }.map { it.serviceId }.toSet()
         val providers = selectExecutableProviders(enabledIds, entryPoint.providers(), entryPoint.credentials())
@@ -92,6 +98,9 @@ class AutoCheckInWorker(
         }
     }
 }
+
+internal fun shouldRunAutoCheckIn(preferences: UserPreferences): Boolean =
+    preferences.autoCheckInEnabled
 
 internal suspend fun selectExecutableProviders(
     enabledIds: Set<String>,

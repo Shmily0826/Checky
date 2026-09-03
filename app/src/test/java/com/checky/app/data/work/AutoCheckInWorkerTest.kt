@@ -6,11 +6,18 @@ import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CredentialType
 import com.checky.app.domain.model.Reward
 import com.checky.app.domain.testProviderMeta
+import com.checky.app.data.preferences.UserPreferences
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AutoCheckInWorkerTest {
+    @Test
+    fun disabledOptInStopsQueuedWorkerBeforeProviderSelection() {
+        assertEquals(false, shouldRunAutoCheckIn(UserPreferences(autoCheckInEnabled = false)))
+        assertEquals(true, shouldRunAutoCheckIn(UserPreferences(autoCheckInEnabled = true)))
+    }
+
     @Test
     fun selectionRequiresEnabledAndConnectedProvider() = runTest {
         val auth = SequenceCheckInProvider(
