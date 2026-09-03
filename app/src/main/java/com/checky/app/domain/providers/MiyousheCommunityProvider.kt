@@ -110,52 +110,36 @@ class MiyousheCommunityProvider(
             return@withContext QrLoginPollResult.Failed("米游社社区二维码状态暂时无法查询，请稍后重试。")
         }
 
-        val json = JSONObject(response)
-        val retcode = json.optInt("retcode", 0)
-        if (retcode in QR_EXPIRED_RETCODES) {
-            return@withContext QrLoginPollResult.Expired()
-        }
-        if (retcode != 0) {
-            // Surfacing the code matters here: the app logs nothing, so the
-            // on-screen text is the only way to tell a rejection from an
-            // expired or malformed ticket.
-            return@withContext QrLoginPollResult.Failed(
-                "米游社拒绝了社区二维码请求（错误码 $retcode），请重新生成。"
-            )
-        }
-        val data = json.optJSONObject("data") ?:
-            return@withContext QrLoginPollResult.Failed("米游社返回了无法识别的二维码状态。")
-        val status = data.optString("status").ifBlank { data.optString("stat") }
-        when (status) {
-            "Init", "Created" -> QrLoginPollResult.Waiting
-            "Scanned" -> QrLoginPollResult.Scanned
-            "Confirmed" -> {
-                val token = data.optJSONArray("tokens")
-                    ?.optJSONObject(0)
-                    ?.optString("token")
-                    .orEmpty()
-                val mid = data.optJSONObject("user_info")?.optString("mid").orEmpty()
-                val accountId = data.optJSONObject("user_info")?.optString("aid").orEmpty()
-                if (accountId.isBlank() || mid.isBlank() || token.isBlank()) {
-                    val missing = buildList {
-                        if (token.isBlank()) add("token")
-                        if (mid.isBlank()) add("mid")
-                        if (accountId.isBlank()) add("aid")
-                    }.joinToString("、")
-                    QrLoginPollResult.Failed(
-                        "扫码已确认，但米游社返回的社区凭证缺少 $missing，请重新生成二维码。"
-                    )
-                } else {
-                    runCatching { buildCommunityCookie(token, mid, accountId) }
-                        .fold(
-                            onSuccess = { credentialStore.save(meta.id, it); QrLoginPollResult.Confirmed(accountId) },
-                            onFailure = { QrLoginPollResult.Failed("扫码已确认，但社区凭证保存失败，请重试。") }
-                        )
+        val parsed = parseMiyousheCommunityQrResponse(response)
+        when (parsed) {
+            MiyousheCommunityQrParseResult.Waiting -> QrLoginPollResult.Waiting
+            MiyousheCommunityQrParseResult.Scanned -> QrLoginPollResult.Scanned
+            is MiyousheCommunityQrParseResult.Expired -> QrLoginPollResult.Expired(parsed.message)
+            is MiyousheCommunityQrParseResult.Failed -> QrLoginPollResult.Failed(parsed.message)
+            is MiyousheCommunityQrParseResult.Confirmed -> {
+                when (val built = buildCommunityCookie(
+                    parsed.token,
+                    parsed.mid,
+                    parsed.accountId
+                )) {
+                    MiyousheCommunityCookieBuildResult.EnrichmentIncomplete ->
+                        QrLoginPollResult.Failed("扫码已确认，但未获得完整的社区凭证，请重试。")
+                    is MiyousheCommunityCookieBuildResult.Complete -> {
+                        val cookie = built.cookie
+                        when (validateCredentials(cookie)) {
+                            is CredentialValidation.Valid -> {
+                                runCatching { credentialStore.save(meta.id, cookie) }
+                                    .fold(
+                                        onSuccess = { QrLoginPollResult.Confirmed(parsed.accountId) },
+                                        onFailure = { QrLoginPollResult.Failed("扫码已确认，但社区凭证保存失败，请重试。") }
+                                    )
+                            }
+                            is CredentialValidation.Invalid ->
+                                QrLoginPollResult.Failed("扫码已确认，但未获得可用于签到的社区凭证，请重试。")
+                        }
+                    }
                 }
             }
-            else -> QrLoginPollResult.Failed(
-                "米游社返回了未知的二维码状态（$status），请重新生成。"
-            )
         }
     }
 
@@ -245,18 +229,23 @@ class MiyousheCommunityProvider(
         }
     }
 
-    private fun buildCommunityCookie(stoken: String, mid: String, bbsUid: String): String {
-        var cookie = mergeCookies(
+    private fun buildCommunityCookie(
+        stoken: String,
+        mid: String,
+        bbsUid: String
+    ): MiyousheCommunityCookieBuildResult {
+        val baseCookie = mergeCookies(
             "stoken=$stoken; stoken_v2=$stoken; mid=$mid; stuid=$bbsUid; account_id=$bbsUid; account_id_v2=$bbsUid",
             emptyList()
         )
-        runCatching { fetchCookieToken(stoken, mid, bbsUid) }.getOrNull()?.let { extra ->
-            cookie = mergeCookies(cookie, extra)
-        }
-        runCatching { fetchLToken(stoken, mid, bbsUid) }.getOrNull()?.let { extra ->
-            cookie = mergeCookies(cookie, extra)
-        }
-        return cookie
+        val cookieTokenFields = runCatching { fetchCookieToken(stoken, mid, bbsUid) }
+            .getOrElse { return MiyousheCommunityCookieBuildResult.EnrichmentIncomplete }
+        val withCookieToken = mergeCookies(baseCookie, cookieTokenFields)
+        val lTokenFields = runCatching { fetchLToken(stoken, mid, bbsUid) }
+            .getOrElse { return MiyousheCommunityCookieBuildResult.EnrichmentIncomplete }
+        return classifyMiyousheCommunityCookie(
+            mergeCookies(withCookieToken, lTokenFields)
+        )
     }
 
     private fun fetchCookieToken(stoken: String, mid: String, bbsUid: String): List<String> {
@@ -385,6 +374,87 @@ class MiyousheCommunityProvider(
             supportStatus = SupportStatus.SUPPORTED,
             allowedHosts = setOf(API_HOST, PASSPORT_HOST)
         )
+    }
+}
+
+internal sealed interface MiyousheCommunityCookieBuildResult {
+    data class Complete(val cookie: String) : MiyousheCommunityCookieBuildResult
+    data object EnrichmentIncomplete : MiyousheCommunityCookieBuildResult
+}
+
+/** App safety gate for the complete live-verified session shape; not an external API contract. */
+internal fun classifyMiyousheCommunityCookie(cookie: String): MiyousheCommunityCookieBuildResult {
+    val names = cookie.split(';')
+        .map { it.substringBefore('=').trim() }
+        .filter { it.isNotBlank() }
+        .toSet()
+    return if (LIVE_VERIFIED_COMMUNITY_COOKIE_FIELDS.all(names::contains)) {
+        MiyousheCommunityCookieBuildResult.Complete(cookie)
+    } else {
+        MiyousheCommunityCookieBuildResult.EnrichmentIncomplete
+    }
+}
+
+internal sealed interface MiyousheCommunityQrParseResult {
+    data object Waiting : MiyousheCommunityQrParseResult
+    data object Scanned : MiyousheCommunityQrParseResult
+    data class Confirmed(
+        val token: String,
+        val mid: String,
+        val accountId: String
+    ) : MiyousheCommunityQrParseResult
+    data class Expired(val message: String = "二维码已过期，请重新生成二维码。") : MiyousheCommunityQrParseResult
+    data class Failed(val message: String) : MiyousheCommunityQrParseResult
+}
+
+private val LIVE_VERIFIED_COMMUNITY_COOKIE_FIELDS = setOf(
+    "stoken",
+    "stoken_v2",
+    "mid",
+    "stuid",
+    "account_id",
+    "account_id_v2",
+    "cookie_token_v2",
+    "ltoken",
+    "ltoken_v2",
+    "ltuid",
+    "ltmid_v2"
+)
+
+/** Parses only the narrow pre-existing community QR schema contract; unknown variants fail closed. */
+internal fun parseMiyousheCommunityQrResponse(body: String): MiyousheCommunityQrParseResult {
+    val json = runCatching { JSONObject(body) }.getOrNull()
+        ?: return MiyousheCommunityQrParseResult.Failed("米游社返回了无法识别的二维码状态，请重新生成。")
+    if (!json.has("retcode")) {
+        return MiyousheCommunityQrParseResult.Failed("米游社返回了无法识别的二维码状态，请重新生成。")
+    }
+    val retcode = json.optInt("retcode", Int.MIN_VALUE)
+    if (retcode in setOf(-106, -3501, -3505)) {
+        return MiyousheCommunityQrParseResult.Expired()
+    }
+    if (retcode != 0) {
+        return MiyousheCommunityQrParseResult.Failed("米游社拒绝了社区二维码请求，请重新生成。")
+    }
+    val data = json.optJSONObject("data")
+        ?: return MiyousheCommunityQrParseResult.Failed("米游社返回了无法识别的二维码状态，请重新生成。")
+    return when (data.optString("status").ifBlank { data.optString("stat") }) {
+        "Init", "Created" -> MiyousheCommunityQrParseResult.Waiting
+        "Scanned" -> MiyousheCommunityQrParseResult.Scanned
+        "Confirmed" -> {
+            val token = data.optJSONArray("tokens")
+                ?.optJSONObject(0)
+                ?.optString("token")
+                .orEmpty()
+            val userInfo = data.optJSONObject("user_info")
+            val mid = userInfo?.optString("mid").orEmpty()
+            val accountId = userInfo?.optString("aid").orEmpty()
+            if (token.isBlank() || mid.isBlank() || accountId.isBlank()) {
+                MiyousheCommunityQrParseResult.Failed("扫码已确认，但未获得可用于签到的社区凭证，请重试。")
+            } else {
+                MiyousheCommunityQrParseResult.Confirmed(token, mid, accountId)
+            }
+        }
+        else -> MiyousheCommunityQrParseResult.Failed("米游社返回了未知的二维码状态，请重新生成。")
     }
 }
 

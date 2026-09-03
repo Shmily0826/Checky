@@ -172,5 +172,68 @@ class ProviderParsingTest {
         }
     }
 
+    // --- Miyoushe community QR status parsing ---
+
+    @Test
+    fun miyousheCommunityQrParserAcceptsOnlyKnownStatusesAndSchema() {
+        assertTrue(
+            parseMiyousheCommunityQrResponse("""{"retcode":0,"data":{"status":"Init"}}""")
+                is MiyousheCommunityQrParseResult.Waiting
+        )
+        assertTrue(
+            parseMiyousheCommunityQrResponse("""{"retcode":0,"data":{"status":"Created"}}""")
+                is MiyousheCommunityQrParseResult.Waiting
+        )
+        assertTrue(
+            parseMiyousheCommunityQrResponse("""{"retcode":0,"data":{"status":"Scanned"}}""")
+                is MiyousheCommunityQrParseResult.Scanned
+        )
+
+        val confirmed = parseMiyousheCommunityQrResponse(
+            """{"retcode":0,"data":{"status":"Confirmed","tokens":[{"token":"stoken-value"}],"user_info":{"mid":"mid-value","aid":"aid-value"}}}"""
+        )
+        assertEquals(
+            MiyousheCommunityQrParseResult.Confirmed("stoken-value", "mid-value", "aid-value"),
+            confirmed
+        )
+    }
+
+    @Test
+    fun miyousheCommunityQrParserFailsClosedForUnknownOrIncompleteResponses() {
+        val outcomes = listOf(
+            parseMiyousheCommunityQrResponse("not json"),
+            parseMiyousheCommunityQrResponse("""{"data":{"status":"Confirmed"}}"""),
+            parseMiyousheCommunityQrResponse("""{"retcode":0,"data":{"status":"success"}}"""),
+            parseMiyousheCommunityQrResponse("""{"retcode":0,"data":{"status":"Confirmed","tokens":[{"token":"token"}],"user_info":{"mid":"mid"}}}""")
+        )
+        outcomes.forEach { assertTrue(it is MiyousheCommunityQrParseResult.Failed) }
+        assertTrue(
+            parseMiyousheCommunityQrResponse("""{"retcode":-3501,"data":{"status":"Confirmed"}}""")
+                is MiyousheCommunityQrParseResult.Expired
+        )
+    }
+
+    @Test
+    fun miyousheCommunityQrCredentialRequiresCompleteLiveVerifiedSessionShape() {
+        val base = "stoken=s; stoken_v2=s; mid=m; stuid=a; account_id=a; account_id_v2=a"
+        val cookieTokenOnly = "$base; cookie_token_v2=ct"
+        val lTokenOnly = "$base; ltoken=lt; ltoken_v2=lt; ltuid=a; ltmid_v2=m"
+        val complete = "$cookieTokenOnly; ltoken=lt; ltoken_v2=lt; ltuid=a; ltmid_v2=m"
+
+        assertTrue(classifyMiyousheCommunityCookie(base) is MiyousheCommunityCookieBuildResult.EnrichmentIncomplete)
+        assertTrue(classifyMiyousheCommunityCookie(cookieTokenOnly) is MiyousheCommunityCookieBuildResult.EnrichmentIncomplete)
+        assertTrue(classifyMiyousheCommunityCookie(lTokenOnly) is MiyousheCommunityCookieBuildResult.EnrichmentIncomplete)
+        assertTrue(
+            classifyMiyousheCommunityCookie("$complete; cookie_token=legacy") is
+                MiyousheCommunityCookieBuildResult.Complete
+        )
+
+        val accepted = classifyMiyousheCommunityCookie(complete)
+        assertEquals(
+            complete,
+            (accepted as MiyousheCommunityCookieBuildResult.Complete).cookie
+        )
+    }
+
     private fun mapMiyousheResponse(body: String) = mapMiyousheCommunityResponse(body)
 }

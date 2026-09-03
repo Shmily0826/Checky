@@ -55,24 +55,51 @@ current availability guarantees.
 
 The recorded 2026-09-02 run above predates the current source inventory. A
 mechanical count of top-level `@Test` annotations in `app/src/test/java` is
-currently **160** after the `a658921` follow-up coverage and the
-`CHECKY-20260903-1401` Provider Details regression test. This task freshly ran
-the current 160-test `:app:testDebugUnitTest` suite successfully (Gradle
-`BUILD SUCCESSFUL`, exit 0) and `:app:assembleDebug` successfully; those fresh
-results are separate from the historical 154-test run recorded above.
+currently **163** after the `a658921` follow-up coverage, the
+`CHECKY-20260903-1401` Provider Details regression test, and the
+`CHECKY-20260903-1426` Miyoushe community QR parser coverage. The
+`CHECKY-20260903-1519` gate coverage adds one test. This task freshly ran the
+current **163-test** `:app:testDebugUnitTest` suite
+successfully (Gradle `BUILD SUCCESSFUL`, exit 0) and `:app:assembleDebug`
+successfully; those fresh results are separate from the historical 154-test
+run recorded above.
 
-The successful JVM run also printed a non-fatal Robolectric/Room invalidation
-tracker background-teardown exception (`Illegal connection pointer`) after
-the test task completed. It did not change the exit code or test result. Its
-stack traces run through the existing Settings/ReminderWorker test harness,
-not the Provider Details changes; no Room production refactor is implied by
-this task. The run should therefore not be described as warning-free or
-exception-free.
+The prior `CHECKY-20260903-1401` 160-test JVM run also printed a non-fatal
+Robolectric/Room invalidation-tracker background-teardown exception
+(`Illegal connection pointer`) after the test task completed. It did not
+change that run's exit code or test result; its stack traces ran through the
+existing Settings/ReminderWorker test harness, not the Provider Details
+changes. The fresh `CHECKY-20260903-1426` 162-test JVM run did not reproduce
+that exception. The fresh `CHECKY-20260903-1519` 163-test JVM run also did not
+reproduce it. Neither result should be described as warning-free or
+exception-free; no Room production refactor is implied by this task.
 
 The provider count is four actual `CheckInProvider` integrations: Miyoushe
 Genshin, Miyoushe community, Taygedo NTE game, and Taygedo community. QR, SMS,
 game-role, parsing, and orchestration checks are capabilities or test scopes,
 not additional providers.
+
+## 2026-09-03 live verification
+
+On the connected physical Xiaomi device (`2410DPN6CC`), the current debug APK
+was installed with `adb install -r` after its signing certificate was matched
+to the existing installation; application data was preserved. The user
+completed one official Miyoushe QR confirmation, and reported that the
+community check-in succeeded. A subsequent read-only Checky UI inspection
+showed `Connected`, `Success`, and `米游社讨论区签到成功，米游币 +30。` No second
+check-in or other Provider mutation was performed.
+
+An app-owned temporary sanitizer reported only field-presence booleans for the
+persisted community session: `stoken`, `stoken_v2`, `mid`, `stuid`,
+`account_id`, `account_id_v2`, `cookie_token_v2`, `ltoken`, `ltoken_v2`,
+`ltuid`, and `ltmid_v2` were present. The QR persistence gate now accepts
+exactly this observed live-verified field set; it does not require the
+unconfirmed legacy `cookie_token` field. This successful
+full-session result does not prove that a reduced stoken-only session is
+sufficient; the community provider has no existing read-only endpoint that
+distinguishes that case, and no reduced-session mutation was attempted. The
+raw QR response was not retained, so this run does not expand the narrow
+fail-closed parser contract or claim a newly observed response schema.
 
 ## Instrumented tests
 
@@ -86,8 +113,8 @@ services, and selected-but-unconnected Home behavior only.
 ## Historical live Provider verification
 
 The following four production providers were live verified on 2026-08-30 with
-the owner's accounts. This record is preserved as historical evidence and was
-not re-run by the current documentation task:
+the owner's accounts. This record is preserved as historical evidence; the
+current 2026-09-03 community re-verification is documented separately above.
 
 | Provider | Historical result |
 |---|---|
