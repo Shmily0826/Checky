@@ -58,6 +58,24 @@ provider. Its daily WorkManager request is rebuilt when the wall-clock target
 changes; WorkManager provides an earliest eligible time rather than exact-alarm
 delivery, so Android may still run it later.
 
+### Background reliability diagnostics
+
+`SettingsViewModel` reads `BackgroundReliabilityReader` when Settings first
+appears and whenever the screen resumes. The reader uses only stable
+`Build.MANUFACTURER` classification plus the public Android API 28+
+`ActivityManager.isBackgroundRestricted()` and calling-app
+`UsageStatsManager.appStandbyBucket` signals. It requests no usage-history
+permission, stores no device-state values, and does not change WorkManager
+scheduling.
+
+The pure classifier reports a critical restriction, possible standby deferral,
+or an unknown signal conservatively. Xiaomi-family guidance is shown only for a
+normalized Xiaomi manufacturer; Black Shark is not treated as HyperOS. Even
+when Android reports no restriction and an ACTIVE/EXEMPTED-or-lower bucket,
+Xiaomi users must manually verify No restrictions and Background autostart
+because Checky cannot reliably read that HyperOS toggle. These diagnostics are
+device-health guidance only, not Provider or live check-in verification.
+
 ### Connect flow (credentials)
 
 - `ConnectProviderScreen` (FLAG_SECURE, secrets hidden, validated before save).

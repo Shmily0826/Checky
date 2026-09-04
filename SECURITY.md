@@ -21,6 +21,13 @@ initiated explicitly from the Checky UI. A separate background schedule exists
 only after explicit opt-in and still runs only providers that pass the
 selected-and-connected execution gate.
 
+The Settings background-reliability card reads only local, public Android
+signals: a background-restriction boolean and the calling app's standby bucket.
+These values are not persisted or sent anywhere. They can identify some Android
+execution risk, but they cannot reliably reveal the HyperOS Background autostart
+toggle; Xiaomi-family users must verify No restrictions and Background autostart
+manually. This check does not authenticate, contact, or mutate a Provider.
+
 ## 2. Data inventory
 
 | Data | Where stored | Backed up? |

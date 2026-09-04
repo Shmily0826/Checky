@@ -11,10 +11,15 @@ import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.data.work.ReminderWorker
 import com.checky.app.data.work.AutoCheckInWorker
 import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.background.BackgroundReliabilityReader
+import com.checky.app.domain.background.BackgroundReliabilityReport
+import com.checky.app.domain.background.BackgroundReliabilityClassifier
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -25,11 +30,21 @@ class SettingsViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val repository: CheckInRepository,
     private val credentialStore: CredentialStore,
+    private val backgroundReliabilityReader: BackgroundReliabilityReader,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+    private val _backgroundReliability = MutableStateFlow<BackgroundReliabilityReport?>(null)
+    val backgroundReliability: StateFlow<BackgroundReliabilityReport?> = _backgroundReliability.asStateFlow()
+
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.preferences
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UserPreferences())
+
+    fun refreshBackgroundReliability() {
+        _backgroundReliability.value = BackgroundReliabilityClassifier.classify(
+            backgroundReliabilityReader.read()
+        )
+    }
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { userPreferencesRepository.setThemeMode(mode) }

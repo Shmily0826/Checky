@@ -55,13 +55,13 @@ current availability guarantees.
 
 The recorded 2026-09-02 run above predates the current source inventory. A
 mechanical count of top-level `@Test` annotations in `app/src/test/java` is
-currently **164** after the `a658921` follow-up coverage, the
+currently **172** after the `a658921` follow-up coverage, the
 `CHECKY-20260903-1401` Provider Details regression test, and the
 `CHECKY-20260903-1426` Miyoushe community QR parser coverage. The
-`CHECKY-20260903-1519` gate coverage adds one test. This task adds one
-fail-closed queued-worker opt-in regression test. A fresh forced run of the
-current **164-test** suite passed, as did `:app:assembleDebug` and
-`:app:lintDebug` (16 warnings, 0 errors). The historical 154-test result
+`CHECKY-20260903-1519` gate coverage adds one test. This task adds eight
+background-reliability classifier tests. A fresh run of the current
+**172-test** suite passed, as did `:app:assembleDebug` and `:app:lintDebug`
+(18 warnings, 0 errors). The historical 154-test result
 above remains separate and unchanged.
 
 ## 2026-09-03 emulator-first scheduling and notification checkpoint
@@ -213,3 +213,39 @@ claim current live verification.
 - No physical-device verification was performed for the 2026-09-02 task, and
   no Provider authentication, SMS, QR, check-in, reward, or network mutation
   was performed.
+
+## 2026-09-04 background reliability safeguard
+
+The Settings screen now exposes a local background-reliability card when
+automatic check-in is enabled and diagnostics are relevant. It distinguishes
+Android's detected background restriction, a standby bucket that may defer
+WorkManager, and unavailable signals. Xiaomi-family copy explicitly treats No
+restrictions and Background autostart as manual checks because the HyperOS
+Autostart toggle is not reliably readable through the public APIs in scope.
+The route uses the documented generic application-details Settings intent with a
+generic Settings fallback; no opaque Xiaomi component is used.
+
+Focused classifier coverage includes Xiaomi and non-Xiaomi restriction states,
+unknown signals, ACTIVE/EXEMPTED bucket handling, and the Black Shark/foreign
+manufacturer boundary. On 2026-09-04, physical UI/settings-route verification
+was performed on Xiaomi `2410DPN6CC` / Android 16 / HyperOS
+`OS3.0.308.0.WOBCNXM`. A fresh current debug APK was rebuilt with the existing
+installed debug signer and installed successfully with a plain, data-preserving
+`adb install -r`.
+
+On the device, Checky Settings showed the card status `System restriction not
+detected` and the manual guidance to set Xiaomi/HyperOS Battery/background use
+to No restrictions and enable Background autostart. The documented generic
+application-details Settings route opened HyperOS Checky App info; its system
+UI showed Autostart enabled, but it was not changed and is not treated as
+app-readable state. Back returned to Checky Settings, where the card and state
+remained consistent after resume.
+
+This was physical UI/settings-route verification only: it was not new
+WorkManager dispatch verification and not Provider/live check-in verification.
+No Provider authentication, network request, check-in mutation, or system
+setting mutation occurred. The prior combined No restrictions + Autostart
+dispatch experiment remains separate evidence and does not establish
+individual-toggle causality. The current non-device validation passed: 172 JVM
+tests, `assembleDebug`, and `lintDebug` with 18 warnings and 0 errors. These
+results and the device UI check are not live-provider evidence.

@@ -1,7 +1,12 @@
 package com.checky.app.ui.screens.settings
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
 import android.os.Build
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +42,8 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,11 +57,16 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.checky.app.data.preferences.RunMode
 import com.checky.app.data.preferences.ThemeMode
 import com.checky.app.data.preferences.UserPreferences
+import com.checky.app.domain.background.BackgroundReliabilityReport
+import com.checky.app.domain.background.BackgroundReliabilityStatus
 import com.checky.app.ui.navigation.CheckyBottomBar
 import com.checky.app.ui.theme.CheckyTheme
 
@@ -63,10 +75,27 @@ fun SettingsScreen(
     navController: NavHostController,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
+    val backgroundReliability by viewModel.backgroundReliability.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(Unit) { viewModel.refreshBackgroundReliability() }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshBackgroundReliability()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     SettingsContent(
         navController = navController,
         prefs = prefs,
+        backgroundReliability = backgroundReliability,
+        onOpenAppSettings = { openAppSettings(context) },
         onThemeMode = viewModel::setThemeMode,
         onReminderEnabled = viewModel::setReminderEnabled,
         onReminderTime = viewModel::setReminderTime,
@@ -96,6 +125,8 @@ private val RUN_MODE_OPTIONS = listOf(
 private fun SettingsContent(
     navController: NavHostController,
     prefs: UserPreferences,
+    backgroundReliability: BackgroundReliabilityReport?,
+    onOpenAppSettings: () -> Unit,
     onThemeMode: (ThemeMode) -> Unit,
     onReminderEnabled: (Boolean) -> Unit,
     onReminderTime: (Int, Int) -> Unit,
@@ -191,7 +222,7 @@ private fun SettingsContent(
                         Spacer(Modifier.padding(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Automatic check-in", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Experimental: runs enabled providers in the background. Android and device manufacturers may delay or block background work. On Xiaomi/HyperOS, you may need to allow Autostart and set battery use to No restrictions. The MiYouShe provider is unofficial, high risk, and for your own account only.", style = MaterialTheme.typography.bodySmall)
+                            Text("Experimental: runs enabled providers in the background. Android and device manufacturers may delay or block background work. Review the Background reliability card when it appears. The MiYouShe provider is unofficial, high risk, and for your own account only.", style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(checked = prefs.autoCheckInEnabled, onCheckedChange = onAutoCheckInEnabled)
                     }
@@ -214,6 +245,15 @@ private fun SettingsContent(
                     }
                 }
             }
+
+            if (backgroundReliability?.shouldShowInSettings(prefs.autoCheckInEnabled) == true) {
+                SectionTitle("Background reliability / 自动签到后台运行")
+                BackgroundReliabilityCard(
+                    report = backgroundReliability,
+                    onOpenAppSettings = onOpenAppSettings
+                )
+            }
+
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -346,6 +386,92 @@ private fun SettingsContent(
 }
 
 @Composable
+private fun BackgroundReliabilityCard(
+    report: BackgroundReliabilityReport,
+    onOpenAppSettings: () -> Unit
+) {
+    val isXiaomiFamily = report.signals.isXiaomiFamily
+    val isCritical = report.status == BackgroundReliabilityStatus.CRITICAL_RESTRICTED
+    val containerColor = when {
+        isCritical -> MaterialTheme.colorScheme.errorContainer
+        report.status == BackgroundReliabilityStatus.MAY_BE_DEFERRED ->
+            MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.primaryContainer
+    }
+
+    Card(colors = CardDefaults.cardColors(containerColor = containerColor)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = when (report.status) {
+                    BackgroundReliabilityStatus.CRITICAL_RESTRICTED ->
+                        "Background work is restricted"
+                    BackgroundReliabilityStatus.MAY_BE_DEFERRED ->
+                        "Background work may be deferred"
+                    BackgroundReliabilityStatus.XIAOMI_MANUAL_REVIEW ->
+                        "System restriction not detected"
+                    BackgroundReliabilityStatus.HEALTHY ->
+                        "Background restriction not detected"
+                    BackgroundReliabilityStatus.UNKNOWN ->
+                        "Background reliability could not be fully verified"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = when (report.status) {
+                    BackgroundReliabilityStatus.CRITICAL_RESTRICTED ->
+                        if (isXiaomiFamily) {
+                            "Android reports that Checky is restricted in the background, so automatic check-in may not run. On Xiaomi/HyperOS, set Battery/Background usage to No restrictions and enable Background autostart."
+                        } else {
+                            "Android reports that Checky is restricted in the background, so automatic check-in may not run. Review the app's background battery settings."
+                        }
+                    BackgroundReliabilityStatus.MAY_BE_DEFERRED ->
+                        if (isXiaomiFamily) {
+                            "Android reports a standby bucket above ACTIVE. The system may defer WorkManager; this does not prove a Xiaomi toggle is off. On Xiaomi/HyperOS, check No restrictions and Background autostart manually."
+                        } else {
+                            "Android reports a standby bucket above ACTIVE. The system may defer WorkManager; review the app's background battery settings."
+                        }
+                    BackgroundReliabilityStatus.XIAOMI_MANUAL_REVIEW ->
+                        if (isXiaomiFamily) {
+                            "Android restriction was not detected. Xiaomi/HyperOS can still manage Autostart separately, and Checky cannot read that toggle. Manually verify No restrictions and Background autostart are enabled."
+                        } else {
+                            "Android restriction was not detected, but this screen could not fully verify background reliability."
+                        }
+                    BackgroundReliabilityStatus.HEALTHY ->
+                        "Android restriction was not detected. WorkManager remains system-managed and may run later than the selected time."
+                    BackgroundReliabilityStatus.UNKNOWN ->
+                        if (isXiaomiFamily) {
+                            "Checky could not read every public Android signal. Do not treat this as a guarantee; on Xiaomi/HyperOS, manually verify No restrictions and Background autostart."
+                        } else {
+                            "Checky could not read every public Android signal. Do not treat this as a guarantee; review the app's background battery settings."
+                        }
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedButton(onClick = onOpenAppSettings, modifier = Modifier.fillMaxWidth()) {
+                Text("Open Checky app settings")
+            }
+        }
+    }
+}
+
+private fun openAppSettings(context: Context) {
+    val appSettings = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.parse("package:${context.packageName}")
+    }
+    try {
+        context.startActivity(appSettings)
+    } catch (_: ActivityNotFoundException) {
+        try {
+            context.startActivity(Intent(Settings.ACTION_SETTINGS))
+        } catch (_: ActivityNotFoundException) {
+            // A documented system settings activity is expected on Android; no
+            // opaque OEM component is used if the device does not expose it.
+        }
+    }
+}
+
+@Composable
 private fun PrivacyLine(text: String) {
     Text(
         text = "• $text",
@@ -394,6 +520,8 @@ private fun SettingsPreview() {
         SettingsContent(
             navController = rememberNavController(),
             prefs = UserPreferences(),
+            backgroundReliability = null,
+            onOpenAppSettings = {},
             onThemeMode = {},
             onReminderEnabled = {},
             onReminderTime = { _, _ -> },

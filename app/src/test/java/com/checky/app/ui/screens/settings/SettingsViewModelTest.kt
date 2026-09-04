@@ -14,6 +14,7 @@ import com.checky.app.data.preferences.UserPreferences
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.FakeCredentialStore
+import com.checky.app.domain.background.BackgroundReliabilityReader
 import com.checky.app.domain.model.CheckInResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -90,6 +91,7 @@ class SettingsViewModelTest {
             userPreferencesRepository = prefsRepository,
             repository = repo,
             credentialStore = credentials,
+            backgroundReliabilityReader = BackgroundReliabilityReader(context),
             context = context
         )
     }

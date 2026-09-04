@@ -42,13 +42,19 @@ apps and services into one friendly dashboard, then triggers them with one tap.
   background auto-check-in schedule for selected and connected providers. A
   changed wall-clock target rebuilds the periodic request; Android may still
   run it later than the selected time because WorkManager is not an exact alarm.
-  Android or OEM background restrictions can delay or block execution; Xiaomi/
-  HyperOS users may need to allow Autostart and choose unrestricted battery use
-  manually in system settings.
+  Android or OEM background restrictions can delay or block execution. A
+  2026-09-04 physical-device experiment on Xiaomi/HyperOS observed this
+  device-level reliability dependency; that evidence is scoped to the tested
+  device/OS setup and did not isolate the causality of individual toggles. It
+  is not live Provider/check-in verification. Checky can read public Android
+  background-restriction and calling-app standby signals, but cannot reliably
+  read the HyperOS Autostart toggle; Xiaomi-family users must manually choose
+  No restrictions for battery / background use and enable Background autostart
+  in system settings.
 - Genshin roles are auto-fetched from the miyoushe binding API after QR
   connect; manual UID entry is only a fallback.
-- Current validation (2026-09-03): 164 JVM tests passed with 0 failures,
-  errors, or skips; `assembleDebug` passed; `lintDebug` passed with 16 warnings
+- Current validation (2026-09-04): 172 JVM tests passed with 0 failures,
+  errors, or skips; `assembleDebug` passed; `lintDebug` passed with 18 warnings
   and 0 errors. Targeted API 34 emulator UI checks passed for fresh-install and
   unconnected states. The full `connectedDebugAndroidTest` suite timed out and
   remains unverified.
@@ -81,7 +87,7 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 | **Add services** | Catalog of the four real providers with connection type, risk level and credential type; every experimental provider is explicitly marked high risk. |
 | **Connect provider** | Explains what data is required and where it is stored; hidden-by-default secret field, validation before save, per-provider delete, FLAG_SECURE. |
 | **History** | Date, provider, status, reward, duration, safe diagnostic code; clear-history action. |
-| **Settings** | Theme, daily reminder (time picker), run mode (parallel ≤3 / sequential), clear history, **delete all credentials**, privacy & security explanation. |
+| **Settings** | Theme, daily reminder (time picker), run mode (parallel ≤3 / sequential), background-reliability health card, clear history, **delete all credentials**, privacy & security explanation. |
 | **Provider details** | Status, last result, reward, enable toggle, "Manage connection". |
 
 ## Security model (summary — full details in SECURITY.md)
