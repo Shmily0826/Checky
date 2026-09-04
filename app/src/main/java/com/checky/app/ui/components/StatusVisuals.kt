@@ -16,23 +16,34 @@ data class StatusVisual(
     val color: Color
 )
 
+internal enum class StatusColorRole { POSITIVE, ERROR, WARNING, ACTIVE, NEUTRAL }
+
+internal fun statusColorRole(status: CheckInStatus): StatusColorRole = when (status) {
+    CheckInStatus.SUCCESS, CheckInStatus.ALREADY_CHECKED_IN -> StatusColorRole.POSITIVE
+    CheckInStatus.FAILED -> StatusColorRole.ERROR
+    CheckInStatus.LOGIN_EXPIRED, CheckInStatus.USER_ACTION_REQUIRED -> StatusColorRole.WARNING
+    CheckInStatus.RUNNING -> StatusColorRole.ACTIVE
+    CheckInStatus.PENDING -> StatusColorRole.NEUTRAL
+}
+
 @Composable
 fun statusVisual(status: CheckInStatus): StatusVisual {
     val scheme = MaterialTheme.colorScheme
-    return when (status) {
-        CheckInStatus.SUCCESS ->
-            StatusVisual(stringResource(R.string.status_success), scheme.tertiary)
-        CheckInStatus.ALREADY_CHECKED_IN ->
-            StatusVisual(stringResource(R.string.status_already_done), scheme.primary)
-        CheckInStatus.LOGIN_EXPIRED ->
-            StatusVisual(stringResource(R.string.status_login_expired), Color(0xFFE0A000))
-        CheckInStatus.FAILED ->
-            StatusVisual(stringResource(R.string.status_failed), scheme.error)
-        CheckInStatus.USER_ACTION_REQUIRED ->
-            StatusVisual(stringResource(R.string.status_action_needed), Color(0xFFE0730C))
-        CheckInStatus.RUNNING ->
-            StatusVisual(stringResource(R.string.status_running), scheme.primary)
-        CheckInStatus.PENDING ->
-            StatusVisual(stringResource(R.string.status_pending), scheme.outline)
+    val color = when (statusColorRole(status)) {
+        StatusColorRole.POSITIVE -> scheme.tertiary
+        StatusColorRole.ERROR -> scheme.error
+        StatusColorRole.WARNING -> if (status == CheckInStatus.LOGIN_EXPIRED) Color(0xFFE0A000) else Color(0xFFE0730C)
+        StatusColorRole.ACTIVE -> scheme.primary
+        StatusColorRole.NEUTRAL -> scheme.outline
     }
+    val label = when (status) {
+        CheckInStatus.SUCCESS -> stringResource(R.string.status_success)
+        CheckInStatus.ALREADY_CHECKED_IN -> stringResource(R.string.status_already_done)
+        CheckInStatus.LOGIN_EXPIRED -> stringResource(R.string.status_login_expired)
+        CheckInStatus.FAILED -> stringResource(R.string.status_failed)
+        CheckInStatus.USER_ACTION_REQUIRED -> stringResource(R.string.status_action_needed)
+        CheckInStatus.RUNNING -> stringResource(R.string.status_running)
+        CheckInStatus.PENDING -> stringResource(R.string.status_pending)
+    }
+    return StatusVisual(label, color)
 }

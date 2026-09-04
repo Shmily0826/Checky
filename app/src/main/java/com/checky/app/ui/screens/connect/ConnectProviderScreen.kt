@@ -76,6 +76,29 @@ import com.checky.app.ui.components.localizedProviderName
 import com.checky.app.ui.components.qrBitmap
 import com.checky.app.ui.components.saveQrToGallery
 
+@Composable
+private fun connectErrorLabel(error: ConnectError): String = when (error) {
+    is ConnectError.Provider -> error.message
+    is ConnectError.App -> when (error.kind) {
+        ConnectAppError.TOKEN_REQUIRED -> stringResource(R.string.connect_error_token_required)
+        ConnectAppError.QR_UNSUPPORTED -> stringResource(R.string.connect_error_qr_unsupported)
+        ConnectAppError.QR_EXPIRED -> stringResource(R.string.connect_error_qr_expired)
+        ConnectAppError.QR_TIMEOUT -> stringResource(R.string.connect_error_qr_timeout)
+        ConnectAppError.GAME_ROLES_UNAVAILABLE -> stringResource(R.string.connect_error_game_roles_unavailable)
+    }
+}
+
+@Composable
+private fun qrStatusLabel(status: QrUiStatus?): String = when (status) {
+    null -> stringResource(R.string.connect_qr_waiting)
+    QrUiStatus.Generating -> stringResource(R.string.connect_qr_generating)
+    QrUiStatus.Waiting -> stringResource(R.string.connect_qr_waiting)
+    QrUiStatus.Scanned -> stringResource(R.string.connect_qr_scanned)
+    is QrUiStatus.Confirmed -> status.accountLabel?.let {
+        stringResource(R.string.connect_qr_confirmed_uid, it)
+    } ?: stringResource(R.string.connect_qr_confirmed)
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConnectProviderScreen(
@@ -316,7 +339,7 @@ fun ConnectProviderScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
-                        if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
+                        if (error != null) Text(connectErrorLabel(error!!), color = MaterialTheme.colorScheme.error)
                         Button(
                             onClick = if (smsSent) viewModel::confirmSmsCode else viewModel::sendSmsCode,
                             enabled = !smsBusy && phone.length == 11 && (!smsSent || smsCode.length >= 4),
@@ -392,17 +415,19 @@ fun ConnectProviderScreen(
                                 )
                             }
                             Text(
-                                qrStatus ?: stringResource(R.string.connect_qr_waiting),
+                                qrStatusLabel(qrStatus),
                                 style = MaterialTheme.typography.bodyMedium,
+                                color = if (qrStatus is QrUiStatus.Confirmed) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
                                 modifier = Modifier.align(Alignment.CenterHorizontally)
                             )
                             OutlinedButton(
                                 onClick = viewModel::cancelQrLogin,
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text(stringResource(R.string.connect_cancel_scan)) }
-                        }
-                        if (qrStatus?.startsWith("绑定成功") == true) {
-                            Text(qrStatus!!, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                     // Manual Cookie entry stays hidden behind an explicit
@@ -436,15 +461,17 @@ fun ConnectProviderScreen(
                         trailingIcon = {
                             IconButton(onClick = viewModel::toggleSecretVisibility) {
                                 Icon(
-                                    if (showSecret) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                    contentDescription = if (showSecret) "Hide token" else "Show token"
+                                     if (showSecret) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                     contentDescription = stringResource(
+                                         if (showSecret) R.string.cd_hide_token else R.string.cd_show_token
+                                     )
                                 )
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (error != null) {
-                        Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Text(connectErrorLabel(error!!), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
                     Button(
                         onClick = viewModel::save,

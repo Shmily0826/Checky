@@ -32,7 +32,7 @@ fun StatusChip(text: String, color: Color, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun StatusChip(status: CheckInStatus, modifier: Modifier = Modifier) {
+fun StatusChip(status: CheckInStatus, label: String? = null, modifier: Modifier = Modifier) {
     val visual = statusVisual(status)
-    StatusChip(text = visual.label, color = visual.color, modifier = modifier)
+    StatusChip(text = label ?: visual.label, color = visual.color, modifier = modifier)
 }

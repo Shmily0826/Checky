@@ -1,5 +1,9 @@
 package com.checky.app.ui.screens.home
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -36,6 +40,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.checky.app.data.model.ServiceSnapshot
@@ -53,6 +58,13 @@ import com.checky.app.ui.theme.CheckyTheme
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.res.stringResource
 import com.checky.app.R
+import java.time.LocalDate
+import java.time.ZoneId
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 
 internal fun currentSummaryServices(
     services: List<ServiceSnapshot>,
@@ -64,9 +76,40 @@ fun HomeScreen(
     navController: NavHostController,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    LaunchedEffect(Unit) { viewModel.refreshConnections() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshConnections()
+                viewModel.refreshToday()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent?) {
+                if (intent?.action == Intent.ACTION_DATE_CHANGED) viewModel.refreshToday()
+            }
+        }
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter(Intent.ACTION_DATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    LaunchedEffect(Unit) {
+        viewModel.refreshConnections()
+        viewModel.refreshToday()
+    }
     val homeServices by viewModel.homeServices.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
+    val progressDate by viewModel.progressDate.collectAsStateWithLifecycle()
+    val today by viewModel.today.collectAsStateWithLifecycle()
     val isRunning by viewModel.isRunning.collectAsStateWithLifecycle()
 
     HomeContent(
@@ -75,6 +118,8 @@ fun HomeScreen(
         connectionById = homeServices.associate { it.service.serviceId to it.isConnected },
         metas = viewModel.metas,
         progress = progress,
+        progressDate = progressDate,
+        today = today,
         isRunning = isRunning,
         onCheckInAll = viewModel::checkInAll,
         onCancel = viewModel::cancelCheckInAll,
@@ -93,6 +138,7 @@ private data class CardInput(
     val progress: Float,
     val message: String,
     val reward: Reward?,
+    val statusLabel: String?,
     val actionLabel: String?,
     val onAction: (() -> Unit)?
 )
@@ -104,6 +150,8 @@ private fun HomeContent(
     services: List<ServiceSnapshot>,
     metas: List<ProviderMeta>,
     progress: CheckInAllProgress?,
+    progressDate: LocalDate? = null,
+    today: LocalDate = LocalDate.now(),
     isRunning: Boolean,
     onCheckInAll: () -> Unit,
     onCancel: () -> Unit,
@@ -115,15 +163,18 @@ private fun HomeContent(
     connectionById: Map<String, Boolean> = emptyMap()
 ) {
     val metaById = metas.associateBy { it.id }
-    val live = progress?.states
+    val zone = ZoneId.systemDefault()
+    val live = progress?.states.takeIf { hasCurrentLiveProgress(progress, today, zone, progressDate) }
     val cards: List<CardInput> = services.mapNotNull { s ->
         val meta = metaById[s.serviceId] ?: return@mapNotNull null
         val connected = connectionById[s.serviceId] == true
         val liveState = live?.get(s.serviceId)
+            ?.takeIf { isLiveStateForDate(it, today, zone, progressDate) }
+        val persisted = projectHomeStatus(s, today, zone)
         val status = when {
             !connected -> CheckInStatus.LOGIN_EXPIRED
             liveState != null -> liveState.status
-            else -> s.lastStatus ?: CheckInStatus.PENDING
+            else -> persisted.status
         }
         CardInput(
             serviceId = s.serviceId,
@@ -132,14 +183,24 @@ private fun HomeContent(
             progress = liveState?.progress ?: if (status == CheckInStatus.RUNNING) 0.5f else 1f,
             message = if (!connected) {
                 stringResource(R.string.home_not_connected)
+            } else if (liveState != null) {
+                liveState.message
+            } else if (persisted.hasCurrentDayResult) {
+                s.lastMessage.orEmpty()
             } else {
-                liveState?.message ?: s.lastMessage.orEmpty()
+                stringResource(R.string.home_not_checked_in_today)
             },
-            reward = liveState?.reward ?: s.lastReward,
+            reward = liveState?.reward ?: if (persisted.hasCurrentDayResult) s.lastReward else null,
+            statusLabel = when (status) {
+                CheckInStatus.SUCCESS -> stringResource(R.string.home_status_success)
+                CheckInStatus.ALREADY_CHECKED_IN -> stringResource(R.string.home_status_already)
+                CheckInStatus.PENDING -> stringResource(R.string.home_status_pending)
+                else -> null
+            },
             actionLabel = when {
-                !connected -> "Connect"
-                status == CheckInStatus.LOGIN_EXPIRED -> "Reconnect"
-                status == CheckInStatus.FAILED -> "Retry"
+                !connected -> stringResource(R.string.action_connect)
+                status == CheckInStatus.LOGIN_EXPIRED -> stringResource(R.string.action_reconnect)
+                status == CheckInStatus.FAILED -> stringResource(R.string.action_retry)
                 else -> null
             },
             onAction = when {
@@ -154,22 +215,26 @@ private fun HomeContent(
     val currentServices = currentSummaryServices(services, connectionById)
     val executableIds = currentServices.map { it.serviceId }.toSet()
     val doneCount = if (live != null) {
-        live.values.count { it.status.isTerminal }
+        live.values.count { isLiveStateForDate(it, today, zone, progressDate) && it.status.isTerminal }
     } else {
-        services.count { it.serviceId in executableIds && it.lastStatus?.isTerminal == true }
+        services.count {
+            it.serviceId in executableIds &&
+                projectHomeStatus(it, today, zone).status.isTerminal
+        }
     }
     val completed = currentServices.count {
-        it.lastStatus == CheckInStatus.SUCCESS || it.lastStatus == CheckInStatus.ALREADY_CHECKED_IN
+        projectHomeStatus(it, today, zone).status.isPositive
     }
     val remaining = services.size - completed
     val attention = services.count {
-        connectionById[it.serviceId] != true || it.lastStatus?.requiresUserAction == true
+        connectionById[it.serviceId] != true ||
+            (projectHomeStatus(it, today, zone).hasCurrentDayResult && it.lastStatus!!.requiresUserAction)
     }
-    val points = currentServices.filter { it.lastStatus?.isPositive == true }
+    val points = currentServices.filter { projectHomeStatus(it, today, zone).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.POINTS) r.amount else 0 }
-    val xp = currentServices.filter { it.lastStatus?.isPositive == true }
+    val xp = currentServices.filter { projectHomeStatus(it, today, zone).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.EXPERIENCE) r.amount else 0 }
-    val days = currentServices.filter { it.lastStatus?.isPositive == true }
+    val days = currentServices.filter { projectHomeStatus(it, today, zone).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.MEMBERSHIP_DAY) r.amount else 0 }
 
     Scaffold(
@@ -205,7 +270,7 @@ private fun HomeContent(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (progress is CheckInAllProgress.Finished) {
+            if (progress is CheckInAllProgress.Finished && progressDate == today) {
                 item {
                     SummaryBanner(summary = progress.summary, onDismiss = onDismissSummary)
                 }
@@ -263,6 +328,7 @@ private fun HomeContent(
                     message = card.message,
                     reward = card.reward,
                     isRunning = card.status == CheckInStatus.RUNNING,
+                    statusLabel = card.statusLabel,
                     actionLabel = card.actionLabel,
                     onAction = card.onAction,
                     onClick = { onOpenService(card.serviceId) }

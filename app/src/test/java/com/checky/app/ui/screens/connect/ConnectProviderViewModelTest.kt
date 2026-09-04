@@ -75,7 +75,7 @@ class ConnectProviderViewModelTest {
         vm.save()
         advanceUntilIdle()
 
-        assertEquals("Enter a token to continue.", vm.error.value)
+        assertEquals(ConnectError.App(ConnectAppError.TOKEN_REQUIRED), vm.error.value)
         assertNull(credentials.vault["fake-session"])
         assertFalse(vm.saved.value)
     }
@@ -108,7 +108,7 @@ class ConnectProviderViewModelTest {
         vm.save()
         advanceUntilIdle()
 
-        assertEquals("Token looks wrong.", vm.error.value)
+        assertEquals(ConnectError.Provider("Token looks wrong."), vm.error.value)
         assertNull(credentials.vault["fake-session"])
         assertFalse(vm.connected.value)
     }
@@ -146,7 +146,7 @@ class ConnectProviderViewModelTest {
 
         assertTrue(vm.connected.value)
         assertTrue(vm.saved.value)
-        assertTrue(vm.qrStatus.value!!.contains("123456789"))
+        assertEquals(QrUiStatus.Confirmed("123456789"), vm.qrStatus.value)
         assertNull(vm.qrSession.value)
         assertFalse(vm.qrBusy.value)
     }
@@ -182,7 +182,7 @@ class ConnectProviderViewModelTest {
         vm.startQrLogin()
         advanceUntilIdle()
 
-        assertEquals("二维码已过期", vm.error.value)
+        assertEquals(ConnectError.Provider("二维码已过期"), vm.error.value)
         assertNull(vm.qrSession.value)
         assertFalse(vm.connected.value)
         assertFalse(vm.qrBusy.value)
@@ -195,7 +195,7 @@ class ConnectProviderViewModelTest {
         vm.startQrLogin()
         advanceUntilIdle()
 
-        assertEquals("当前服务不支持扫码绑定。", vm.error.value)
+        assertEquals(ConnectError.App(ConnectAppError.QR_UNSUPPORTED), vm.error.value)
         assertNull(vm.qrSession.value)
     }
 
@@ -304,7 +304,7 @@ class ConnectProviderViewModelTest {
         vm.sendSmsCode()
         advanceUntilIdle()
 
-        assertEquals("手机号格式不正确。", vm.error.value)
+        assertEquals(ConnectError.Provider("手机号格式不正确。"), vm.error.value)
         assertFalse(vm.smsSent.value)
     }
 
@@ -397,7 +397,7 @@ class ConnectProviderViewModelTest {
         val vm = vmWith(credentials, FakeGameAccountProvider(roles = emptyList()))
         advanceUntilIdle()
 
-        assertEquals("未能自动获取角色，请手动填写游戏 UID。", vm.error.value)
+        assertEquals(ConnectError.App(ConnectAppError.GAME_ROLES_UNAVAILABLE), vm.error.value)
         assertEquals("", vm.gameUid.value)
     }
 
@@ -426,7 +426,7 @@ class ConnectProviderViewModelTest {
         vm.saveGameAccount()
         advanceUntilIdle()
 
-        assertEquals("请选择有效的游戏角色。", vm.error.value)
+        assertEquals(ConnectError.Provider("请选择有效的游戏角色。"), vm.error.value)
         assertFalse(vm.gameAccountSaved.value)
     }
 

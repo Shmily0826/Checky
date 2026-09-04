@@ -237,7 +237,7 @@ private fun HistoryHeatmapSection(records: List<CheckInRecord>) {
                                 .size(34.dp)
                                 .background(
                                     color = when (cell.quality) {
-                                        DayQuality.GOOD -> MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+                                        DayQuality.GOOD -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.75f)
                                         DayQuality.BAD -> MaterialTheme.colorScheme.error.copy(alpha = 0.65f)
                                         DayQuality.EMPTY -> MaterialTheme.colorScheme.surfaceVariant
                                     },

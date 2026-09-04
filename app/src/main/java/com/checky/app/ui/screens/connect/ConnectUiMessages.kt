@@ -1,0 +1,23 @@
+package com.checky.app.ui.screens.connect
+
+/** App-owned connect copy is typed so the ViewModel stays independent of Android resources. */
+enum class ConnectAppError {
+    TOKEN_REQUIRED,
+    QR_UNSUPPORTED,
+    QR_EXPIRED,
+    QR_TIMEOUT,
+    GAME_ROLES_UNAVAILABLE
+}
+
+sealed interface ConnectError {
+    data class App(val kind: ConnectAppError) : ConnectError
+    /** Provider/server validation and login text is deliberately preserved verbatim. */
+    data class Provider(val message: String) : ConnectError
+}
+
+sealed interface QrUiStatus {
+    data object Generating : QrUiStatus
+    data object Waiting : QrUiStatus
+    data object Scanned : QrUiStatus
+    data class Confirmed(val accountLabel: String?) : QrUiStatus
+}

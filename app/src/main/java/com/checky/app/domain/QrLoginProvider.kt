@@ -10,7 +10,8 @@ sealed interface QrLoginPollResult {
     data object Waiting : QrLoginPollResult
     data object Scanned : QrLoginPollResult
     data class Confirmed(val accountLabel: String? = null) : QrLoginPollResult
-    data class Expired(val message: String = "二维码已过期，请重新生成。") : QrLoginPollResult
+    /** Null means the provider supplied no message; the UI supplies localized copy. */
+    data class Expired(val message: String? = null) : QrLoginPollResult
     data class Failed(val message: String) : QrLoginPollResult
 }
 

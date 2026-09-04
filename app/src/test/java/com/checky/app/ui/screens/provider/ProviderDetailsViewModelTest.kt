@@ -134,13 +134,13 @@ class ProviderDetailsViewModelTest {
 
         assertEquals(CheckInStatus.SUCCESS, details.await()?.lastStatus)
         assertFalse(disconnected.await())
-        assertEquals("Reconnect", connectionActionLabel(vm.isConnected.value))
+        assertEquals(ConnectionAction.RECONNECT, connectionAction(vm.isConnected.value))
         assertEquals(0, provider.attempts)
 
         credentials.save(provider.meta.id, "synthetic-test-secret")
         vm.refreshConnection()
         assertEquals(true, vm.isConnected.first { it })
-        assertEquals("Manage connection", connectionActionLabel(vm.isConnected.value))
+        assertEquals(ConnectionAction.MANAGE_CONNECTION, connectionAction(vm.isConnected.value))
     }
 
     private fun snapshot(id: String, enabled: Boolean) = ServiceSnapshot(

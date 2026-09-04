@@ -84,8 +84,10 @@ fun ProviderDetailsScreen(
 private fun formatTime(ts: Long?): String =
     if (ts == null) "—" else SimpleDateFormat("MMM d · HH:mm", Locale.getDefault()).format(Date(ts))
 
-internal fun connectionActionLabel(isConnected: Boolean): String =
-    if (isConnected) "Manage connection" else "Reconnect"
+internal enum class ConnectionAction { MANAGE_CONNECTION, RECONNECT }
+
+internal fun connectionAction(isConnected: Boolean): ConnectionAction =
+    if (isConnected) ConnectionAction.MANAGE_CONNECTION else ConnectionAction.RECONNECT
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

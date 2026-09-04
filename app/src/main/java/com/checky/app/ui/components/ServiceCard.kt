@@ -35,6 +35,7 @@ fun ServiceCard(
     message: String = "",
     reward: Reward? = null,
     isRunning: Boolean = status == CheckInStatus.RUNNING,
+    statusLabel: String? = null,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
     onClick: () -> Unit,
@@ -71,7 +72,7 @@ fun ServiceCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                StatusChip(status = status)
+                StatusChip(status = status, label = statusLabel)
             }
 
             if (isRunning) {

@@ -69,14 +69,14 @@ class ConnectProviderViewModel @Inject constructor(
     private val _saved = MutableStateFlow(false)
     val saved: StateFlow<Boolean> = _saved.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
+    private val _error = MutableStateFlow<ConnectError?>(null)
+    val error: StateFlow<ConnectError?> = _error.asStateFlow()
 
     private val _qrSession = MutableStateFlow<QrLoginSession?>(null)
     val qrSession: StateFlow<QrLoginSession?> = _qrSession.asStateFlow()
 
-    private val _qrStatus = MutableStateFlow<String?>(null)
-    val qrStatus: StateFlow<String?> = _qrStatus.asStateFlow()
+    private val _qrStatus = MutableStateFlow<QrUiStatus?>(null)
+    val qrStatus: StateFlow<QrUiStatus?> = _qrStatus.asStateFlow()
 
     private val _qrBusy = MutableStateFlow(false)
     val qrBusy: StateFlow<Boolean> = _qrBusy.asStateFlow()
@@ -134,7 +134,7 @@ class ConnectProviderViewModel @Inject constructor(
             _smsBusy.value = true
             when (val result = target.sendSmsCode(_phone.value)) {
                 is SmsLoginResult.CodeSent -> { _smsSent.value = true; _error.value = null }
-                is SmsLoginResult.Failed -> _error.value = result.message
+                is SmsLoginResult.Failed -> _error.value = ConnectError.Provider(result.message)
                 is SmsLoginResult.Connected -> Unit
             }
             _smsBusy.value = false
@@ -150,7 +150,7 @@ class ConnectProviderViewModel @Inject constructor(
                     _connected.value = true; _saved.value = true; _error.value = null
                     _smsCode.value = ""
                 }
-                is SmsLoginResult.Failed -> _error.value = result.message
+                is SmsLoginResult.Failed -> _error.value = ConnectError.Provider(result.message)
                 is SmsLoginResult.CodeSent -> Unit
             }
             _smsBusy.value = false
@@ -165,7 +165,7 @@ class ConnectProviderViewModel @Inject constructor(
         val target = provider ?: return
         val value = _secret.value
         if (value.isBlank()) {
-            _error.value = "Enter a token to continue."
+            _error.value = ConnectError.App(ConnectAppError.TOKEN_REQUIRED)
             return
         }
         viewModelScope.launch {
@@ -179,7 +179,7 @@ class ConnectProviderViewModel @Inject constructor(
                         _saved.value = true
                         _connected.value = true
                     }
-                    is CredentialValidation.Invalid -> _error.value = validation.reason
+                    is CredentialValidation.Invalid -> _error.value = ConnectError.Provider(validation.reason)
                 }
             } finally {
                 _saving.value = false
@@ -207,12 +207,12 @@ class ConnectProviderViewModel @Inject constructor(
 
     fun startQrLogin() {
         val target = qrProvider ?: run {
-            _error.value = "当前服务不支持扫码绑定。"
+            _error.value = ConnectError.App(ConnectAppError.QR_UNSUPPORTED)
             return
         }
         qrJob?.cancel()
         _error.value = null
-        _qrStatus.value = "正在生成二维码…"
+        _qrStatus.value = QrUiStatus.Generating
         _qrBusy.value = true
         qrJob = viewModelScope.launch {
             try {
@@ -220,12 +220,12 @@ class ConnectProviderViewModel @Inject constructor(
                 _qrSession.value = session
                 repeat(90) {
                     when (val result = target.pollQrLogin(session)) {
-                        QrLoginPollResult.Waiting -> _qrStatus.value = "等待扫码…"
-                        QrLoginPollResult.Scanned -> _qrStatus.value = "已扫码，请在米游社确认登录…"
+                        QrLoginPollResult.Waiting -> _qrStatus.value = QrUiStatus.Waiting
+                        QrLoginPollResult.Scanned -> _qrStatus.value = QrUiStatus.Scanned
                         is QrLoginPollResult.Confirmed -> {
                             _connected.value = true
                             _saved.value = true
-                            _qrStatus.value = result.accountLabel?.let { "绑定成功（UID $it）" } ?: "绑定成功"
+                            _qrStatus.value = QrUiStatus.Confirmed(result.accountLabel)
                             _qrSession.value = null
                             if (gameAccountProvider != null) {
                                 fetchGameRoles()
@@ -233,19 +233,20 @@ class ConnectProviderViewModel @Inject constructor(
                             return@launch
                         }
                         is QrLoginPollResult.Expired -> {
-                            _error.value = result.message
+                            _error.value = result.message?.let { ConnectError.Provider(it) }
+                                ?: ConnectError.App(ConnectAppError.QR_EXPIRED)
                             _qrSession.value = null
                             return@launch
                         }
                         is QrLoginPollResult.Failed -> {
-                            _error.value = result.message
+                            _error.value = ConnectError.Provider(result.message)
                             _qrSession.value = null
                             return@launch
                         }
                     }
                     delay(2_000)
                 }
-                _error.value = "二维码等待超时，请重新生成。"
+                _error.value = ConnectError.App(ConnectAppError.QR_TIMEOUT)
                 _qrSession.value = null
             } finally {
                 _qrBusy.value = false
@@ -281,7 +282,7 @@ class ConnectProviderViewModel @Inject constructor(
                         saveGameAccount()
                     }
                     roles.isEmpty() ->
-                        _error.value = "未能自动获取角色，请手动填写游戏 UID。"
+                        _error.value = ConnectError.App(ConnectAppError.GAME_ROLES_UNAVAILABLE)
                 }
             } finally {
                 _gameRolesBusy.value = false
@@ -318,7 +319,7 @@ class ConnectProviderViewModel @Inject constructor(
                         _gameAccountSaved.value = true
                         _error.value = null
                     }
-                    is CredentialValidation.Invalid -> _error.value = validation.reason
+                    is CredentialValidation.Invalid -> _error.value = ConnectError.Provider(validation.reason)
                 }
             } finally {
                 _savingGameAccount.value = false
