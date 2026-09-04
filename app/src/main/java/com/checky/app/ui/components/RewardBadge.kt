@@ -8,6 +8,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.checky.app.R
+import com.checky.app.domain.model.RewardType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,7 +32,16 @@ fun RewardBadge(reward: Reward, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = reward.label,
+            text = when (reward.type) {
+                RewardType.POINTS -> stringResource(R.string.reward_points, reward.amount)
+                RewardType.EXPERIENCE -> stringResource(R.string.reward_xp, reward.amount)
+                RewardType.MEMBERSHIP_DAY -> if (reward.amount == 1) {
+                    stringResource(R.string.reward_membership_day, reward.amount)
+                } else {
+                    stringResource(R.string.reward_membership_days, reward.amount)
+                }
+                RewardType.NONE -> ""
+            },
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
             color = color

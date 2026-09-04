@@ -25,13 +25,15 @@ import com.checky.app.ui.screens.settings.SettingsScreen
 import com.checky.app.ui.screens.addservice.AddServiceScreen
 import com.checky.app.ui.screens.connect.ConnectProviderScreen
 import com.checky.app.ui.screens.provider.ProviderDetailsScreen
+import androidx.compose.ui.res.stringResource
+import com.checky.app.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
-    data object Home : Screen("home", "Home", Icons.Filled.Home)
-    data object History : Screen("history", "History", Icons.Filled.History)
-    data object Settings : Screen("settings", "Settings", Icons.Filled.Settings)
+sealed class Screen(val route: String, val icon: ImageVector) {
+    data object Home : Screen("home", Icons.Filled.Home)
+    data object History : Screen("history", Icons.Filled.History)
+    data object Settings : Screen("settings", Icons.Filled.Settings)
 }
 
 val bottomTabs = listOf(Screen.Home, Screen.History, Screen.Settings)
@@ -53,11 +55,22 @@ fun CheckyBottomBar(navController: NavHostController) {
                         restoreState = true
                     }
                 },
-                icon = { Icon(screen.icon, contentDescription = screen.label) },
-                label = { Text(text = screen.label) }
+                icon = {
+                    Icon(
+                        screen.icon,
+                        contentDescription = stringResource(screen.labelRes())
+                    )
+                },
+                label = { Text(text = stringResource(screen.labelRes())) }
             )
         }
     }
+}
+
+private fun Screen.labelRes(): Int = when (this) {
+    Screen.Home -> R.string.nav_home
+    Screen.History -> R.string.nav_history
+    Screen.Settings -> R.string.nav_settings
 }
 
 @Composable

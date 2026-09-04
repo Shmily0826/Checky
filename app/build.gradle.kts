@@ -142,6 +142,7 @@ dependencies {
 
     // View Material theme (Theme.Material3.DayNight.* for the manifest theme)
     implementation(libs.google.material)
+    implementation(libs.androidx.appcompat)
 
     // Navigation
     implementation(libs.androidx.navigation.compose)

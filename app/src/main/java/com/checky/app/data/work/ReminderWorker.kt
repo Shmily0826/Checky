@@ -17,6 +17,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.checky.app.MainActivity
+import com.checky.app.R
 import com.checky.app.domain.model.CheckInSummary
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
@@ -79,9 +80,9 @@ object NotificationHelper {
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Daily reminder",
+            context.getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_DEFAULT
-        ).apply { description = "Reminds you to check in with Checky" }
+        ).apply { description = context.getString(R.string.notification_channel_description) }
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
@@ -97,8 +98,8 @@ object NotificationHelper {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Checky — time to check in!")
-            .setContentText("A few quick taps and today's rewards are done.")
+            .setContentTitle(context.getString(R.string.notification_reminder_title))
+            .setContentText(context.getString(R.string.notification_reminder_text))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
@@ -123,13 +124,14 @@ object NotificationHelper {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val serviceNames = expiredServices.joinToString(context.getString(R.string.notification_separator))
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("Checky — ${expiredServices.size} 个服务需要重新连接")
-            .setContentText(expiredServices.joinToString("、"))
+            .setContentTitle(context.getString(R.string.notification_reconnect_title, expiredServices.size))
+            .setContentText(serviceNames)
             .setStyle(
                 NotificationCompat.BigTextStyle()
-                    .bigText("登录已失效：${expiredServices.joinToString("、")}")
+                    .bigText(context.getString(R.string.notification_login_expired, serviceNames))
             )
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -152,23 +154,23 @@ object NotificationHelper {
 
         val needsAttention = summary.failed + summary.attention
         val title = if (needsAttention == 0) {
-            "Checky — 今日签到完成"
+            context.getString(R.string.notification_result_title_success)
         } else {
-            "Checky — 签到完成，${needsAttention} 项需关注"
+            context.getString(R.string.notification_result_title_attention, needsAttention)
         }
         val content = buildString {
-            append("成功 ${summary.succeeded}")
-            if (summary.alreadyCheckedIn > 0) append(" · 已签到 ${summary.alreadyCheckedIn}")
-            if (summary.failed > 0) append(" · 失败 ${summary.failed}")
-            if (summary.attention > 0) append(" · 需重连 ${summary.attention}")
+            append(context.getString(R.string.notification_result_success, summary.succeeded))
+            if (summary.alreadyCheckedIn > 0) append(" · ").append(context.getString(R.string.notification_result_already, summary.alreadyCheckedIn))
+            if (summary.failed > 0) append(" · ").append(context.getString(R.string.notification_result_failed, summary.failed))
+            if (summary.attention > 0) append(" · ").append(context.getString(R.string.notification_result_reconnect, summary.attention))
         }
         val bigText = buildString {
-            append("成功 ${summary.succeeded} 项")
-            if (summary.alreadyCheckedIn > 0) append("，已签到 ${summary.alreadyCheckedIn} 项")
-            if (summary.failed > 0) append("，失败 ${summary.failed} 项")
-            if (summary.attention > 0) append("，需重新连接 ${summary.attention} 项")
-            if (summary.totalPoints > 0) append("。共获得 ${summary.totalPoints} 积分")
-            if (summary.totalXp > 0) append("、${summary.totalXp} 经验")
+            append(context.getString(R.string.notification_result_big_success, summary.succeeded))
+            if (summary.alreadyCheckedIn > 0) append(" · ").append(context.getString(R.string.notification_result_big_already, summary.alreadyCheckedIn))
+            if (summary.failed > 0) append(" · ").append(context.getString(R.string.notification_result_big_failed, summary.failed))
+            if (summary.attention > 0) append(" · ").append(context.getString(R.string.notification_result_big_reconnect, summary.attention))
+            if (summary.totalPoints > 0) append("。 ").append(context.getString(R.string.notification_result_points, summary.totalPoints))
+            if (summary.totalXp > 0) append("、").append(context.getString(R.string.notification_result_xp, summary.totalXp))
         }
 
         val intent = Intent(context, MainActivity::class.java).apply {

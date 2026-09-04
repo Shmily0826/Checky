@@ -55,6 +55,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
+import com.checky.app.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -110,14 +115,14 @@ fun SettingsScreen(
 }
 
 private val THEME_OPTIONS = listOf(
-    ThemeMode.SYSTEM to "System",
-    ThemeMode.LIGHT to "Light",
-    ThemeMode.DARK to "Dark"
+    ThemeMode.SYSTEM,
+    ThemeMode.LIGHT,
+    ThemeMode.DARK
 )
 
 private val RUN_MODE_OPTIONS = listOf(
-    RunMode.PARALLEL to "Parallel",
-    RunMode.SEQUENTIAL to "Sequential"
+    RunMode.PARALLEL,
+    RunMode.SEQUENTIAL
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,6 +148,14 @@ private fun SettingsContent(
     var showAutoTimePicker by remember { mutableStateOf(false) }
     var showClearHistoryConfirmation by remember { mutableStateOf(false) }
     var showDeleteCredentialsConfirmation by remember { mutableStateOf(false) }
+    val configuration = LocalConfiguration.current
+    val appLocaleTags = AppCompatDelegate.getApplicationLocales().toLanguageTags()
+    val languageTag = when {
+        appLocaleTags.startsWith("zh") -> "zh-CN"
+        appLocaleTags.startsWith("en") -> "en"
+        configuration.locales[0].language == "zh" -> "zh-CN"
+        else -> "en"
+    }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -160,7 +173,7 @@ private fun SettingsContent(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Settings", fontWeight = FontWeight.SemiBold) }) },
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.SemiBold) }) },
         bottomBar = { CheckyBottomBar(navController) }
     ) { padding ->
         Column(
@@ -171,38 +184,52 @@ private fun SettingsContent(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SectionTitle("Appearance")
+            SectionTitle(stringResource(R.string.settings_appearance))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Theme", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.theme), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        THEME_OPTIONS.forEach { (mode, label) ->
+                        THEME_OPTIONS.forEach { mode ->
                             FilterChip(
                                 selected = prefs.themeMode == mode,
                                 onClick = { onThemeMode(mode) },
-                                label = { Text(label) }
+                                label = { Text(themeLabel(mode)) }
                             )
                         }
+                    }
+                    Spacer(Modifier.padding(4.dp))
+                    Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = languageTag == "zh-CN",
+                            onClick = { AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("zh-CN")) },
+                            label = { Text(stringResource(R.string.language_chinese)) }
+                        )
+                        FilterChip(
+                            selected = languageTag == "en",
+                            onClick = { AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("en")) },
+                            label = { Text(stringResource(R.string.language_english)) }
+                        )
                     }
                 }
             }
 
-            SectionTitle("Daily reminder")
+            SectionTitle(stringResource(R.string.settings_daily_reminder))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.padding(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Remind me to check in", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("A daily reminder notification. Nothing runs automatically.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.settings_remind_me), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_reminder_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = prefs.reminderEnabled, onCheckedChange = ::toggleReminder)
                     }
                     if (prefs.reminderEnabled) {
                         Spacer(Modifier.padding(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Time", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.settings_time), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             TextButton(onClick = { showTimePicker = true }) {
                                 Text(
                                     "%02d:%02d".format(prefs.reminderHour, prefs.reminderMinute),
@@ -214,22 +241,22 @@ private fun SettingsContent(
                 }
             }
 
-            SectionTitle("Check-in behavior")
+            SectionTitle(stringResource(R.string.settings_checkin_behavior))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.padding(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Automatic check-in", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Experimental: runs enabled providers in the background. Android and device manufacturers may delay or block background work. Review the Background reliability card when it appears. The MiYouShe provider is unofficial, high risk, and for your own account only.", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.settings_automatic_checkin), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_automatic_description), style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(checked = prefs.autoCheckInEnabled, onCheckedChange = onAutoCheckInEnabled)
                     }
                     if (prefs.autoCheckInEnabled) {
                         Spacer(Modifier.padding(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Run around", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.settings_run_around), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             TextButton(onClick = { showAutoTimePicker = true }) {
                                 Text("%02d:%02d".format(prefs.autoCheckInHour, prefs.autoCheckInMinute), style = MaterialTheme.typography.titleMedium)
                             }
@@ -237,8 +264,8 @@ private fun SettingsContent(
                         Spacer(Modifier.padding(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("签到结果通知", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("自动签到完成后在通知栏显示成功 / 失败汇总。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.settings_result_notifications), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.settings_result_notifications_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = prefs.checkInResultNotify, onCheckedChange = onCheckInResultNotify)
                         }
@@ -247,7 +274,7 @@ private fun SettingsContent(
             }
 
             if (backgroundReliability?.shouldShowInSettings(prefs.autoCheckInEnabled) == true) {
-                SectionTitle("Background reliability / 自动签到后台运行")
+                SectionTitle(stringResource(R.string.settings_background_reliability))
                 BackgroundReliabilityCard(
                     report = backgroundReliability,
                     onOpenAppSettings = onOpenAppSettings
@@ -260,56 +287,56 @@ private fun SettingsContent(
                         Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.padding(8.dp))
                         Column {
-                            Text("Run mode", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Parallel runs up to 3 services at once; sequential runs one at a time.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.settings_run_mode), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_run_mode_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     Spacer(Modifier.padding(4.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RUN_MODE_OPTIONS.forEach { (mode, label) ->
+                        RUN_MODE_OPTIONS.forEach { mode ->
                             FilterChip(
                                 selected = prefs.runMode == mode,
                                 onClick = { onRunMode(mode) },
-                                label = { Text(label) }
+                                label = { Text(runModeLabel(mode)) }
                             )
                         }
                     }
                 }
             }
 
-            SectionTitle("Data")
+            SectionTitle(stringResource(R.string.settings_data))
             OutlinedButton(onClick = { showClearHistoryConfirmation = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Clear check-in history")
+                Text(stringResource(R.string.settings_clear_history))
             }
             OutlinedButton(
                 onClick = { showDeleteCredentialsConfirmation = true },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) {
-                Text("Delete all credentials")
+                Text(stringResource(R.string.settings_delete_credentials))
             }
             OutlinedButton(onClick = onShowOnboarding, modifier = Modifier.fillMaxWidth()) {
-                Text("Show onboarding again")
+                Text(stringResource(R.string.settings_show_onboarding))
             }
 
-            SectionTitle("Privacy & security")
+            SectionTitle(stringResource(R.string.settings_privacy_security))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.padding(8.dp))
-                        Text("How Checky protects you", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_protection_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.padding(6.dp))
-                    PrivacyLine("Credentials are stored on this device only — never uploaded.")
-                    PrivacyLine("Sensitive values are kept out of logs and backups.")
-                    PrivacyLine("Checky never uses AccessibilityService or controls other apps.")
-                    PrivacyLine("No analytics, no crash reporting, no ads.")
-                    PrivacyLine("Connect only your own accounts; the app may stop working when platforms change.")
+                    PrivacyLine(stringResource(R.string.privacy_credentials))
+                    PrivacyLine(stringResource(R.string.privacy_logs))
+                    PrivacyLine(stringResource(R.string.privacy_accessibility))
+                    PrivacyLine(stringResource(R.string.privacy_no_tracking))
+                    PrivacyLine(stringResource(R.string.privacy_own_accounts))
                 }
             }
 
-            SectionTitle("About")
+            SectionTitle(stringResource(R.string.settings_about))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -317,11 +344,11 @@ private fun SettingsContent(
                         Spacer(Modifier.padding(8.dp))
                         Column {
                             Text("Checky", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("Your daily check-in buddy.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.app_tagline), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     Spacer(Modifier.padding(8.dp))
-                    Text("Version 1.0.0 — local-first, own-account daily check-ins.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text(stringResource(R.string.about_version), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
             }
         }
@@ -353,16 +380,16 @@ private fun SettingsContent(
     if (showClearHistoryConfirmation) {
         AlertDialog(
             onDismissRequest = { showClearHistoryConfirmation = false },
-            title = { Text("Clear check-in history?") },
-            text = { Text("This permanently removes the saved check-in results from this device.") },
+            title = { Text(stringResource(R.string.dialog_clear_history_title)) },
+            text = { Text(stringResource(R.string.dialog_clear_history_message)) },
             confirmButton = {
                 TextButton(onClick = {
                     showClearHistoryConfirmation = false
                     onClearHistory()
-                }) { Text("Clear") }
+                }) { Text(stringResource(R.string.action_clear)) }
             },
             dismissButton = {
-                TextButton(onClick = { showClearHistoryConfirmation = false }) { Text("Cancel") }
+                TextButton(onClick = { showClearHistoryConfirmation = false }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }
@@ -370,16 +397,16 @@ private fun SettingsContent(
     if (showDeleteCredentialsConfirmation) {
         AlertDialog(
             onDismissRequest = { showDeleteCredentialsConfirmation = false },
-            title = { Text("Delete all credentials?") },
-            text = { Text("This removes every saved provider connection from this device.") },
+            title = { Text(stringResource(R.string.dialog_delete_credentials_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_credentials_message)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteCredentialsConfirmation = false
                     onDeleteCredentials()
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.action_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteCredentialsConfirmation = false }) { Text("Cancel") }
+                TextButton(onClick = { showDeleteCredentialsConfirmation = false }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }
@@ -404,15 +431,15 @@ private fun BackgroundReliabilityCard(
             Text(
                 text = when (report.status) {
                     BackgroundReliabilityStatus.CRITICAL_RESTRICTED ->
-                        "Background work is restricted"
+                        stringResource(R.string.background_restricted_title)
                     BackgroundReliabilityStatus.MAY_BE_DEFERRED ->
-                        "Background work may be deferred"
+                        stringResource(R.string.background_deferred_title)
                     BackgroundReliabilityStatus.XIAOMI_MANUAL_REVIEW ->
-                        "System restriction not detected"
+                        stringResource(R.string.background_android_level_not_detected_title)
                     BackgroundReliabilityStatus.HEALTHY ->
-                        "Background restriction not detected"
+                        stringResource(R.string.background_not_detected_title)
                     BackgroundReliabilityStatus.UNKNOWN ->
-                        "Background reliability could not be fully verified"
+                        stringResource(R.string.background_unknown_title)
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
@@ -421,35 +448,35 @@ private fun BackgroundReliabilityCard(
                 text = when (report.status) {
                     BackgroundReliabilityStatus.CRITICAL_RESTRICTED ->
                         if (isXiaomiFamily) {
-                            "Android reports that Checky is restricted in the background, so automatic check-in may not run. On Xiaomi/HyperOS, set Battery/Background usage to No restrictions and enable Background autostart."
+                            stringResource(R.string.background_restricted_xiaomi)
                         } else {
-                            "Android reports that Checky is restricted in the background, so automatic check-in may not run. Review the app's background battery settings."
+                            stringResource(R.string.background_restricted_other)
                         }
                     BackgroundReliabilityStatus.MAY_BE_DEFERRED ->
                         if (isXiaomiFamily) {
-                            "Android reports a standby bucket above ACTIVE. The system may defer WorkManager; this does not prove a Xiaomi toggle is off. On Xiaomi/HyperOS, check No restrictions and Background autostart manually."
+                            stringResource(R.string.background_deferred_xiaomi)
                         } else {
-                            "Android reports a standby bucket above ACTIVE. The system may defer WorkManager; review the app's background battery settings."
+                            stringResource(R.string.background_deferred_other)
                         }
                     BackgroundReliabilityStatus.XIAOMI_MANUAL_REVIEW ->
                         if (isXiaomiFamily) {
-                            "Android restriction was not detected. Xiaomi/HyperOS can still manage Autostart separately, and Checky cannot read that toggle. Manually verify No restrictions and Background autostart are enabled."
+                            stringResource(R.string.background_manual_xiaomi)
                         } else {
-                            "Android restriction was not detected, but this screen could not fully verify background reliability."
+                            stringResource(R.string.background_manual_other)
                         }
                     BackgroundReliabilityStatus.HEALTHY ->
-                        "Android restriction was not detected. WorkManager remains system-managed and may run later than the selected time."
+                        stringResource(R.string.background_healthy)
                     BackgroundReliabilityStatus.UNKNOWN ->
                         if (isXiaomiFamily) {
-                            "Checky could not read every public Android signal. Do not treat this as a guarantee; on Xiaomi/HyperOS, manually verify No restrictions and Background autostart."
+                            stringResource(R.string.background_unknown_xiaomi)
                         } else {
-                            "Checky could not read every public Android signal. Do not treat this as a guarantee; review the app's background battery settings."
+                            stringResource(R.string.background_unknown_other)
                         }
                 },
                 style = MaterialTheme.typography.bodySmall
             )
             OutlinedButton(onClick = onOpenAppSettings, modifier = Modifier.fillMaxWidth()) {
-                Text("Open Checky app settings")
+                Text(stringResource(R.string.background_open_app_settings))
             }
         }
     }
@@ -492,13 +519,13 @@ private fun TimePickerDialog(
     val state = rememberTimePickerState(initialHour = hour, initialMinute = minute, is24Hour = true)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Reminder time") },
+        title = { Text(stringResource(R.string.dialog_reminder_time)) },
         text = { TimePicker(state = state) },
         confirmButton = {
-            TextButton(onClick = { onConfirm(state.hour, state.minute) }) { Text("OK") }
+            TextButton(onClick = { onConfirm(state.hour, state.minute) }) { Text(stringResource(R.string.action_ok)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         }
     )
 }
@@ -511,6 +538,19 @@ private fun SectionTitle(text: String) {
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary
     )
+}
+
+@Composable
+private fun themeLabel(mode: ThemeMode): String = when (mode) {
+    ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
+    ThemeMode.LIGHT -> stringResource(R.string.theme_light)
+    ThemeMode.DARK -> stringResource(R.string.theme_dark)
+}
+
+@Composable
+private fun runModeLabel(mode: RunMode): String = when (mode) {
+    RunMode.PARALLEL -> stringResource(R.string.run_mode_parallel)
+    RunMode.SEQUENTIAL -> stringResource(R.string.run_mode_sequential)
 }
 
 @Preview

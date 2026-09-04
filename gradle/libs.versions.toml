@@ -11,6 +11,7 @@ coreKtx = "1.15.0"
 lifecycle = "2.8.7"
 activityCompose = "1.9.3"
 material = "1.12.0"
+appcompat = "1.6.1"
 navigationCompose = "2.8.3"
 room = "2.8.4"
 datastore = "1.1.1"
@@ -47,6 +48,7 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 
 google-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }

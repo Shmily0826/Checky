@@ -46,8 +46,12 @@ import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.RiskLevel
 import com.checky.app.domain.model.SupportStatus
 import com.checky.app.ui.components.ProviderIcon
+import com.checky.app.ui.components.localizedProviderDescription
+import com.checky.app.ui.components.localizedProviderName
 import com.checky.app.ui.preview.PreviewProviderMetas
 import com.checky.app.ui.theme.CheckyTheme
+import androidx.compose.ui.res.stringResource
+import com.checky.app.R
 
 @Composable
 fun AddServiceScreen(
@@ -81,10 +85,10 @@ private fun AddServiceContent(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Add services", fontWeight = FontWeight.SemiBold) },
+                title = { Text(stringResource(R.string.add_services_title), fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 }
             )
@@ -97,12 +101,12 @@ private fun AddServiceContent(
         ) {
             item {
                 Text(
-                    text = "Connectable services",
+                    text = stringResource(R.string.add_connectable_services),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Checky supports these services today. Toggle the ones to include in “Check in all”.",
+                    text = stringResource(R.string.add_services_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -125,12 +129,12 @@ private fun AddServiceContent(
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Not supported yet",
+                        text = stringResource(R.string.add_not_supported),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "High-risk integrations (UI automation) are not available in this version.",
+                        text = stringResource(R.string.add_not_supported_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -161,12 +165,12 @@ private fun ProviderRow(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = meta.displayName,
+                        text = localizedProviderName(meta),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = meta.description,
+                        text = localizedProviderDescription(meta),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2
@@ -189,7 +193,7 @@ private fun ProviderRow(
                     onClick = onConnect,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Connect / reconnect")
+                    Text(stringResource(R.string.add_connect_reconnect))
                 }
             }
         }
@@ -212,7 +216,7 @@ private fun MetaChip(text: String, color: Color) {
 @Composable
 private fun NotSupportedChip() {
     Text(
-        text = "Not supported yet",
+        text = stringResource(R.string.add_not_supported),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.error,
         modifier = Modifier
@@ -222,16 +226,18 @@ private fun NotSupportedChip() {
     )
 }
 
+@Composable
 private fun connectionLabel(type: ConnectionType): String = when (type) {
-    ConnectionType.OFFICIAL_API -> "Official API"
-    ConnectionType.HTTP_SESSION -> "Session credential"
-    ConnectionType.UI_ASSISTED -> "UI automation"
+    ConnectionType.OFFICIAL_API -> stringResource(R.string.connection_official_api)
+    ConnectionType.HTTP_SESSION -> stringResource(R.string.connection_session_credential)
+    ConnectionType.UI_ASSISTED -> stringResource(R.string.connection_ui_automation)
 }
 
+@Composable
 private fun riskLabel(risk: RiskLevel): String = when (risk) {
-    RiskLevel.LOW -> "Low risk"
-    RiskLevel.MEDIUM -> "Medium risk"
-    RiskLevel.HIGH -> "High risk"
+    RiskLevel.LOW -> stringResource(R.string.risk_low)
+    RiskLevel.MEDIUM -> stringResource(R.string.risk_medium)
+    RiskLevel.HIGH -> stringResource(R.string.risk_high)
 }
 
 private fun riskColor(risk: RiskLevel): Color = when (risk) {
@@ -240,10 +246,11 @@ private fun riskColor(risk: RiskLevel): Color = when (risk) {
     RiskLevel.HIGH -> Color(0xFFC62828)
 }
 
+@Composable
 private fun credentialLabel(type: CredentialType): String = when (type) {
-    CredentialType.NONE -> "No credentials"
-    CredentialType.OAUTH -> "OAuth sign-in"
-    CredentialType.SESSION_TOKEN -> "Session token"
+    CredentialType.NONE -> stringResource(R.string.credentials_none)
+    CredentialType.OAUTH -> stringResource(R.string.credentials_oauth)
+    CredentialType.SESSION_TOKEN -> stringResource(R.string.credentials_session)
 }
 
 @Preview

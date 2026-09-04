@@ -44,7 +44,12 @@ import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.ui.components.ProviderIcon
 import com.checky.app.ui.components.RewardBadge
 import com.checky.app.ui.components.StatusChip
+import com.checky.app.ui.components.localizedProviderCategory
+import com.checky.app.ui.components.localizedProviderDescription
+import com.checky.app.ui.components.localizedProviderName
 import com.checky.app.ui.theme.CheckyTheme
+import androidx.compose.ui.res.stringResource
+import com.checky.app.R
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -95,17 +100,22 @@ private fun ProviderDetailsContent(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(meta?.displayName ?: "Service", fontWeight = FontWeight.SemiBold) },
+                title = {
+                    Text(
+                        if (meta != null) localizedProviderName(meta) else stringResource(R.string.connect_service),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 }
             )
         }
     ) { padding ->
         if (meta == null) {
-            Text("Unknown service", modifier = Modifier.padding(24.dp))
+            Text(stringResource(R.string.connect_unknown_service), modifier = Modifier.padding(24.dp))
             return@Scaffold
         }
         val lastCheckInStatus = service?.lastStatus ?: CheckInStatus.PENDING
@@ -116,11 +126,11 @@ private fun ProviderDetailsContent(
             Spacer(modifier = Modifier.height(8.dp))
             ProviderIcon(meta = meta, size = 72.dp)
             Spacer(modifier = Modifier.height(12.dp))
-            Text(meta.displayName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(meta.category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(localizedProviderName(meta), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(localizedProviderCategory(meta), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                meta.description,
+                localizedProviderDescription(meta),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -129,15 +139,15 @@ private fun ProviderDetailsContent(
             Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Status", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.provider_status), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Text(
-                            if (isConnected) "Connected" else "Not connected",
+                            if (isConnected) stringResource(R.string.connect_connected) else stringResource(R.string.home_not_connected),
                             style = MaterialTheme.typography.labelMedium,
                             color = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Last check-in", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.provider_last_checkin), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         StatusChip(status = lastCheckInStatus)
                     }
                     val lastMessage = service?.lastMessage
@@ -145,18 +155,18 @@ private fun ProviderDetailsContent(
                         Text(lastMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Last update", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.provider_last_update), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Text(formatTime(service?.lastTimestamp), style = MaterialTheme.typography.bodySmall)
                     }
                     val reward = service?.lastReward
                     if (reward != null && !reward.isEmpty) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Reward", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.provider_reward), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                             RewardBadge(reward = reward)
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Enabled", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.provider_enabled), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Switch(checked = service?.isEnabled ?: false, onCheckedChange = onToggle)
                     }
                 }
@@ -165,7 +175,10 @@ private fun ProviderDetailsContent(
             if (meta.credentialType != com.checky.app.domain.model.CredentialType.NONE) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = { onManageConnection(meta.id) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    Text(connectionActionLabel(isConnected))
+                    Text(
+                        if (isConnected) stringResource(R.string.connect_manage_connection)
+                        else stringResource(R.string.connect_reconnect)
+                    )
                 }
             }
         }

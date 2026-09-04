@@ -52,6 +52,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.res.stringResource
+import com.checky.app.R
 
 @Composable
 fun HistoryScreen(
@@ -80,16 +82,16 @@ private fun HistoryContent(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Check-in history", fontWeight = FontWeight.SemiBold) },
+                title = { Text(stringResource(R.string.history_title), fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
                 actions = {
                     if (records.isNotEmpty()) {
                         IconButton(onClick = { showClearConfirmation = true }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Clear history")
+                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.cd_clear_history))
                         }
                     }
                 }
@@ -109,12 +111,12 @@ private fun HistoryContent(
                     modifier = Modifier.size(56.dp)
                 )
                 Text(
-                    text = "No check-ins yet",
+                    text = stringResource(R.string.history_empty_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Run \"Check in all\" to see your history here.",
+                    text = stringResource(R.string.history_empty_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -190,16 +192,16 @@ private fun HistoryContent(
     if (showClearConfirmation) {
         AlertDialog(
             onDismissRequest = { showClearConfirmation = false },
-            title = { Text("Clear check-in history?") },
-            text = { Text("This permanently removes all saved check-in results from this device.") },
+            title = { Text(stringResource(R.string.dialog_clear_history_title)) },
+            text = { Text(stringResource(R.string.dialog_clear_history_message)) },
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
                     showClearConfirmation = false
                     onClear()
-                }) { Text("Clear") }
+                }) { Text(stringResource(R.string.action_clear)) }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showClearConfirmation = false }) { Text("Cancel") }
+                androidx.compose.material3.TextButton(onClick = { showClearConfirmation = false }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }
@@ -225,7 +227,7 @@ private fun HistoryHeatmapSection(records: List<CheckInRecord>) {
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Last 4 weeks", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.history_last_four_weeks), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             // 4 rows x 7 columns, oldest top-left, today bottom-right.
             cells.chunked(7).forEach { week ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -246,7 +248,7 @@ private fun HistoryHeatmapSection(records: List<CheckInRecord>) {
                 }
             }
             Text(
-                text = "Green: all checked in · Red: any failure · Gray: no check-in",
+                text = stringResource(R.string.history_heatmap_legend),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -40,6 +40,8 @@ fun ServiceCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val localizedName = localizedProviderName(meta)
+    val localizedCategory = localizedProviderCategory(meta)
     Card(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
@@ -57,14 +59,14 @@ fun ServiceCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = meta.displayName,
+                        text = localizedName,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = meta.category,
+                        text = localizedCategory,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -29,20 +29,22 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.checky.app.ui.theme.CheckyTheme
+import androidx.compose.ui.res.stringResource
+import com.checky.app.R
 
-private data class Feature(val icon: String, val title: String, val subtitle: String)
+private data class Feature(val icon: String, val titleRes: Int, val subtitleRes: Int)
 
 private val FEATURES = listOf(
-    Feature("🗓️", "All check-ins, one place", "Checky combines the daily check-ins your apps already support."),
-    Feature("⚡", "One-tap \"Check in all\"", "Run every service at once with live progress and rewards."),
-    Feature("🔒", "Private & local-first", "Credentials stay on this device. No accounts, no cloud, no tracking.")
+    Feature("🗓️", R.string.onboarding_feature_all_title, R.string.onboarding_feature_all_subtitle),
+    Feature("⚡", R.string.onboarding_feature_one_tap_title, R.string.onboarding_feature_one_tap_subtitle),
+    Feature("🔒", R.string.onboarding_feature_private_title, R.string.onboarding_feature_private_subtitle)
 )
 
 private val GOOD_TO_KNOW = listOf(
-    "Checky can't support every service — only the ones listed in Add services.",
-    "Connect only your own accounts.",
-    "Some services may stop working after platform changes.",
-    "Checky never bypasses verification or platform protections."
+    R.string.onboarding_note_supported,
+    R.string.onboarding_note_own_accounts,
+    R.string.onboarding_note_changes,
+    R.string.onboarding_note_protections
 )
 
 @Composable
@@ -75,7 +77,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "Your daily check-in buddy.",
+                text = stringResource(R.string.app_tagline),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -87,12 +89,12 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         Spacer(modifier = Modifier.size(14.dp))
                         Column {
                             Text(
-                                text = feature.title,
+                                text = stringResource(feature.titleRes),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = feature.subtitle,
+                                text = stringResource(feature.subtitleRes),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -103,14 +105,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             Spacer(modifier = Modifier.height(24.dp))
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "Good to know",
+                    text = stringResource(R.string.onboarding_good_to_know),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
-                GOOD_TO_KNOW.forEach { note ->
+                GOOD_TO_KNOW.forEach { noteRes ->
                     Text(
-                        text = "• $note",
+                        text = "• ${stringResource(noteRes)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -123,7 +125,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     .fillMaxWidth()
                     .height(54.dp)
             ) {
-                Text(text = "Get started", style = MaterialTheme.typography.titleMedium)
+                Text(text = stringResource(R.string.onboarding_get_started), style = MaterialTheme.typography.titleMedium)
             }
             Spacer(modifier = Modifier.height(16.dp))
         }

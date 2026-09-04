@@ -2,6 +2,8 @@ package com.checky.app.ui.components
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.checky.app.R
 import androidx.compose.ui.graphics.Color
 import com.checky.app.domain.model.CheckInStatus
 
@@ -19,18 +21,18 @@ fun statusVisual(status: CheckInStatus): StatusVisual {
     val scheme = MaterialTheme.colorScheme
     return when (status) {
         CheckInStatus.SUCCESS ->
-            StatusVisual("Success", scheme.tertiary)
+            StatusVisual(stringResource(R.string.status_success), scheme.tertiary)
         CheckInStatus.ALREADY_CHECKED_IN ->
-            StatusVisual("Already done", scheme.primary)
+            StatusVisual(stringResource(R.string.status_already_done), scheme.primary)
         CheckInStatus.LOGIN_EXPIRED ->
-            StatusVisual("Login expired", Color(0xFFE0A000))
+            StatusVisual(stringResource(R.string.status_login_expired), Color(0xFFE0A000))
         CheckInStatus.FAILED ->
-            StatusVisual("Failed", scheme.error)
+            StatusVisual(stringResource(R.string.status_failed), scheme.error)
         CheckInStatus.USER_ACTION_REQUIRED ->
-            StatusVisual("Action needed", Color(0xFFE0730C))
+            StatusVisual(stringResource(R.string.status_action_needed), Color(0xFFE0730C))
         CheckInStatus.RUNNING ->
-            StatusVisual("Running…", scheme.primary)
+            StatusVisual(stringResource(R.string.status_running), scheme.primary)
         CheckInStatus.PENDING ->
-            StatusVisual("Pending", scheme.outline)
+            StatusVisual(stringResource(R.string.status_pending), scheme.outline)
     }
 }

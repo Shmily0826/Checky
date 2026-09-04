@@ -51,6 +51,8 @@ import com.checky.app.ui.preview.previewFinished
 import com.checky.app.ui.preview.previewSnapshots
 import com.checky.app.ui.theme.CheckyTheme
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.res.stringResource
+import com.checky.app.R
 
 internal fun currentSummaryServices(
     services: List<ServiceSnapshot>,
@@ -129,7 +131,7 @@ private fun HomeContent(
             status = status,
             progress = liveState?.progress ?: if (status == CheckInStatus.RUNNING) 0.5f else 1f,
             message = if (!connected) {
-                "Not connected. Connect this service before checking in."
+                stringResource(R.string.home_not_connected)
             } else {
                 liveState?.message ?: s.lastMessage.orEmpty()
             },
@@ -181,7 +183,7 @@ private fun HomeContent(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Your daily check-in buddy.",
+                            text = stringResource(R.string.app_tagline),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -189,7 +191,7 @@ private fun HomeContent(
                 },
                 actions = {
                     IconButton(onClick = onAddService) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add service")
+                        Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.cd_add_service))
                     }
                 }
             )
@@ -241,13 +243,13 @@ private fun HomeContent(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("No services connected", style = MaterialTheme.typography.titleMedium)
+                            Text(stringResource(R.string.home_no_services), style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "Connect a service to enable daily check-ins.",
+                                stringResource(R.string.home_connect_to_enable),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Button(onClick = onAddService) { Text("Add service") }
+                            Button(onClick = onAddService) { Text(stringResource(R.string.home_add_service)) }
                         }
                     }
                 }
@@ -280,9 +282,9 @@ private fun StatsRow(
     days: Int
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StatChip(label = "Done", value = completed, color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.weight(1f))
-        StatChip(label = "Remaining", value = remaining, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-        StatChip(label = "Attention", value = attention, color = Color(0xFFE0A000), modifier = Modifier.weight(1f))
+        StatChip(label = stringResource(R.string.home_done), value = completed, color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.weight(1f))
+        StatChip(label = stringResource(R.string.home_remaining), value = remaining, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        StatChip(label = stringResource(R.string.home_attention), value = attention, color = Color(0xFFE0A000), modifier = Modifier.weight(1f))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (points > 0) RewardBadge(Reward(RewardType.POINTS, points))
@@ -334,7 +336,7 @@ private fun CheckInAllButton(
                 modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
                 Text(
-                    text = if (isRunning) "Checking in… $doneCount/$total" else "Check in all",
+                    text = if (isRunning) stringResource(R.string.home_checking_in, doneCount, total) else stringResource(R.string.home_check_in_all),
                     style = MaterialTheme.typography.titleMedium
                 )
             }
@@ -349,7 +351,7 @@ private fun CheckInAllButton(
                     horizontalArrangement = Arrangement.End
                 ) {
                     androidx.compose.material3.TextButton(onClick = onCancel) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.home_cancel))
                     }
                 }
             }
@@ -365,16 +367,16 @@ private fun SummaryBanner(summary: com.checky.app.domain.model.CheckInSummary, o
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "All done!",
+                text = stringResource(R.string.home_all_done),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("• ${summary.succeeded} succeeded", style = MaterialTheme.typography.bodySmall)
-                Text("• ${summary.alreadyCheckedIn} already done", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.home_succeeded, summary.succeeded), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.home_already_done, summary.alreadyCheckedIn), style = MaterialTheme.typography.bodySmall)
                 if (summary.attention > 0)
-                    Text("• ${summary.attention} need attention", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.home_need_attention, summary.attention), style = MaterialTheme.typography.bodySmall)
             }
             if (summary.totalPoints > 0 || summary.totalXp > 0 || summary.totalDays > 0) {
                 Spacer(modifier = Modifier.height(6.dp))
@@ -386,7 +388,7 @@ private fun SummaryBanner(summary: com.checky.app.domain.model.CheckInSummary, o
             }
             Spacer(modifier = Modifier.height(10.dp))
             Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("Got it")
+                Text(stringResource(R.string.home_got_it))
             }
         }
     }

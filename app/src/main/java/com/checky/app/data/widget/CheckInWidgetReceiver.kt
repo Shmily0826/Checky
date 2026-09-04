@@ -28,6 +28,7 @@ import androidx.glance.color.ColorProvider
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.checky.app.data.work.AutoCheckInWorker
+import com.checky.app.R
 
 /**
  * Home-screen widget: one tap runs "Check in all" for every enabled provider
@@ -63,7 +64,7 @@ class CheckInWidget : GlanceAppWidget() {
                         )
                     )
                     Text(
-                        "One tap runs every enabled check-in.",
+                        context.getString(R.string.widget_description),
                         style = TextStyle(
                             color = ColorProvider(
                                 day = Color(0xFFCAC4D0), night = Color(0xFFCAC4D0)
@@ -73,7 +74,7 @@ class CheckInWidget : GlanceAppWidget() {
                     )
                 }
                 Button(
-                    text = "Check in all",
+                    text = context.getString(R.string.home_check_in_all),
                     onClick = actionRunCallback<RunAllCheckInsAction>(
                         actionParametersOf()
                     ),
