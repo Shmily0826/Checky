@@ -240,4 +240,16 @@
     <string name="provider_taygedo_community_description">完成塔吉多 App 与异环版区每日签到，并读取任务状态；不自动点赞、不分享。</string>
     <string name="provider_taygedo_community_category">社区</string>
     <string name="connect_error_verification_failed">凭据未能通过验证，请重试或重新连接。</string>
+    <string name="settings_auto_diagnostics">自动签到诊断</string>
+    <string name="settings_auto_diagnostics_next_planned">下一次计划</string>
+    <string name="settings_auto_diagnostics_disabled">已停用</string>
+    <string name="settings_auto_diagnostics_not_scheduled">未计划</string>
+    <string name="settings_auto_diagnostics_last_start">上次开始</string>
+    <string name="settings_auto_diagnostics_last_result">上次结果</string>
+    <string name="settings_auto_diagnostics_last_finish">上次完成</string>
+    <string name="settings_auto_diagnostics_skipped_disabled">已跳过——自动签到已停用</string>
+    <string name="settings_auto_diagnostics_skipped_no_provider">已跳过——没有符合条件的已连接服务</string>
+    <string name="settings_auto_diagnostics_completed">已完成</string>
+    <string name="settings_auto_diagnostics_failed_internal">内部调度/执行错误</string>
+    <string name="settings_auto_diagnostics_note">Android 可能将后台任务延迟到计划时间之后。</string>
 </resources>

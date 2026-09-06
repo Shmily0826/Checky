@@ -11,6 +11,9 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.checky.app.data.preferences.UserPreferences
 import com.checky.app.data.preferences.UserPreferencesRepository
+import com.checky.app.data.preferences.AutoCheckInDiagnosticOutcome
+import com.checky.app.data.preferences.AutoCheckInDiagnosticsStore
+import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CheckInProvider
@@ -19,6 +22,7 @@ import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.LegacyAuthHealthMigration
 import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.CheckInAllProgress
+import com.checky.app.domain.model.CheckInSummary
 import com.checky.app.domain.model.expiredServiceNames
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -26,9 +30,6 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.CancellationException
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -51,33 +52,34 @@ class AutoCheckInWorker(
             applicationContext,
             AutoCheckInEntryPoint::class.java
         )
+        val dailyScheduled = isDailyScheduled(inputData)
         try {
-            // A queued worker can outlive the user's disable action. Re-check
-            // the opt-in at execution time so cancellation races fail closed.
-            val preferences = entryPoint.preferences().preferences.first()
-            if (!shouldRunAutoCheckIn(preferences)) return Result.success()
-            val services = entryPoint.repository().observeServices().first()
-            LegacyAuthHealthMigration.seedIfNeeded(
-                entryPoint.providers(), services, entryPoint.credentials(), entryPoint.authHealthStore()
-            )
-            val enabledIds = services.filter { it.isEnabled }.map { it.serviceId }.toSet()
-            val providers = selectExecutableProviders(
-                enabledIds, entryPoint.providers(), entryPoint.credentials(), entryPoint.authHealthStore()
-            )
-            if (providers.isNotEmpty()) {
-                val finalProgress = entryPoint.useCase()(providers, parallel = false).last()
-                // Background runs have no UI: surface results/expired sessions as notifications.
-                if (finalProgress is CheckInAllProgress.Finished) {
-                    NotificationHelper.showReconnectRequired(
-                        applicationContext,
-                        expiredServiceNames(finalProgress.states.values)
-                    )
-                    if (entryPoint.preferences().preferences.first().checkInResultNotify) {
-                        NotificationHelper.showCheckInResult(applicationContext, finalProgress.summary)
+            val execution = runWithDailyDiagnostics(
+                dailyScheduled = dailyScheduled,
+                diagnostics = if (dailyScheduled) entryPoint.diagnostics() else null
+            ) {
+                executeAutoCheckIn(
+                    preferences = { entryPoint.preferences().preferences.first() },
+                    services = { entryPoint.repository().observeServices().first() },
+                    providers = entryPoint.providers(),
+                    credentials = entryPoint.credentials(),
+                    authHealthStore = entryPoint.authHealthStore(),
+                    runBatch = { providers ->
+                        entryPoint.useCase()(providers, parallel = false).last()
                     }
+                )
+            }
+            if (execution is AutoCheckInExecutionResult.Completed) {
+                // Background runs have no UI: surface results/expired sessions as notifications.
+                NotificationHelper.showReconnectRequired(
+                    applicationContext,
+                    execution.expiredServiceNames
+                )
+                if (entryPoint.preferences().preferences.first().checkInResultNotify) {
+                    NotificationHelper.showCheckInResult(applicationContext, execution.summary)
                 }
             }
-            if (isDailyScheduled(inputData)) rescheduleIfEnabled(entryPoint)
+            if (dailyScheduled) rescheduleIfEnabled(entryPoint)
             return Result.success()
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -85,7 +87,7 @@ class AutoCheckInWorker(
             // Scheduler liveness only: preserve tomorrow's wall-clock attempt
             // after an unexpected failure. This is not a provider retry and
             // does not bypass the VALID-only mutation gate.
-            if (isDailyScheduled(inputData)) rescheduleIfEnabled(entryPoint)
+            if (dailyScheduled) rescheduleIfEnabled(entryPoint)
             return Result.success()
         }
     }
@@ -93,7 +95,12 @@ class AutoCheckInWorker(
     private suspend fun rescheduleIfEnabled(entryPoint: AutoCheckInEntryPoint) {
         val latestPreferences = entryPoint.preferences().preferences.first()
         if (latestPreferences.autoCheckInEnabled) {
-            scheduleAfterRun(applicationContext, latestPreferences.autoCheckInHour, latestPreferences.autoCheckInMinute)
+            scheduleAfterRun(
+                applicationContext,
+                latestPreferences.autoCheckInHour,
+                latestPreferences.autoCheckInMinute,
+                diagnostics = entryPoint.diagnostics()
+            )
         }
     }
 
@@ -101,26 +108,53 @@ class AutoCheckInWorker(
         private const val UNIQUE_WORK = "checky_auto_checkin"
         private const val DAILY_SCHEDULED_INPUT = "daily_scheduled"
 
-        suspend fun schedule(context: Context, hour: Int, minute: Int, now: ZonedDateTime = ZonedDateTime.now()) {
+        suspend fun schedule(
+            context: Context,
+            hour: Int,
+            minute: Int,
+            now: ZonedDateTime = ZonedDateTime.now(),
+            diagnostics: AutoCheckInDiagnosticsStore? = null
+        ) {
             // Do not cancel an in-flight provider mutation. The running worker
             // reads latest preferences on completion and appends its next run.
             if (isRunning(context)) return
+            val diagnosticsStore = diagnostics ?: diagnosticsStore(context)
+            val target = AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now)
             val request = OneTimeWorkRequestBuilder<AutoCheckInWorker>()
                 .setInputData(workDataOf(DAILY_SCHEDULED_INPUT to true))
-                .setInitialDelay(nextRunDelayMillis(hour, minute, now), TimeUnit.MILLISECONDS)
+                .setInitialDelay(
+                    AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now),
+                    TimeUnit.MILLISECONDS
+                )
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(
+            val workManager = WorkManager.getInstance(context)
+            val enqueueOperation = workManager.enqueueUniqueWork(
                 UNIQUE_WORK,
                 ExistingWorkPolicy.REPLACE,
                 request
             )
+            try {
+                awaitOperation(enqueueOperation)
+                diagnosticsStore.recordPlannedNext(target.toInstant().toEpochMilli())
+            } catch (cancellation: CancellationException) {
+                workManager.cancelWorkById(request.id)
+                throw cancellation
+            } catch (failure: Exception) {
+                // Do not leave an unrepresented daily mutation scheduled when
+                // the local diagnostics transaction cannot be completed.
+                workManager.cancelWorkById(request.id)
+                throw failure
+            }
         }
 
-        suspend fun cancel(context: Context) {
+        suspend fun cancel(context: Context, diagnostics: AutoCheckInDiagnosticsStore? = null) {
             // Disabling while a mutation is in flight must not interrupt it;
             // the worker's latest-preferences check prevents future scheduling.
             if (isRunning(context)) return
-            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK)
+            val diagnosticsStore = diagnostics ?: diagnosticsStore(context)
+            val cancelOperation = WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK)
+            awaitOperation(cancelOperation)
+            diagnosticsStore.clearPlannedNext()
         }
 
         private suspend fun isRunning(context: Context): Boolean {
@@ -146,34 +180,78 @@ class AutoCheckInWorker(
             )
             val prefs = entryPoint.preferences().preferences.first()
             if (prefs.autoCheckInEnabled) {
-                schedule(context, prefs.autoCheckInHour, prefs.autoCheckInMinute)
+                schedule(
+                    context,
+                    prefs.autoCheckInHour,
+                    prefs.autoCheckInMinute,
+                    diagnostics = entryPoint.diagnostics()
+                )
             } else {
-                cancel(context)
+                cancel(context, diagnostics = entryPoint.diagnostics())
             }
         }
 
         /** Queues behind the currently running worker without replacing it. */
-        internal fun scheduleAfterRun(context: Context, hour: Int, minute: Int, now: ZonedDateTime = ZonedDateTime.now()) {
+        internal suspend fun scheduleAfterRun(
+            context: Context,
+            hour: Int,
+            minute: Int,
+            now: ZonedDateTime = ZonedDateTime.now(),
+            diagnostics: AutoCheckInDiagnosticsStore? = null
+        ) {
+            val diagnosticsStore = diagnostics ?: diagnosticsStore(context)
+            val target = AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now)
             val request = OneTimeWorkRequestBuilder<AutoCheckInWorker>()
                 .setInputData(workDataOf(DAILY_SCHEDULED_INPUT to true))
-                .setInitialDelay(nextRunDelayMillis(hour, minute, now), TimeUnit.MILLISECONDS)
+                .setInitialDelay(
+                    AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now),
+                    TimeUnit.MILLISECONDS
+                )
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(
+            val enqueueOperation = WorkManager.getInstance(context).enqueueUniqueWork(
                 UNIQUE_WORK,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
                 request
             )
+            try {
+                awaitOperation(enqueueOperation)
+                diagnosticsStore.recordPlannedNext(target.toInstant().toEpochMilli())
+            } catch (cancellation: CancellationException) {
+                WorkManager.getInstance(context).cancelWorkById(request.id)
+                throw cancellation
+            } catch (failure: Exception) {
+                WorkManager.getInstance(context).cancelWorkById(request.id)
+                throw failure
+            }
         }
 
         internal fun nextRunDelayMillis(hour: Int, minute: Int, now: ZonedDateTime): Long =
-            java.time.Duration.between(now, nextScheduledDateTime(hour, minute, now)).toMillis().coerceAtLeast(0)
+            AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now)
 
         internal fun nextScheduledDateTime(hour: Int, minute: Int, now: ZonedDateTime): ZonedDateTime {
-            require(hour in 0..23 && minute in 0..59)
-            val target = LocalTime.of(hour, minute)
-            val today = ZonedDateTime.of(LocalDateTime.of(now.toLocalDate(), target), now.zone)
-            return if (today.isAfter(now)) today else
-                ZonedDateTime.of(LocalDateTime.of(now.toLocalDate().plusDays(1), target), now.zone)
+            return AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now)
+        }
+
+        private suspend fun diagnosticsStore(context: Context): AutoCheckInDiagnosticsStore =
+            EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                AutoCheckInEntryPoint::class.java
+            ).diagnostics()
+
+        private suspend fun awaitOperation(operation: androidx.work.Operation) {
+            val future = operation.result
+            suspendCancellableCoroutine<Unit> { continuation ->
+                future.addListener({
+                    try {
+                        future.get()
+                        continuation.resume(Unit)
+                    } catch (cancellation: java.util.concurrent.CancellationException) {
+                        continuation.cancel(cancellation)
+                    } catch (failure: Throwable) {
+                        continuation.resumeWithException(failure)
+                    }
+                }, java.util.concurrent.Executor { it.run() })
+            }
         }
     }
 
@@ -197,6 +275,85 @@ internal suspend fun selectExecutableProviders(
     it.meta.id in enabledIds && ProviderConnectionGate.isConnected(it, credentials, authHealthStore)
 }
 
+internal sealed interface AutoCheckInExecutionResult {
+    data object Disabled : AutoCheckInExecutionResult
+    data object NoEligibleProvider : AutoCheckInExecutionResult
+    data class Completed(
+        val summary: CheckInSummary,
+        val expiredServiceNames: List<String>
+    ) : AutoCheckInExecutionResult
+    data object FailedInternal : AutoCheckInExecutionResult
+}
+
+/** Runs the existing provider selection and batch use case without changing its gates. */
+internal suspend fun executeAutoCheckIn(
+    preferences: suspend () -> UserPreferences,
+    services: suspend () -> List<ServiceSnapshot>,
+    providers: List<CheckInProvider>,
+    credentials: CredentialStore,
+    authHealthStore: AuthHealthStore,
+    runBatch: suspend (List<CheckInProvider>) -> CheckInAllProgress
+): AutoCheckInExecutionResult {
+    val currentPreferences = preferences()
+    if (!shouldRunAutoCheckIn(currentPreferences)) return AutoCheckInExecutionResult.Disabled
+
+    val currentServices = services()
+    LegacyAuthHealthMigration.seedIfNeeded(
+        providers,
+        currentServices,
+        credentials,
+        authHealthStore
+    )
+    val enabledIds = currentServices.filter { it.isEnabled }.map { it.serviceId }.toSet()
+    val executableProviders = selectExecutableProviders(
+        enabledIds,
+        providers,
+        credentials,
+        authHealthStore
+    )
+    if (executableProviders.isEmpty()) return AutoCheckInExecutionResult.NoEligibleProvider
+
+    val finished = runBatch(executableProviders) as? CheckInAllProgress.Finished
+        ?: error("Check-in batch did not finish")
+    return AutoCheckInExecutionResult.Completed(
+        summary = finished.summary,
+        expiredServiceNames = expiredServiceNames(finished.states.values)
+    )
+}
+
+/** Records only daily-worker lifecycle state; manual/widget runs take the block directly. */
+internal suspend fun runWithDailyDiagnostics(
+    dailyScheduled: Boolean,
+    diagnostics: AutoCheckInDiagnosticsStore?,
+    nowMillis: () -> Long = { System.currentTimeMillis() },
+    block: suspend () -> AutoCheckInExecutionResult
+): AutoCheckInExecutionResult {
+    if (!dailyScheduled) return block()
+
+    val store = requireNotNull(diagnostics) { "Daily diagnostics store is required" }
+    store.recordDailyStart(nowMillis())
+    val result = try {
+        block()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        AutoCheckInExecutionResult.FailedInternal
+    }
+    val outcome = when (result) {
+        AutoCheckInExecutionResult.Disabled -> AutoCheckInDiagnosticOutcome.SKIPPED_DISABLED
+        AutoCheckInExecutionResult.NoEligibleProvider ->
+            AutoCheckInDiagnosticOutcome.SKIPPED_NO_ELIGIBLE_PROVIDER
+        is AutoCheckInExecutionResult.Completed -> AutoCheckInDiagnosticOutcome.COMPLETED
+        AutoCheckInExecutionResult.FailedInternal -> AutoCheckInDiagnosticOutcome.FAILED_INTERNAL
+    }
+    store.recordDailyTerminal(
+        outcome = outcome,
+        finishEpochMillis = nowMillis(),
+        summary = (result as? AutoCheckInExecutionResult.Completed)?.summary
+    )
+    return result
+}
+
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface AutoCheckInEntryPoint {
@@ -206,4 +363,5 @@ interface AutoCheckInEntryPoint {
     fun preferences(): UserPreferencesRepository
     fun credentials(): CredentialStore
     fun authHealthStore(): AuthHealthStore
+    fun diagnostics(): AutoCheckInDiagnosticsStore
 }

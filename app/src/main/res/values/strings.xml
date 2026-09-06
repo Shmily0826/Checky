@@ -240,4 +240,16 @@
     <string name="provider_taygedo_community_name">Taygedo community check-in</string>
     <string name="provider_taygedo_community_description">Completes daily Taygedo app and Neverness to Everness community check-ins and reads task status; no automatic likes or shares.</string>
     <string name="provider_taygedo_community_category">Community</string>
+    <string name="settings_auto_diagnostics">Auto check-in diagnostics</string>
+    <string name="settings_auto_diagnostics_next_planned">Next planned</string>
+    <string name="settings_auto_diagnostics_disabled">Disabled</string>
+    <string name="settings_auto_diagnostics_not_scheduled">Not scheduled</string>
+    <string name="settings_auto_diagnostics_last_start">Last start</string>
+    <string name="settings_auto_diagnostics_last_result">Last result</string>
+    <string name="settings_auto_diagnostics_last_finish">Last finish</string>
+    <string name="settings_auto_diagnostics_skipped_disabled">Skipped — automatic check-in is disabled</string>
+    <string name="settings_auto_diagnostics_skipped_no_provider">Skipped — no eligible connected services</string>
+    <string name="settings_auto_diagnostics_completed">Completed</string>
+    <string name="settings_auto_diagnostics_failed_internal">Internal scheduling/execution error</string>
+    <string name="settings_auto_diagnostics_note">Android may defer background work past the planned time.</string>
 </resources>

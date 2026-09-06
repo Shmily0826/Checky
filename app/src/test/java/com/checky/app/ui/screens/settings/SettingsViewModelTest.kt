@@ -12,12 +12,16 @@ import com.checky.app.data.preferences.RunMode
 import com.checky.app.data.preferences.ThemeMode
 import com.checky.app.data.preferences.UserPreferences
 import com.checky.app.data.preferences.UserPreferencesRepository
+import com.checky.app.data.preferences.AutoCheckInDiagnosticsStore
+import com.checky.app.data.preferences.DataStoreAutoCheckInDiagnosticsStore
 import com.checky.app.data.repository.CheckInRepository
+import com.checky.app.data.work.AutoCheckInWorker
 import com.checky.app.domain.FakeCredentialStore
 import com.checky.app.domain.background.BackgroundReliabilityReader
 import com.checky.app.domain.model.CheckInResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
@@ -37,6 +41,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -54,11 +61,13 @@ import java.util.concurrent.TimeUnit
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
 
     private lateinit var repo: TrackingRepository
     private lateinit var credentials: FakeCredentialStore
     private lateinit var prefsRepository: UserPreferencesRepository
+    private lateinit var diagnosticsStore: AutoCheckInDiagnosticsStore
     private lateinit var context: Context
 
     private val dataStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -87,8 +96,10 @@ class SettingsViewModelTest {
             produceFile = { file }
         )
         prefsRepository = UserPreferencesRepository(dataStore)
+        diagnosticsStore = DataStoreAutoCheckInDiagnosticsStore(dataStore)
         return SettingsViewModel(
             userPreferencesRepository = prefsRepository,
+            autoCheckInDiagnosticsStore = diagnosticsStore,
             repository = repo,
             credentialStore = credentials,
             backgroundReliabilityReader = BackgroundReliabilityReader(context),
@@ -240,6 +251,34 @@ class SettingsViewModelTest {
             androidx.work.WorkInfo.State.CANCELLED,
             awaitWorkState("checky_auto_checkin", androidx.work.WorkInfo.State.CANCELLED).state
         )
+    }
+
+    @Test
+    fun successfulDailyEnqueuePersistsTheRequestPlannedTargetAndCancelClearsIt() {
+        buildVm()
+        val now = ZonedDateTime.of(
+            LocalDateTime.of(2026, 9, 6, 7, 30),
+            ZoneId.of("Pacific/Auckland")
+        )
+        val expected = AutoCheckInWorker.nextScheduledDateTime(8, 0, now)
+
+        runBlocking {
+            AutoCheckInWorker.cancel(context, diagnosticsStore)
+            AutoCheckInWorker.schedule(
+                context,
+                8,
+                0,
+                now = now,
+                diagnostics = diagnosticsStore
+            )
+            assertEquals(
+                expected.toInstant().toEpochMilli(),
+                diagnosticsStore.diagnostics.first().plannedNextEpochMillis
+            )
+
+            AutoCheckInWorker.cancel(context, diagnosticsStore)
+            assertEquals(null, diagnosticsStore.diagnostics.first().plannedNextEpochMillis)
+        }
     }
 
     @Test

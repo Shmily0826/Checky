@@ -5,6 +5,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.checky.app.data.preferences.UserPreferencesRepository
+import com.checky.app.data.preferences.AutoCheckInDiagnosticsStore
+import com.checky.app.data.preferences.DataStoreAutoCheckInDiagnosticsStore
 import com.checky.app.data.preferences.DataStoreAuthHealthStore
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.data.repository.CheckInRepositoryImpl
@@ -41,6 +43,12 @@ object DataModule {
     fun provideUserPreferencesRepository(
         @Named("userPrefs") dataStore: DataStore<Preferences>
     ): UserPreferencesRepository = UserPreferencesRepository(dataStore)
+
+    @Provides
+    @Singleton
+    fun provideAutoCheckInDiagnosticsStore(
+        @Named("userPrefs") dataStore: DataStore<Preferences>
+    ): AutoCheckInDiagnosticsStore = DataStoreAutoCheckInDiagnosticsStore(dataStore)
 
     @Provides
     @Singleton

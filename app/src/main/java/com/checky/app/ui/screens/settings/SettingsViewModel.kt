@@ -7,6 +7,8 @@ import com.checky.app.data.preferences.RunMode
 import com.checky.app.data.preferences.ThemeMode
 import com.checky.app.data.preferences.UserPreferences
 import com.checky.app.data.preferences.UserPreferencesRepository
+import com.checky.app.data.preferences.AutoCheckInDiagnostics
+import com.checky.app.data.preferences.AutoCheckInDiagnosticsStore
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.data.work.ReminderWorker
 import com.checky.app.data.work.AutoCheckInWorker
@@ -28,10 +30,11 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
+    private val autoCheckInDiagnosticsStore: AutoCheckInDiagnosticsStore,
     private val repository: CheckInRepository,
     private val credentialStore: CredentialStore,
     private val backgroundReliabilityReader: BackgroundReliabilityReader,
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _backgroundReliability = MutableStateFlow<BackgroundReliabilityReport?>(null)
@@ -39,6 +42,9 @@ class SettingsViewModel @Inject constructor(
 
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.preferences
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UserPreferences())
+
+    val autoCheckInDiagnostics: StateFlow<AutoCheckInDiagnostics> = autoCheckInDiagnosticsStore.diagnostics
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AutoCheckInDiagnostics())
 
     fun refreshBackgroundReliability() {
         _backgroundReliability.value = BackgroundReliabilityClassifier.classify(
@@ -77,9 +83,14 @@ class SettingsViewModel @Inject constructor(
             userPreferencesRepository.setAutoCheckInEnabled(enabled)
             val prefs = userPreferencesRepository.preferences.first()
             if (enabled) {
-                AutoCheckInWorker.schedule(context, prefs.autoCheckInHour, prefs.autoCheckInMinute)
+                AutoCheckInWorker.schedule(
+                    context,
+                    prefs.autoCheckInHour,
+                    prefs.autoCheckInMinute,
+                    diagnostics = autoCheckInDiagnosticsStore
+                )
             } else {
-                AutoCheckInWorker.cancel(context)
+                AutoCheckInWorker.cancel(context, diagnostics = autoCheckInDiagnosticsStore)
             }
         }
     }
@@ -89,7 +100,12 @@ class SettingsViewModel @Inject constructor(
             userPreferencesRepository.setAutoCheckInTime(hour, minute)
             val prefs = userPreferencesRepository.preferences.first()
             if (prefs.autoCheckInEnabled) {
-                AutoCheckInWorker.schedule(context, prefs.autoCheckInHour, prefs.autoCheckInMinute)
+                AutoCheckInWorker.schedule(
+                    context,
+                    prefs.autoCheckInHour,
+                    prefs.autoCheckInMinute,
+                    diagnostics = autoCheckInDiagnosticsStore
+                )
             }
         }
     }

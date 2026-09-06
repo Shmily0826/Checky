@@ -71,6 +71,8 @@ import androidx.navigation.compose.rememberNavController
 import com.checky.app.data.preferences.RunMode
 import com.checky.app.data.preferences.ThemeMode
 import com.checky.app.data.preferences.UserPreferences
+import com.checky.app.data.preferences.AutoCheckInDiagnosticOutcome
+import com.checky.app.data.preferences.AutoCheckInDiagnostics
 import com.checky.app.domain.background.BackgroundReliabilityReport
 import com.checky.app.domain.background.BackgroundReliabilityStatus
 import com.checky.app.ui.navigation.CheckyBottomBar
@@ -83,6 +85,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
+    val autoCheckInDiagnostics by viewModel.autoCheckInDiagnostics.collectAsStateWithLifecycle()
     val backgroundReliability by viewModel.backgroundReliability.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -100,6 +103,7 @@ fun SettingsScreen(
     SettingsContent(
         navController = navController,
         prefs = prefs,
+        autoCheckInDiagnostics = autoCheckInDiagnostics,
         backgroundReliability = backgroundReliability,
         onOpenAppSettings = { openAppSettings(context) },
         onThemeMode = viewModel::setThemeMode,
@@ -131,6 +135,7 @@ private val RUN_MODE_OPTIONS = listOf(
 private fun SettingsContent(
     navController: NavHostController,
     prefs: UserPreferences,
+    autoCheckInDiagnostics: AutoCheckInDiagnostics,
     backgroundReliability: BackgroundReliabilityReport?,
     onOpenAppSettings: () -> Unit,
     onThemeMode: (ThemeMode) -> Unit,
@@ -283,6 +288,12 @@ private fun SettingsContent(
                 }
             }
 
+            SectionTitle(stringResource(R.string.settings_auto_diagnostics))
+            AutoCheckInDiagnosticsCard(
+                prefs = prefs,
+                diagnostics = autoCheckInDiagnostics
+            )
+
             if (backgroundReliability?.shouldShowInSettings(prefs.autoCheckInEnabled) == true) {
                 SectionTitle(stringResource(R.string.settings_background_reliability))
                 BackgroundReliabilityCard(
@@ -428,6 +439,87 @@ private fun SettingsContent(
             dismissButton = {
                 TextButton(onClick = { showDeleteCredentialsConfirmation = false }) { Text(stringResource(R.string.action_cancel)) }
             }
+        )
+    }
+}
+
+@Composable
+private fun AutoCheckInDiagnosticsCard(
+    prefs: UserPreferences,
+    diagnostics: AutoCheckInDiagnostics
+) {
+    val nextPlanned = diagnostics.plannedNextEpochMillis?.let { epochMillis ->
+        AutoCheckInDiagnosticsFormatter.format(epochMillis)
+    } ?: stringResource(
+        if (prefs.autoCheckInEnabled) {
+            R.string.settings_auto_diagnostics_not_scheduled
+        } else {
+            R.string.settings_auto_diagnostics_disabled
+        }
+    )
+    val lastResult = diagnostics.lastOutcome?.let { outcome ->
+        when (outcome) {
+            AutoCheckInDiagnosticOutcome.SKIPPED_DISABLED ->
+                stringResource(R.string.settings_auto_diagnostics_skipped_disabled)
+            AutoCheckInDiagnosticOutcome.SKIPPED_NO_ELIGIBLE_PROVIDER ->
+                stringResource(R.string.settings_auto_diagnostics_skipped_no_provider)
+            AutoCheckInDiagnosticOutcome.COMPLETED ->
+                stringResource(R.string.settings_auto_diagnostics_completed)
+            AutoCheckInDiagnosticOutcome.FAILED_INTERNAL ->
+                stringResource(R.string.settings_auto_diagnostics_failed_internal)
+        }
+    }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            DiagnosticRow(
+                label = stringResource(R.string.settings_auto_diagnostics_next_planned),
+                value = nextPlanned
+            )
+            diagnostics.lastStartEpochMillis?.let { epochMillis ->
+                DiagnosticRow(
+                    label = stringResource(R.string.settings_auto_diagnostics_last_start),
+                    value = AutoCheckInDiagnosticsFormatter.format(epochMillis)
+                )
+            }
+            lastResult?.let { result ->
+                DiagnosticRow(
+                    label = stringResource(R.string.settings_auto_diagnostics_last_result),
+                    value = result
+                )
+            }
+            diagnostics.lastFinishEpochMillis?.let { epochMillis ->
+                DiagnosticRow(
+                    label = stringResource(R.string.settings_auto_diagnostics_last_finish),
+                    value = AutoCheckInDiagnosticsFormatter.format(epochMillis)
+                )
+            }
+            Text(
+                text = stringResource(R.string.settings_auto_diagnostics_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
         )
     }
 }
@@ -593,6 +685,7 @@ private fun SettingsPreview() {
         SettingsContent(
             navController = rememberNavController(),
             prefs = UserPreferences(),
+            autoCheckInDiagnostics = AutoCheckInDiagnostics(),
             backgroundReliability = null,
             onOpenAppSettings = {},
             onThemeMode = {},
