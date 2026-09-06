@@ -22,7 +22,11 @@ import kotlin.math.min
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val BROWSE_TASK_CODES = setOf("browse_post_c")
+// `browse_post_exp` is the current task key; retain the legacy key as a
+// compatibility alias. The order is intentional so a response containing
+// both aliases is counted once, using the current key rather than summing
+// what may be two representations of the same task.
+private val BROWSE_TASK_CODES = listOf("browse_post_exp", "browse_post_c")
 
 internal fun isAllowedBrowseTaskCode(code: String): Boolean = code in BROWSE_TASK_CODES
 
@@ -241,6 +245,8 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
             } else {
                 parseCommunityTaskState((result.data as? JSONObject)?.optJSONArray("task_list3"))
             }
+        } catch (e: TaygedoClient.AuthException) {
+            throw e
         } catch (_: Exception) {
             null
         }
@@ -263,7 +269,10 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
                 "/apihub/api/getSignState",
                 query = mapOf("communityId" to communityId)
             ).toCommunitySignState()
-        }.getOrDefault(CommunitySignState.UNKNOWN)
+        }.getOrElse { error ->
+            if (error is TaygedoClient.AuthException) throw error
+            CommunitySignState.UNKNOWN
+        }
     }
 
     /** Complete only the read-only browse task from the official task flow. */
@@ -298,6 +307,8 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
                 if (index + 1 < min(remaining, posts.length())) delay(350)
             }
             completed
+        } catch (e: TaygedoClient.AuthException) {
+            throw e
         } catch (_: Exception) {
             0
         }
@@ -334,12 +345,44 @@ internal fun parseCommunityTaskState(taskList: JSONArray?): CommunityTaskState? 
         }
         return null
     }
+    fun remaining(codes: List<String>): Int = codes.firstNotNullOfOrNull(::remaining) ?: 0
     // Unknown task types are intentionally ignored (no automatic action).
     return CommunityTaskState(
-        browseRemaining = remaining("browse_post_c") ?: 0,
+        browseRemaining = remaining(BROWSE_TASK_CODES),
         likeRemaining = remaining("like_post_c") ?: 0,
         shareRemaining = remaining("share") ?: 0
     )
+}
+
+/** Validated, non-sensitive daily coin counters. */
+internal data class TaygedoCoinState(val todayCoin: Int, val limitCoin: Int)
+
+internal sealed interface TaygedoCoinStateResult {
+    data class Known(val state: TaygedoCoinState) : TaygedoCoinStateResult
+    data object Unknown : TaygedoCoinStateResult
+}
+
+/**
+ * Parse the read-only getUserCoinTaskState response. Both counters are
+ * required; malformed, missing, negative, fractional, or string values are
+ * deliberately indistinguishable from an unavailable state.
+ */
+internal fun parseTaygedoCoinState(result: TaygedoClient.ApiResult): TaygedoCoinStateResult {
+    if (result.code != 0) return TaygedoCoinStateResult.Unknown
+    val data = result.data as? JSONObject ?: return TaygedoCoinStateResult.Unknown
+
+    fun nonNegativeInt(name: String): Int? {
+        val value = data.opt(name) as? Number ?: return null
+        val number = value.toDouble()
+        if (!number.isFinite() || number % 1.0 != 0.0 || number < 0 || number > Int.MAX_VALUE) {
+            return null
+        }
+        return number.toInt()
+    }
+
+    val todayCoin = nonNegativeInt("todayCoin") ?: return TaygedoCoinStateResult.Unknown
+    val limitCoin = nonNegativeInt("limitCoin") ?: return TaygedoCoinStateResult.Unknown
+    return TaygedoCoinStateResult.Known(TaygedoCoinState(todayCoin, limitCoin))
 }
 
 internal data class CommunityTaskState(

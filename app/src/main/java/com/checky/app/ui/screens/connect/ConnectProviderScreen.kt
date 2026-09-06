@@ -320,7 +320,7 @@ fun ConnectProviderScreen(
                     }
                     when (authHealth) {
                         AuthHealth.UNVERIFIED -> Text(
-                            stringResource(R.string.connect_credential_unverified),
+                            stringResource(R.string.connect_credential_unverified_manage),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -331,17 +331,14 @@ fun ConnectProviderScreen(
                         )
                         else -> Unit
                     }
-                    if (authHealth == AuthHealth.UNVERIFIED) {
-                        Button(
+                    if (authHealth == AuthHealth.UNVERIFIED && viewModel.supportsReadOnlyRevalidation) {
+                        OutlinedButton(
                             onClick = viewModel::verifySavedCredential,
                             enabled = !verifying,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            if (verifying) {
-                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text(stringResource(R.string.connect_verify_saved_credential))
-                            }
+                            if (verifying) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Text(stringResource(R.string.connect_check_connection))
                         }
                     }
                     if (viewModel.smsProvider != null) {

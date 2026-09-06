@@ -45,6 +45,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.domain.model.CheckInAllProgress
+import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.model.CheckInStatus
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.Reward
@@ -116,6 +117,7 @@ fun HomeScreen(
         navController = navController,
         services = homeServices.map { it.service },
         connectionById = homeServices.associate { it.service.serviceId to it.isConnected },
+        authHealthById = homeServices.associate { it.service.serviceId to it.authHealth },
         metas = viewModel.metas,
         progress = progress,
         progressDate = progressDate,
@@ -160,7 +162,8 @@ private fun HomeContent(
     onReconnect: (String) -> Unit,
     onRetry: (String) -> Unit,
     onAddService: () -> Unit,
-    connectionById: Map<String, Boolean> = emptyMap()
+    connectionById: Map<String, Boolean> = emptyMap(),
+    authHealthById: Map<String, AuthHealth?> = emptyMap()
 ) {
     val metaById = metas.associateBy { it.id }
     val zone = ZoneId.systemDefault()
@@ -168,10 +171,14 @@ private fun HomeContent(
     val cards: List<CardInput> = services.mapNotNull { s ->
         val meta = metaById[s.serviceId] ?: return@mapNotNull null
         val connected = connectionById[s.serviceId] == true
+        val hasAuthHealth = authHealthById.containsKey(s.serviceId)
+        val authHealth = authHealthById[s.serviceId]
+        val needsVerification = hasAuthHealth && authHealth == AuthHealth.UNVERIFIED
         val liveState = live?.get(s.serviceId)
             ?.takeIf { isLiveStateForDate(it, today, zone, progressDate) }
         val persisted = projectHomeStatus(s, today, zone)
         val status = when {
+            needsVerification -> CheckInStatus.USER_ACTION_REQUIRED
             !connected -> CheckInStatus.LOGIN_EXPIRED
             liveState != null -> liveState.status
             else -> persisted.status
@@ -181,7 +188,9 @@ private fun HomeContent(
             meta = meta,
             status = status,
             progress = liveState?.progress ?: if (status == CheckInStatus.RUNNING) 0.5f else 1f,
-            message = if (!connected) {
+            message = if (needsVerification) {
+                stringResource(R.string.home_credential_unverified)
+            } else if (!connected) {
                 stringResource(R.string.home_not_connected)
             } else if (liveState != null) {
                 liveState.message
@@ -198,12 +207,14 @@ private fun HomeContent(
                 else -> null
             },
             actionLabel = when {
+                needsVerification -> stringResource(R.string.connect_manage_connection)
                 !connected -> stringResource(R.string.action_connect)
                 status == CheckInStatus.LOGIN_EXPIRED -> stringResource(R.string.action_reconnect)
                 status == CheckInStatus.FAILED -> stringResource(R.string.action_retry)
                 else -> null
             },
             onAction = when {
+                needsVerification -> ({ onReconnect(s.serviceId) })
                 !connected -> ({ onReconnect(s.serviceId) })
                 status == CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(s.serviceId) })
                 status == CheckInStatus.FAILED -> ({ onRetry(s.serviceId) })

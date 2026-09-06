@@ -16,6 +16,20 @@ import org.junit.Test
  */
 class ProviderParsingTest {
 
+    @Test
+    fun miyousheGameReadOnlyValidationRequiresExplicitStatusSchema() {
+        assertTrue(mapMiyousheGameReadOnlyResponse("{\"retcode\":0,\"data\":{\"list\":[]}}")
+            is com.checky.app.domain.SavedCredentialValidation.Valid)
+        assertTrue(mapMiyousheGameReadOnlyResponse("{\"retcode\":-100}")
+            is com.checky.app.domain.SavedCredentialValidation.Expired)
+        assertTrue(mapMiyousheGameReadOnlyResponse("{\"retcode\":1034,\"message\":\"验证\"}")
+            is com.checky.app.domain.SavedCredentialValidation.Unverified)
+        assertTrue(mapMiyousheGameReadOnlyResponse("{\"retcode\":0,\"data\":{\"list\":null}}")
+            is com.checky.app.domain.SavedCredentialValidation.Unverified)
+        assertTrue(mapMiyousheGameReadOnlyResponse("not json")
+            is com.checky.app.domain.SavedCredentialValidation.Unverified)
+    }
+
     // --- Taygedo community sign classification ---
 
     @Test

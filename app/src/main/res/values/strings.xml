@@ -25,6 +25,7 @@
     <string name="home_no_services">No services connected</string>
     <string name="home_connect_to_enable">Connect a service to enable daily check-ins.</string>
     <string name="home_not_connected">Not connected. Connect this service before checking in.</string>
+    <string name="home_credential_unverified">Credential is saved locally but still needs provider verification. Manage the connection; automatic check-in remains disabled.</string>
     <string name="home_not_checked_in_today">Not checked in today yet.</string>
     <string name="home_status_success">Check-in successful today</string>
     <string name="home_status_already">Already checked in today</string>
@@ -32,6 +33,8 @@
     <string name="action_connect">Connect</string>
     <string name="action_reconnect">Reconnect</string>
     <string name="action_retry">Retry</string>
+    <string name="connect_needs_verification">Needs verification</string>
+    <string name="connect_auth_expired_short">Login expired</string>
     <string name="home_check_in_all">Check in all</string>
     <string name="home_checking_in">Checking in… %1$d/%2$d</string>
     <string name="home_cancel">Cancel</string>
@@ -133,10 +136,12 @@
     <string name="connect_platform_changes">The service may stop working after platform changes.</string>
     <string name="connect_no_credential">This service does not need a credential to check in.</string>
     <string name="connect_connected">Connected</string>
+    <string name="connect_credential_unverified_manage">Credential saved locally, but provider verification is still pending. Manage the connection or reconnect; automatic check-ins remain disabled.</string>
     <string name="connect_token_saved">Your token was saved. Check in again to use it.</string>
     <string name="connect_credential_unverified">Credential saved locally, but not provider-verified yet. Check in successfully or reconnect before automatic check-ins.</string>
     <string name="connect_auth_expired_preserved">The provider reported an expired login. Your local credential was kept; reconnect to restore automatic check-ins.</string>
     <string name="connect_verify_saved_credential">Verify by checking in now</string>
+    <string name="connect_check_connection">Check connection</string>
     <string name="connect_genshin_account">Genshin account</string>
     <string name="connect_fetching_roles">Fetching linked Genshin characters…</string>
     <string name="connect_multiple_roles">Multiple characters found. Choose the one to check in:</string>

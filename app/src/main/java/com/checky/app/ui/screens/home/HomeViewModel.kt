@@ -8,6 +8,7 @@ import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.LegacyAuthHealthMigration
@@ -31,7 +32,8 @@ import kotlin.jvm.JvmSuppressWildcards
 
 data class HomeServiceState(
     val service: com.checky.app.data.model.ServiceSnapshot,
-    val isConnected: Boolean
+    val isConnected: Boolean,
+    val authHealth: AuthHealth? = null
 )
 
 @HiltViewModel
@@ -60,7 +62,12 @@ class HomeViewModel @Inject constructor(
         .map { list ->
             LegacyAuthHealthMigration.seedIfNeeded(providers, list, credentialStore, authHealthStore)
             list.filter { it.isEnabled }.map { service ->
-                HomeServiceState(service = service, isConnected = isConnected(service.serviceId))
+                val health = authHealth(service.serviceId)
+                HomeServiceState(
+                    service = service,
+                    isConnected = health == AuthHealth.VALID,
+                    authHealth = health
+                )
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -140,7 +147,11 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun isConnected(serviceId: String): Boolean {
-        val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return false
-        return ProviderConnectionGate.isConnected(provider, credentialStore, authHealthStore)
+        return authHealth(serviceId) == AuthHealth.VALID
+    }
+
+    private suspend fun authHealth(serviceId: String): AuthHealth? {
+        val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return null
+        return ProviderConnectionGate.health(provider, credentialStore, authHealthStore)
     }
 }

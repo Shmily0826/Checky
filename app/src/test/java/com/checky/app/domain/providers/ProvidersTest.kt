@@ -29,9 +29,11 @@ class ProvidersTest {
 
     @Test
     fun taygedoMapsAuthAndVerificationFailuresWithoutTreatingThemAsTemporary() {
-        assertTrue(mapTaygedoFailure(401, "").diagnosticCode == "TAYGEDO_AUTH_EXPIRED")
-        assertTrue(mapTaygedoFailure(403, "需要风控验证").diagnosticCode == "TAYGEDO_VERIFICATION")
-        assertTrue(mapTaygedoFailure(503, "服务器忙").diagnosticCode == "TAYGEDO_503")
+        assertTrue(mapTaygedoFailure(401, "") is CheckInOutcome.AuthenticationExpired)
+        assertTrue(mapTaygedoFailure(-401, "") is CheckInOutcome.AuthenticationExpired)
+        assertTrue(mapTaygedoFailure(403, "需要风控验证") is CheckInOutcome.ActionRequired)
+        assertTrue(mapTaygedoFailure(503, "服务器忙") is CheckInOutcome.TemporaryFailure)
+        assertTrue(mapTaygedoFailure(0, "") is CheckInOutcome.TemporaryFailure)
     }
 
     @Test
@@ -50,6 +52,7 @@ class ProvidersTest {
     @Test
     fun onlyBrowseTaskCodeIsAllowedForAutomaticTaskCompletion() {
         assertTrue(isAllowedBrowseTaskCode("browse_post_c"))
+        assertTrue(isAllowedBrowseTaskCode("browse_post_exp"))
         assertTrue(!isAllowedBrowseTaskCode("like_post_c"))
         assertTrue(!isAllowedBrowseTaskCode("share"))
         assertTrue(!isAllowedBrowseTaskCode("follow"))
@@ -61,6 +64,23 @@ class ProvidersTest {
             put(JSONObject("""{"taskKey":"browse_post_c","code":"legacy_browse","limitTimes":3,"completeTimes":1}"""))
         }
         assertEquals(2, parseCommunityTaskState(arr)?.browseRemaining)
+    }
+
+    @Test
+    fun communityTaskParserAcceptsObservedBrowseTaskKey() {
+        val arr = JSONArray().apply {
+            put(JSONObject("""{"taskKey":"browse_post_exp","limitTimes":4,"completeTimes":1}"""))
+        }
+        assertEquals(3, parseCommunityTaskState(arr)?.browseRemaining)
+    }
+
+    @Test
+    fun communityTaskParserUsesOneDeterministicBrowseAliasWhenBothArePresent() {
+        val arr = JSONArray().apply {
+            put(JSONObject("""{"taskKey":"browse_post_c","limitTimes":20,"completeTimes":0}"""))
+            put(JSONObject("""{"taskKey":"browse_post_exp","limitTimes":4,"completeTimes":1}"""))
+        }
+        assertEquals(3, parseCommunityTaskState(arr)?.browseRemaining)
     }
 
     @Test
@@ -83,6 +103,37 @@ class ProvidersTest {
         }
         // follow is not in the automatic allowlist and must never be counted/executed.
         assertEquals(0, parseCommunityTaskState(arr)?.browseRemaining)
+    }
+
+    @Test
+    fun taygedoCoinStateRequiresSuccessfulResponseAndBothNonNegativeIntegers() {
+        fun result(data: Any?, code: Int = 0) =
+            TaygedoClient.ApiResult(code, data, "", JSONObject())
+
+        val known = parseTaygedoCoinState(
+            result(JSONObject("""{"todayCoin":12,"limitCoin":30}"""))
+        )
+        assertEquals(TaygedoCoinStateResult.Known(TaygedoCoinState(12, 30)), known)
+        assertEquals(
+            TaygedoCoinStateResult.Unknown,
+            parseTaygedoCoinState(result(JSONObject("""{"todayCoin":12}""")))
+        )
+        assertEquals(
+            TaygedoCoinStateResult.Unknown,
+            parseTaygedoCoinState(result(JSONObject("""{"todayCoin":-1,"limitCoin":30}""")))
+        )
+        assertEquals(
+            TaygedoCoinStateResult.Unknown,
+            parseTaygedoCoinState(result(JSONObject("""{"todayCoin":"12","limitCoin":30}""")))
+        )
+        assertEquals(
+            TaygedoCoinStateResult.Unknown,
+            parseTaygedoCoinState(result(JSONObject("""{"todayCoin":12.5,"limitCoin":30}""")))
+        )
+        assertEquals(
+            TaygedoCoinStateResult.Unknown,
+            parseTaygedoCoinState(result(JSONObject("""{"todayCoin":12,"limitCoin":30}"""), code = 401))
+        )
     }
 
     @Test

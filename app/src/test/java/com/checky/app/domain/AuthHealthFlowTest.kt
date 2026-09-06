@@ -4,6 +4,7 @@ import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CheckInStatus
 import com.checky.app.domain.model.Reward
+import com.checky.app.domain.providers.mapTaygedoFailure
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -19,6 +20,37 @@ class AuthHealthFlowTest {
 
         assertEquals(AuthHealth.EXPIRED, health.get("expired"))
         assertTrue(credentials.has("expired"))
+    }
+
+    @Test
+    fun definitiveTaygedo401PersistsExpiredForSharedOwnerWithoutDeletingCredential() = runTest {
+        val owner = "taygedo.shared.session"
+        val credentials = FakeCredentialStore().also { it.save(owner, "synthetic") }
+        val health = FakeAuthHealthStore().also { it.set(owner, AuthHealth.VALID) }
+        val provider = testProvider("taygedo_community", owner)
+        val expiredProvider = object : CheckInProvider {
+            override val meta = provider.meta
+            override val requiresCredentials = true
+            override val credentialOwnerId = owner
+            override fun checkIn() = kotlinx.coroutines.flow.flowOf(
+                CheckInEvent.Done(
+                    com.checky.app.domain.model.CheckInResult(
+                        meta.id, meta.displayName, mapTaygedoFailure(401, ""), 1L
+                    )
+                )
+            )
+            override suspend fun validateCredentials(secret: String) = CredentialValidation.Valid
+        }
+
+        CheckInAllUseCase(FakeCheckInRepository(), credentials, health)
+            .invoke(
+                listOf(expiredProvider),
+                parallel = false
+            )
+            .toList()
+
+        assertEquals(AuthHealth.EXPIRED, health.get(owner))
+        assertTrue(credentials.has(owner))
     }
 
     @Test
@@ -109,6 +141,7 @@ class AuthHealthFlowTest {
         override val meta = testProviderMeta(id).copy(
             credentialType = com.checky.app.domain.model.CredentialType.SESSION_TOKEN
         )
+        override val requiresCredentials = true
         override val credentialOwnerId = owner
         override fun checkIn() = kotlinx.coroutines.flow.emptyFlow<CheckInEvent>()
         override suspend fun validateCredentials(secret: String) = CredentialValidation.Valid

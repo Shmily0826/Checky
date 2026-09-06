@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.checky.app.data.model.ServiceSnapshot
+import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.model.CheckInStatus
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.ui.components.ProviderIcon
@@ -69,12 +70,14 @@ fun ProviderDetailsScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val service by viewModel.service.collectAsStateWithLifecycle()
+    val authHealth by viewModel.authHealth.collectAsStateWithLifecycle()
     val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
     val meta = viewModel.meta
     ProviderDetailsContent(
         navController = navController,
         meta = meta,
         service = service,
+        authHealth = authHealth,
         isConnected = isConnected,
         onToggle = viewModel::setEnabled,
         onManageConnection = { navController.navigate("connect/$it") }
@@ -95,6 +98,7 @@ private fun ProviderDetailsContent(
     navController: NavHostController,
     meta: ProviderMeta?,
     service: ServiceSnapshot?,
+    authHealth: AuthHealth?,
     isConnected: Boolean,
     onToggle: (Boolean) -> Unit,
     onManageConnection: (String) -> Unit
@@ -121,6 +125,17 @@ private fun ProviderDetailsContent(
             return@Scaffold
         }
         val lastCheckInStatus = service?.lastStatus ?: CheckInStatus.PENDING
+        val connectionLabel = when (authHealth) {
+            AuthHealth.VALID -> stringResource(R.string.connect_connected)
+            AuthHealth.UNVERIFIED -> stringResource(R.string.connect_needs_verification)
+            AuthHealth.EXPIRED -> stringResource(R.string.connect_auth_expired_short)
+            null -> stringResource(R.string.home_not_connected)
+        }
+        val connectionColor = when (authHealth) {
+            AuthHealth.VALID -> MaterialTheme.colorScheme.primary
+            AuthHealth.UNVERIFIED, AuthHealth.EXPIRED -> MaterialTheme.colorScheme.tertiary
+            null -> MaterialTheme.colorScheme.error
+        }
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -143,9 +158,9 @@ private fun ProviderDetailsContent(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.provider_status), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Text(
-                            if (isConnected) stringResource(R.string.connect_connected) else stringResource(R.string.home_not_connected),
+                            connectionLabel,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            color = connectionColor
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -178,8 +193,11 @@ private fun ProviderDetailsContent(
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = { onManageConnection(meta.id) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
                     Text(
-                        if (isConnected) stringResource(R.string.connect_manage_connection)
-                        else stringResource(R.string.connect_reconnect)
+                        if (authHealth == AuthHealth.VALID || authHealth == AuthHealth.UNVERIFIED) {
+                            stringResource(R.string.connect_manage_connection)
+                        } else {
+                            stringResource(R.string.connect_reconnect)
+                        }
                     )
                 }
             }
@@ -195,6 +213,7 @@ private fun ProviderDetailsPreview() {
             navController = rememberNavController(),
             meta = com.checky.app.ui.preview.PreviewProviderMetas[1],
             service = com.checky.app.ui.preview.previewSnapshots()[1],
+            authHealth = AuthHealth.VALID,
             isConnected = true,
             onToggle = {},
             onManageConnection = {}

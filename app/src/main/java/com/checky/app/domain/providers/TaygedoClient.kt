@@ -113,32 +113,50 @@ class TaygedoClient(
         authV2: Boolean = false,
         jsonBody: Boolean = false
     ): ApiResult {
-        var session = load() ?: throw AuthException()
+        val session = load() ?: throw AuthException()
         fun headersFor(current: Session) = buildMap {
             put("uid", current.uid)
             if (webHeaders) putAll(WEB_HEADERS)
         }
-        var response = bbs(meta, path, method, query, form, session.accessToken, useDs,
+        val response = bbs(meta, path, method, query, form, session.accessToken, useDs,
             authV2, jsonBody, headersFor(session))
         if (response.code == 401 || response.code == -401) {
-            session = refresh(session, meta) ?: throw AuthException()
-            response = bbs(meta, path, method, query, form, session.accessToken, useDs,
-                authV2, jsonBody, headersFor(session))
+            // A definitive authenticated 401 must fail closed. Do not refresh
+            // or retry because the caller must persist EXPIRED and stop the
+            // current multi-step operation before any downstream request.
+            throw AuthException()
         }
         return response
     }
 
-    private suspend fun refresh(old: Session, meta: ProviderMeta): Session? = runCatching {
-        val result = bbs(
-            meta, "/usercenter/api/refreshToken", "POST", auth = old.refreshToken,
-            useDs = true, extraHeaders = mapOf("uid" to "0")
+    /** Read today's coin-task counters; this endpoint is GET-only and never mutates task state. */
+    internal suspend fun getUserCoinTaskState(): TaygedoCoinStateResult = try {
+        parseTaygedoCoinState(
+            readOnlyGet(TaygedoCommunityProvider.META, "/apihub/api/getUserCoinTaskState")
         )
-        val data = result.raw.optJSONObject("data") ?: return null
-        old.copy(
-            accessToken = data.optString("accessToken"),
-            refreshToken = data.optString("refreshToken")
-        ).also { credentials.save(SESSION_KEY, encode(it)) }
-    }.getOrNull()
+    } catch (e: AuthException) {
+        throw e
+    } catch (_: Exception) {
+        TaygedoCoinStateResult.Unknown
+    }
+
+    /**
+     * Perform exactly one authenticated GET. In particular, this path never
+     * calls refreshToken and never persists credentials, even on 401/-401.
+     */
+    private suspend fun readOnlyGet(meta: ProviderMeta, path: String): ApiResult {
+        val session = load() ?: throw AuthException()
+        val response = bbs(
+            meta = meta,
+            path = path,
+            method = "GET",
+            auth = session.accessToken,
+            useDs = false,
+            extraHeaders = mapOf("uid" to session.uid)
+        )
+        if (response.code == 401 || response.code == -401) throw AuthException()
+        return response
+    }
 
     private fun bbs(
         meta: ProviderMeta,

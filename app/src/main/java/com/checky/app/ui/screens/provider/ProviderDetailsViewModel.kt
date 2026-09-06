@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.LegacyAuthHealthMigration
@@ -41,16 +42,21 @@ class ProviderDetailsViewModel @Inject constructor(
         .map { list -> list.firstOrNull { it.serviceId == serviceId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    /** Current usability according to the shared gate; independent of last check-in status. */
-    val isConnected: StateFlow<Boolean> = connectionRefresh
+    /** Current local auth evidence, kept distinct from last check-in status. */
+    val authHealth: StateFlow<AuthHealth?> = connectionRefresh
         .map {
             val provider = providers.firstOrNull { it.meta.id == serviceId }
-            if (provider == null) return@map false
+            if (provider == null) return@map null
             LegacyAuthHealthMigration.seedIfNeeded(
                 providers, repository.observeServices().first(), credentialStore, authHealthStore
             )
-            ProviderConnectionGate.isConnected(provider, credentialStore, authHealthStore)
+            ProviderConnectionGate.health(provider, credentialStore, authHealthStore)
         }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Only VALID is executable by the shared provider gate. */
+    val isConnected: StateFlow<Boolean> = authHealth
+        .map { it == AuthHealth.VALID }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /** Re-read connection state after returning from the connection screen. */

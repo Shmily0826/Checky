@@ -12,6 +12,8 @@ import com.checky.app.domain.GameAccountConfigProvider
 import com.checky.app.domain.QrLoginPollResult
 import com.checky.app.domain.QrLoginProvider
 import com.checky.app.domain.QrLoginSession
+import com.checky.app.domain.SavedCredentialRevalidator
+import com.checky.app.domain.SavedCredentialValidation
 import com.checky.app.domain.GameRole
 import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CheckInResult
@@ -44,7 +46,7 @@ class MiyousheProvider(
     private val context: Context,
     private val credentialStore: CredentialStore,
     private val httpClient: OkHttpClient
-) : CheckInProvider, QrLoginProvider, GameAccountConfigProvider {
+) : CheckInProvider, QrLoginProvider, GameAccountConfigProvider, SavedCredentialRevalidator {
 
     override val meta: ProviderMeta = META
     override val requiresCredentials: Boolean = true
@@ -76,6 +78,31 @@ class MiyousheProvider(
         credentialStore.get(meta.id)?.let(::decodeSession)?.takeIf { it.uid.isNotBlank() }?.let {
             GameAccountConfig(it.uid, it.region)
         }
+
+    /** Performs only the authenticated role-binding GET; it never refreshes or mutates. */
+    override suspend fun revalidateSavedCredential(): SavedCredentialValidation = withContext(Dispatchers.IO) {
+        val saved = credentialStore.get(meta.id)
+            ?: return@withContext SavedCredentialValidation.Unverified("未找到已保存的米游社会话。")
+        val session = runCatching { decodeSession(saved) }.getOrNull()
+            ?: return@withContext SavedCredentialValidation.Unverified("米游社会话格式无法识别。")
+        val names = cookieNames(session.cookie)
+        val hasLtokenPair = ("ltoken" in names && "ltuid" in names) ||
+            ("ltoken_v2" in names && "ltmid_v2" in names)
+        if (session.cookie.isBlank() || !hasLtokenPair) {
+            return@withContext SavedCredentialValidation.Unverified("已保存会话缺少可用于只读检查的 LToken 字段。")
+        }
+        runCatching {
+            request(
+                method = "GET",
+                path = "/binding/api/getUserGameRolesByCookie",
+                query = emptyMap(),
+                cookie = session.cookie
+            )
+        }.fold(
+            onSuccess = ::mapMiyousheGameReadOnlyResponse,
+            onFailure = { SavedCredentialValidation.Unverified("米游社只读连接检查暂时无法确认。") }
+        )
+    }
 
     /**
      * Reads the Genshin roles bound to the connected account via the miyoushe
@@ -531,5 +558,17 @@ class MiyousheProvider(
             supportStatus = SupportStatus.SUPPORTED,
             allowedHosts = setOf(API_HOST, WEB_QR_HOST)
         )
+    }
+}
+
+internal fun mapMiyousheGameReadOnlyResponse(body: String): SavedCredentialValidation {
+    val json = runCatching { JSONObject(body) }.getOrNull()
+        ?: return SavedCredentialValidation.Unverified("米游社返回了无法识别的连接状态。")
+    val retcode = json.optInt("retcode", Int.MIN_VALUE)
+    return when {
+        retcode == 0 && json.optJSONObject("data")?.optJSONArray("list") != null ->
+            SavedCredentialValidation.Valid
+        retcode == -100 -> SavedCredentialValidation.Expired
+        else -> SavedCredentialValidation.Unverified("米游社未返回可确认的连接状态。")
     }
 }

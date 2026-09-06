@@ -5,8 +5,6 @@ import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.FakeAuthHealthStore
-import com.checky.app.domain.FakeCheckInRepository
-import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.GameAccountConfig
@@ -17,6 +15,8 @@ import com.checky.app.domain.QrLoginProvider
 import com.checky.app.domain.QrLoginSession
 import com.checky.app.domain.SmsLoginProvider
 import com.checky.app.domain.SmsLoginResult
+import com.checky.app.domain.SavedCredentialRevalidator
+import com.checky.app.domain.SavedCredentialValidation
 import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.ProviderMeta
@@ -103,7 +103,7 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
-    fun newlySavedManualCredentialCanBeExplicitlyVerifiedInForeground() = runTest {
+    fun providerWithoutReadOnlyRevalidatorStaysUnverified() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val credentials = RecordingCredentialStore()
         val health = FakeAuthHealthStore()
@@ -118,8 +118,32 @@ class ConnectProviderViewModelTest {
         vm.verifySavedCredential()
         advanceUntilIdle()
 
-        assertEquals(AuthHealth.VALID, vm.authHealth.value)
-        assertTrue(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertFalse(vm.connected.value)
+    }
+
+    @Test
+    fun readOnlyRevalidatorPersistsOnlyExplicitValidOrExpired() = runTest {
+        listOf(
+            SavedCredentialValidation.Valid to AuthHealth.VALID,
+            SavedCredentialValidation.Expired to AuthHealth.EXPIRED,
+            SavedCredentialValidation.Unverified("unknown") to AuthHealth.UNVERIFIED
+        ).forEach { (validation, expectedHealth) ->
+            Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+            val credentials = RecordingCredentialStore()
+            val health = FakeAuthHealthStore()
+            val vm = vmWith(credentials, FakeReadOnlyProvider(validation), health)
+            vm.updateSecret("a-valid-token")
+            vm.save()
+            advanceUntilIdle()
+
+            vm.verifySavedCredential()
+            advanceUntilIdle()
+
+            assertEquals(expectedHealth, vm.authHealth.value)
+            assertEquals(expectedHealth == AuthHealth.VALID, vm.connected.value)
+            Dispatchers.resetMain()
+        }
     }
 
     @Test
@@ -488,8 +512,7 @@ class ConnectProviderViewModelTest {
         credentialStore = credentials,
         providers = listOf(provider),
         savedStateHandle = SavedStateHandle(mapOf("serviceId" to provider.meta.id)),
-        authHealthStore = authHealthStore,
-        checkInAllUseCase = CheckInAllUseCase(FakeCheckInRepository(), credentials, authHealthStore)
+        authHealthStore = authHealthStore
     )
 }
 
@@ -532,6 +555,12 @@ private class ScriptedProvider(
     override suspend fun disconnect() {
         disconnectCalls++
     }
+}
+
+private class FakeReadOnlyProvider(
+    private val validationResult: SavedCredentialValidation
+) : BaseFakeProvider(testMeta("fake-read-only")), SavedCredentialRevalidator {
+    override suspend fun revalidateSavedCredential(): SavedCredentialValidation = validationResult
 }
 
 private class FakeQrProvider(

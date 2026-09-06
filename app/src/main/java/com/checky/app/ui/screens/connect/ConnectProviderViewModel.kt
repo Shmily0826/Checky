@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.AuthHealthStore
-import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.GameAccountConfigProvider
@@ -17,7 +16,8 @@ import com.checky.app.domain.QrLoginSession
 import com.checky.app.domain.SmsLoginProvider
 import com.checky.app.domain.SmsLoginResult
 import com.checky.app.domain.ProviderConnectionGate
-import com.checky.app.domain.model.CheckInAllProgress
+import com.checky.app.domain.SavedCredentialRevalidator
+import com.checky.app.domain.SavedCredentialValidation
 import com.checky.app.domain.model.ProviderMeta
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,7 +42,6 @@ class ConnectProviderViewModel @Inject constructor(
     private val providers: @JvmSuppressWildcards List<CheckInProvider>,
     savedStateHandle: SavedStateHandle,
     private val authHealthStore: AuthHealthStore,
-    private val checkInAllUseCase: CheckInAllUseCase
 ) : ViewModel() {
 
     val serviceId: String = savedStateHandle.get<String>("serviceId") ?: ""
@@ -70,6 +69,8 @@ class ConnectProviderViewModel @Inject constructor(
 
     private val _verifying = MutableStateFlow(false)
     val verifying: StateFlow<Boolean> = _verifying.asStateFlow()
+
+    val supportsReadOnlyRevalidation: Boolean = provider is SavedCredentialRevalidator
 
     private val _secret = MutableStateFlow("")
     val secret: StateFlow<String> = _secret.asStateFlow()
@@ -184,13 +185,21 @@ class ConnectProviderViewModel @Inject constructor(
             _verifying.value = true
             _error.value = null
             try {
-                checkInAllUseCase(listOf(target), parallel = false).collect { progress ->
-                    if (progress is CheckInAllProgress.Finished) {
+                when (val result = (target as? SavedCredentialRevalidator)?.revalidateSavedCredential()) {
+                    SavedCredentialValidation.Valid -> {
+                        authHealthStore.set(target.credentialOwnerId, AuthHealth.VALID)
+                        _authHealth.value = AuthHealth.VALID
+                        _connected.value = true
+                    }
+                    SavedCredentialValidation.Expired -> {
+                        authHealthStore.set(target.credentialOwnerId, AuthHealth.EXPIRED)
+                        _authHealth.value = AuthHealth.EXPIRED
+                        _connected.value = false
+                    }
+                    is SavedCredentialValidation.Unverified, null -> {
                         _authHealth.value = authHealthStore.get(target.credentialOwnerId)
-                        _connected.value = _authHealth.value == AuthHealth.VALID
-                        if (!_connected.value && _authHealth.value != AuthHealth.EXPIRED) {
-                            _error.value = ConnectError.App(ConnectAppError.VERIFICATION_FAILED)
-                        }
+                        _connected.value = false
+                        _error.value = ConnectError.App(ConnectAppError.VERIFICATION_FAILED)
                     }
                 }
             } finally {
