@@ -60,6 +60,7 @@
     <string name="settings_automatic_checkin">Automatic check-in</string>
     <string name="settings_automatic_description">Experimental: runs enabled providers in the background. Android and device manufacturers may delay or block background work. Review the Background reliability card when it appears. The MiYouShe provider is unofficial, high risk, and for your own account only.</string>
     <string name="settings_run_around">Run around</string>
+    <string name="settings_local_time_context">%1$s (UTC%2$s · %3$s)</string>
     <string name="settings_result_notifications">Check-in result notifications</string>
     <string name="settings_result_notifications_description">Show a success / failure summary after automatic check-in.</string>
     <string name="settings_background_reliability">Background reliability</string>

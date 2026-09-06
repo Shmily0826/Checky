@@ -259,7 +259,16 @@ private fun SettingsContent(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(stringResource(R.string.settings_run_around), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             TextButton(onClick = { showAutoTimePicker = true }) {
-                                Text("%02d:%02d".format(prefs.autoCheckInHour, prefs.autoCheckInMinute), style = MaterialTheme.typography.titleMedium)
+                                val scheduledTime = AutoCheckInTimeFormatter.format(prefs.autoCheckInHour, prefs.autoCheckInMinute)
+                                Text(
+                                    stringResource(
+                                        R.string.settings_local_time_context,
+                                        scheduledTime.wallClock,
+                                        scheduledTime.utcOffset,
+                                        scheduledTime.zoneId
+                                    ),
+                                    style = MaterialTheme.typography.titleMedium
+                                )
                             }
                         }
                         Spacer(Modifier.padding(4.dp))
