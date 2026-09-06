@@ -5,10 +5,12 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.checky.app.data.preferences.UserPreferencesRepository
+import com.checky.app.data.preferences.DataStoreAuthHealthStore
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.data.repository.CheckInRepositoryImpl
 import com.checky.app.data.security.KeystoreCredentialStore
 import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.model.ProviderMeta
 import dagger.Binds
 import dagger.Module
@@ -39,6 +41,12 @@ object DataModule {
     fun provideUserPreferencesRepository(
         @Named("userPrefs") dataStore: DataStore<Preferences>
     ): UserPreferencesRepository = UserPreferencesRepository(dataStore)
+
+    @Provides
+    @Singleton
+    fun provideAuthHealthStore(
+        @Named("userPrefs") dataStore: DataStore<Preferences>
+    ): AuthHealthStore = DataStoreAuthHealthStore(dataStore)
 
     /**
      * Production credential vault. Secrets are encrypted with an Android

@@ -6,7 +6,8 @@ enum class ConnectAppError {
     QR_UNSUPPORTED,
     QR_EXPIRED,
     QR_TIMEOUT,
-    GAME_ROLES_UNAVAILABLE
+    GAME_ROLES_UNAVAILABLE,
+    VERIFICATION_FAILED
 }
 
 sealed interface ConnectError {

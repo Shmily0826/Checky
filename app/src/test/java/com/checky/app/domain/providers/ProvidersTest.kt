@@ -122,6 +122,79 @@ class ProvidersTest {
         assertEquals("TAYGEDO_COMMUNITY_FAILURE", outcome.diagnosticCode)
     }
 
+    @Test
+    fun unknownCommunityPreflightDoesNotInvokeAnySignInPost() = runTest {
+        var mutationCalls = 0
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNKNOWN },
+            signIn = {
+                mutationCalls++
+                CommunitySignResponse(0, "", hasExpectedData = true)
+            }
+        )
+
+        assertEquals(0, mutationCalls)
+        assertEquals(1, calls.size)
+        assertEquals(CommunitySignDisposition.PREFLIGHT_UNKNOWN, calls.single().classification)
+        val outcome = calls.single().classification.toOutcome("签到失败")
+        assertTrue(outcome is CheckInOutcome.PermanentFailure)
+        assertEquals("TAYGEDO_COMMUNITY_STATE_UNKNOWN", outcome.diagnosticCode)
+    }
+
+    @Test
+    fun signedCommunityPreflightSkipsSignInPost() = runTest {
+        var mutationCalls = 0
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.SIGNED },
+            signIn = {
+                mutationCalls++
+                CommunitySignResponse(0, "", hasExpectedData = true)
+            }
+        )
+
+        assertEquals(0, mutationCalls)
+        assertEquals(2, calls.size)
+        assertTrue(calls.all { it.classification == CommunitySignDisposition.ALREADY_COMPLETED })
+    }
+
+    @Test
+    fun unsignedCommunityPreflightAllowsOnlyThatSignInPost() = runTest {
+        val mutationCalls = mutableListOf<String>()
+        val calls = runCommunitySignInSequence(
+            readState = { communityId ->
+                if (communityId == "1") CommunitySignState.UNSIGNED else CommunitySignState.SIGNED
+            },
+            signIn = { communityId ->
+                mutationCalls += communityId
+                CommunitySignResponse(0, "", hasExpectedData = true)
+            }
+        )
+
+        assertEquals(listOf("1"), mutationCalls)
+        assertEquals(2, calls.size)
+        assertEquals(CommunitySignDisposition.SUCCESS, calls.first().classification)
+        assertEquals(CommunitySignDisposition.ALREADY_COMPLETED, calls.last().classification)
+    }
+
+    @Test
+    fun unknownSecondCommunityPreflightStopsAfterFirstSuccessfulSignIn() = runTest {
+        val mutationCalls = mutableListOf<String>()
+        val calls = runCommunitySignInSequence(
+            readState = { communityId ->
+                if (communityId == "1") CommunitySignState.UNSIGNED else CommunitySignState.UNKNOWN
+            },
+            signIn = { communityId ->
+                mutationCalls += communityId
+                CommunitySignResponse(0, "", hasExpectedData = true)
+            }
+        )
+
+        assertEquals(listOf("1"), mutationCalls)
+        assertEquals(2, calls.size)
+        assertEquals(CommunitySignDisposition.SUCCESS, calls.first().classification)
+        assertEquals(CommunitySignDisposition.PREFLIGHT_UNKNOWN, calls.last().classification)
+    }
+
     // ===== getSignState read-only parser (fail-closed) =====
 
     private fun signStateResult(code: Int, data: JSONObject?): TaygedoClient.ApiResult =
@@ -174,15 +247,26 @@ class ProvidersTest {
             CommunitySignState.UNKNOWN,
             signStateResult(0, JSONObject("""{"foo":"bar","list":[]}""")).toCommunitySignState()
         )
+        assertEquals(
+            CommunitySignState.UNKNOWN,
+            signStateResult(0, JSONObject("""{"status":2}""")).toCommunitySignState()
+        )
+        assertEquals(
+            CommunitySignState.UNKNOWN,
+            signStateResult(0, JSONObject("""{"isSign":true,"signed":false}""")).toCommunitySignState()
+        )
     }
 
     @Test
     fun communitySuccessfulFirstSignCallsSecondSign() = runTest {
         val called = mutableListOf<String>()
-        val calls = runCommunitySignInSequence { communityId ->
-            called += communityId
-            CommunitySignResponse(0, "", hasExpectedData = true, exp = 1)
-        }
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNSIGNED },
+            signIn = { communityId ->
+                called += communityId
+                CommunitySignResponse(0, "", hasExpectedData = true, exp = 1)
+            }
+        )
 
         assertEquals(listOf("1", "2"), called)
         assertEquals(2, calls.size)
@@ -191,10 +275,13 @@ class ProvidersTest {
     @Test
     fun communityAlreadyCompletedFirstSignCallsSecondSign() = runTest {
         val called = mutableListOf<String>()
-        val calls = runCommunitySignInSequence { communityId ->
-            called += communityId
-            CommunitySignResponse(1008, "已签到", hasExpectedData = false)
-        }
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNSIGNED },
+            signIn = { communityId ->
+                called += communityId
+                CommunitySignResponse(1008, "已签到", hasExpectedData = false)
+            }
+        )
 
         assertEquals(listOf("1", "2"), called)
         assertEquals(2, calls.size)
@@ -204,10 +291,13 @@ class ProvidersTest {
     @Test
     fun communityMalformedFirstSignDoesNotCallSecondSign() = runTest {
         val called = mutableListOf<String>()
-        val calls = runCommunitySignInSequence { communityId ->
-            called += communityId
-            CommunitySignResponse(0, "", hasExpectedData = false)
-        }
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNSIGNED },
+            signIn = { communityId ->
+                called += communityId
+                CommunitySignResponse(0, "", hasExpectedData = false)
+            }
+        )
 
         assertEquals(listOf("1"), called)
         assertEquals(CommunitySignDisposition.MALFORMED, calls.single().classification)
@@ -216,10 +306,13 @@ class ProvidersTest {
     @Test
     fun communityUnknownSuccessSchemaDoesNotCallSecondSign() = runTest {
         val called = mutableListOf<String>()
-        val calls = runCommunitySignInSequence { communityId ->
-            called += communityId
-            CommunitySignResponse(0, "", hasExpectedData = false, exp = 1)
-        }
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNSIGNED },
+            signIn = { communityId ->
+                called += communityId
+                CommunitySignResponse(0, "", hasExpectedData = false, exp = 1)
+            }
+        )
 
         assertEquals(listOf("1"), called)
         assertEquals(CommunitySignDisposition.MALFORMED, calls.single().classification)
@@ -228,10 +321,13 @@ class ProvidersTest {
     @Test
     fun communityVerificationFirstSignDoesNotCallSecondSign() = runTest {
         val called = mutableListOf<String>()
-        val calls = runCommunitySignInSequence { communityId ->
-            called += communityId
-            CommunitySignResponse(403, "需要风控验证", hasExpectedData = false)
-        }
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNSIGNED },
+            signIn = { communityId ->
+                called += communityId
+                CommunitySignResponse(403, "需要风控验证", hasExpectedData = false)
+            }
+        )
 
         assertEquals(listOf("1"), called)
         assertEquals(CommunitySignDisposition.VERIFICATION_REQUIRED, calls.single().classification)
@@ -240,10 +336,13 @@ class ProvidersTest {
     @Test
     fun communityAuthExpiredFirstSignDoesNotCallSecondSign() = runTest {
         val called = mutableListOf<String>()
-        val calls = runCommunitySignInSequence { communityId ->
-            called += communityId
-            CommunitySignResponse(401, "", hasExpectedData = false)
-        }
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNSIGNED },
+            signIn = { communityId ->
+                called += communityId
+                CommunitySignResponse(401, "", hasExpectedData = false)
+            }
+        )
 
         assertEquals(listOf("1"), called)
         assertEquals(CommunitySignDisposition.AUTH_EXPIRED, calls.single().classification)

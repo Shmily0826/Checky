@@ -26,6 +26,10 @@ sealed interface CheckInEvent {
 interface CheckInProvider {
     val meta: ProviderMeta
 
+    /** Actual local credential/session owner; defaults to one owner per provider. */
+    val credentialOwnerId: String
+        get() = meta.id
+
     /** Whether the user must supply a credential before this provider can run. */
     val requiresCredentials: Boolean
         get() = meta.credentialType != CredentialType.NONE

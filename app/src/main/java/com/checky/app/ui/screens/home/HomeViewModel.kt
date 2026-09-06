@@ -8,7 +8,10 @@ import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.LegacyAuthHealthMigration
+import com.checky.app.domain.NoOpAuthHealthStore
 import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.ProviderMeta
@@ -38,7 +41,8 @@ class HomeViewModel @Inject constructor(
     private val checkInAllUseCase: CheckInAllUseCase,
     private val credentialStore: CredentialStore,
     private val providers: @JvmSuppressWildcards List<CheckInProvider>,
-    val metas: @JvmSuppressWildcards List<ProviderMeta>
+    val metas: @JvmSuppressWildcards List<ProviderMeta>,
+    private val authHealthStore: AuthHealthStore = NoOpAuthHealthStore
 ) : ViewModel() {
 
     private val connectionRefresh = MutableStateFlow(0)
@@ -54,6 +58,7 @@ class HomeViewModel @Inject constructor(
     val homeServices = services
         .combine(connectionRefresh) { list, _ -> list }
         .map { list ->
+            LegacyAuthHealthMigration.seedIfNeeded(providers, list, credentialStore, authHealthStore)
             list.filter { it.isEnabled }.map { service ->
                 HomeServiceState(service = service, isConnected = isConnected(service.serviceId))
             }
@@ -77,6 +82,9 @@ class HomeViewModel @Inject constructor(
     fun checkInAll() {
         if (_progress.value is CheckInAllProgress.Running) return
         runningJob = viewModelScope.launch {
+            LegacyAuthHealthMigration.seedIfNeeded(
+                providers, services.value, credentialStore, authHealthStore
+            )
             val targets = enabledProviders()
             if (targets.isEmpty()) return@launch
             _progressDate.value = LocalDate.now()
@@ -91,6 +99,9 @@ class HomeViewModel @Inject constructor(
         val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return
         runningJob = viewModelScope.launch {
             if (services.value.firstOrNull { it.serviceId == serviceId }?.isEnabled != true) return@launch
+            LegacyAuthHealthMigration.seedIfNeeded(
+                providers, services.value, credentialStore, authHealthStore
+            )
             if (!isConnected(serviceId)) return@launch
             _progressDate.value = LocalDate.now()
             checkInAllUseCase(listOf(provider), parallel = false).collect { _progress.value = it }
@@ -130,6 +141,6 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun isConnected(serviceId: String): Boolean {
         val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return false
-        return ProviderConnectionGate.isConnected(provider, credentialStore)
+        return ProviderConnectionGate.isConnected(provider, credentialStore, authHealthStore)
     }
 }

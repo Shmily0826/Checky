@@ -69,6 +69,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.checky.app.domain.model.CredentialType
+import com.checky.app.domain.AuthHealth
 import com.checky.app.ui.components.ProviderIcon
 import com.checky.app.ui.components.localizedProviderCategory
 import com.checky.app.ui.components.localizedProviderDescription
@@ -85,6 +86,7 @@ private fun connectErrorLabel(error: ConnectError): String = when (error) {
         ConnectAppError.QR_EXPIRED -> stringResource(R.string.connect_error_qr_expired)
         ConnectAppError.QR_TIMEOUT -> stringResource(R.string.connect_error_qr_timeout)
         ConnectAppError.GAME_ROLES_UNAVAILABLE -> stringResource(R.string.connect_error_game_roles_unavailable)
+        ConnectAppError.VERIFICATION_FAILED -> stringResource(R.string.connect_error_verification_failed)
     }
 }
 
@@ -117,6 +119,8 @@ fun ConnectProviderScreen(
 
     val meta = viewModel.meta
     val connected by viewModel.connected.collectAsStateWithLifecycle()
+    val authHealth by viewModel.authHealth.collectAsStateWithLifecycle()
+    val verifying by viewModel.verifying.collectAsStateWithLifecycle()
     val secret by viewModel.secret.collectAsStateWithLifecycle()
     val showSecret by viewModel.showSecret.collectAsStateWithLifecycle()
     val saving by viewModel.saving.collectAsStateWithLifecycle()
@@ -313,6 +317,32 @@ fun ConnectProviderScreen(
                     // entry — the default path is scan-only, zero typing.
                     LaunchedEffect(Unit) {
                         viewModel.maybeStartQrLoginAutomatically()
+                    }
+                    when (authHealth) {
+                        AuthHealth.UNVERIFIED -> Text(
+                            stringResource(R.string.connect_credential_unverified),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        AuthHealth.EXPIRED -> Text(
+                            stringResource(R.string.connect_auth_expired_preserved),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        else -> Unit
+                    }
+                    if (authHealth == AuthHealth.UNVERIFIED) {
+                        Button(
+                            onClick = viewModel::verifySavedCredential,
+                            enabled = !verifying,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (verifying) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text(stringResource(R.string.connect_verify_saved_credential))
+                            }
+                        }
                     }
                     if (viewModel.smsProvider != null) {
                             Text(stringResource(R.string.connect_phone_verification), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

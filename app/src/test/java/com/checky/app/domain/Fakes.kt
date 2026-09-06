@@ -8,6 +8,8 @@ import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.CheckInStatus
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.Reward
+import com.checky.app.domain.AuthHealth
+import com.checky.app.domain.AuthHealthStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -46,6 +48,20 @@ class FakeCredentialStore(
 
     override suspend fun deleteAll() {
         vault.clear()
+    }
+}
+
+/** In-memory auth evidence store for gate, migration, and orchestration tests. */
+class FakeAuthHealthStore : AuthHealthStore {
+    val states = mutableMapOf<String, AuthHealth>()
+
+    override suspend fun get(ownerId: String): AuthHealth = states[ownerId] ?: AuthHealth.UNVERIFIED
+    override suspend fun hasRecord(ownerId: String): Boolean = ownerId in states
+    override suspend fun set(ownerId: String, health: AuthHealth) {
+        states[ownerId] = health
+    }
+    override suspend fun clear(ownerId: String) {
+        states.remove(ownerId)
     }
 }
 

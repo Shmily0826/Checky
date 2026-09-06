@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.net.Uri
 import android.provider.Settings
@@ -319,6 +320,16 @@ private fun SettingsContent(
                 Text(stringResource(R.string.settings_show_onboarding))
             }
 
+            if (isDebuggableBuild(context)) {
+                SectionTitle("Temporary debug")
+                OutlinedButton(
+                    onClick = { openTemporaryTaygedoDiagnostics(context) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open temporary Taygedo diagnostics")
+                }
+            }
+
             SectionTitle(stringResource(R.string.settings_privacy_security))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -497,6 +508,19 @@ private fun openAppSettings(context: Context) {
         }
     }
 }
+
+private const val TEMPORARY_TAYGEDO_DIAGNOSTICS_CLASS =
+    "com.checky.app.debug.TaygedoDiagnosticsActivity"
+
+private fun openTemporaryTaygedoDiagnostics(context: Context) {
+    if (!isDebuggableBuild(context)) return
+    context.startActivity(
+        Intent().setClassName(context.packageName, TEMPORARY_TAYGEDO_DIAGNOSTICS_CLASS)
+    )
+}
+
+private fun isDebuggableBuild(context: Context): Boolean =
+    context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
 @Composable
 private fun PrivacyLine(text: String) {

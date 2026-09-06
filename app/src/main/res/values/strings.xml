@@ -133,6 +133,9 @@
     <string name="connect_no_credential">This service does not need a credential to check in.</string>
     <string name="connect_connected">Connected</string>
     <string name="connect_token_saved">Your token was saved. Check in again to use it.</string>
+    <string name="connect_credential_unverified">Credential saved locally, but not provider-verified yet. Check in successfully or reconnect before automatic check-ins.</string>
+    <string name="connect_auth_expired_preserved">The provider reported an expired login. Your local credential was kept; reconnect to restore automatic check-ins.</string>
+    <string name="connect_verify_saved_credential">Verify by checking in now</string>
     <string name="connect_genshin_account">Genshin account</string>
     <string name="connect_fetching_roles">Fetching linked Genshin characters…</string>
     <string name="connect_multiple_roles">Multiple characters found. Choose the one to check in:</string>
@@ -173,6 +176,7 @@
     <string name="connect_error_qr_expired">The QR code expired. Generate a new one.</string>
     <string name="connect_error_qr_timeout">QR code timed out. Generate a new one.</string>
     <string name="connect_error_game_roles_unavailable">Could not fetch characters automatically. Enter the game UID manually.</string>
+    <string name="connect_error_verification_failed">The credential was not verified. Try again or reconnect.</string>
     <string name="connect_cancel_scan">Cancel scan</string>
     <string name="connect_manual_cookie_community">Enter community Cookie manually (advanced)</string>
     <string name="connect_manual_cookie">Enter Cookie manually (advanced)</string>

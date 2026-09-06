@@ -13,6 +13,8 @@ import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.AuthHealthStore
+import com.checky.app.domain.LegacyAuthHealthMigration
 import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.expiredServiceNames
@@ -46,8 +48,13 @@ class AutoCheckInWorker(
             return Result.success()
         }
         val services = entryPoint.repository().observeServices().first()
+        LegacyAuthHealthMigration.seedIfNeeded(
+            entryPoint.providers(), services, entryPoint.credentials(), entryPoint.authHealthStore()
+        )
         val enabledIds = services.filter { it.isEnabled }.map { it.serviceId }.toSet()
-        val providers = selectExecutableProviders(enabledIds, entryPoint.providers(), entryPoint.credentials())
+        val providers = selectExecutableProviders(
+            enabledIds, entryPoint.providers(), entryPoint.credentials(), entryPoint.authHealthStore()
+        )
         if (providers.isEmpty()) return Result.success()
 
         val finalProgress = entryPoint.useCase()(providers, parallel = false).last()
@@ -105,9 +112,10 @@ internal fun shouldRunAutoCheckIn(preferences: UserPreferences): Boolean =
 internal suspend fun selectExecutableProviders(
     enabledIds: Set<String>,
     providers: List<CheckInProvider>,
-    credentials: CredentialStore
+    credentials: CredentialStore,
+    authHealthStore: AuthHealthStore = com.checky.app.domain.NoOpAuthHealthStore
 ): List<CheckInProvider> = providers.filter {
-    it.meta.id in enabledIds && ProviderConnectionGate.isConnected(it, credentials)
+    it.meta.id in enabledIds && ProviderConnectionGate.isConnected(it, credentials, authHealthStore)
 }
 
 @EntryPoint
@@ -118,4 +126,5 @@ interface AutoCheckInEntryPoint {
     fun providers(): @JvmSuppressWildcards List<CheckInProvider>
     fun preferences(): UserPreferencesRepository
     fun credentials(): CredentialStore
+    fun authHealthStore(): AuthHealthStore
 }

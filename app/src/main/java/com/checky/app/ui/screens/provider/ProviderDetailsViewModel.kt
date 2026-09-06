@@ -5,7 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.LegacyAuthHealthMigration
+import com.checky.app.domain.NoOpAuthHealthStore
 import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.ProviderMeta
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -24,7 +28,8 @@ class ProviderDetailsViewModel @Inject constructor(
     private val credentialStore: CredentialStore,
     private val providers: @JvmSuppressWildcards List<CheckInProvider>,
     val metas: List<ProviderMeta>,
-    savedStateHandle: SavedStateHandle
+    savedStateHandle: SavedStateHandle,
+    private val authHealthStore: AuthHealthStore = NoOpAuthHealthStore
 ) : ViewModel() {
 
     private val serviceId: String = savedStateHandle.get<String>("serviceId") ?: ""
@@ -40,7 +45,11 @@ class ProviderDetailsViewModel @Inject constructor(
     val isConnected: StateFlow<Boolean> = connectionRefresh
         .map {
             val provider = providers.firstOrNull { it.meta.id == serviceId }
-            provider != null && ProviderConnectionGate.isConnected(provider, credentialStore)
+            if (provider == null) return@map false
+            LegacyAuthHealthMigration.seedIfNeeded(
+                providers, repository.observeServices().first(), credentialStore, authHealthStore
+            )
+            ProviderConnectionGate.isConnected(provider, credentialStore, authHealthStore)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 

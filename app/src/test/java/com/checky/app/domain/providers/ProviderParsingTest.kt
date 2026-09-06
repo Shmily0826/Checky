@@ -164,12 +164,37 @@ class ProviderParsingTest {
         val outcomes = listOf(
             mapMiyousheCommunityResponse("not json at all"),
             mapMiyousheResponse("""{"message":"no retcode"}"""),
-            mapMiyousheResponse("""{"retcode":0,"message":"no data block"}""")
+            mapMiyousheResponse("""{"retcode":0,"message":"no data block"}"""),
+            mapMiyousheCommunityResponse("""{"retcode":"0","data":{"points":0}}"""),
+            mapMiyousheCommunityResponse("""{"retcode":0,"data":{"points":1.5}}""")
         )
         outcomes.forEach { outcome ->
             assertTrue(outcome is CheckInOutcome.PermanentFailure)
-            assertEquals("MIYOUSHE_COMMUNITY_BAD_RESPONSE", outcome.diagnosticCode)
+            assertEquals("MIYOUSHE_COMMUNITY_UNCERTAIN", outcome.diagnosticCode)
+            assertTrue(outcome.userMessage.contains("无法确认"))
         }
+    }
+
+    @Test
+    fun miyousheCommunityUncertainMutationIsTerminalForSharedRetry() {
+        val outcome = miyousheCommunityUncertainMutationOutcome()
+
+        assertTrue(outcome is CheckInOutcome.PermanentFailure)
+        assertEquals("MIYOUSHE_COMMUNITY_UNCERTAIN", outcome.diagnosticCode)
+        assertTrue(outcome.userMessage.contains("可能已发送"))
+    }
+
+    @Test
+    fun miyousheCommunityMutationMapsTransportFailureAsUncertain() {
+        var mutationCalls = 0
+        val outcome = runMiyousheCommunityMutation {
+            mutationCalls++
+            error("synthetic transport failure")
+        }
+
+        assertEquals(1, mutationCalls)
+        assertTrue(outcome is CheckInOutcome.PermanentFailure)
+        assertEquals("MIYOUSHE_COMMUNITY_UNCERTAIN", outcome.diagnosticCode)
     }
 
     // --- Miyoushe community QR status parsing ---

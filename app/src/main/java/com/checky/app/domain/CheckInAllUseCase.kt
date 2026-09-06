@@ -16,6 +16,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -37,8 +38,16 @@ import kotlin.time.TimeSource
  *  - a single [CheckInAllProgress.Finished] with a summary is emitted at the end
  */
 class CheckInAllUseCase @Inject constructor(
-    private val repository: CheckInRepository
+    private val repository: CheckInRepository,
+    private val credentialStore: CredentialStore,
+    private val authHealthStore: AuthHealthStore
 ) {
+    /** Compatibility constructor for pure orchestration tests without auth state. */
+    constructor(repository: CheckInRepository) : this(
+        repository,
+        NoOpCredentialStore,
+        NoOpAuthHealthStore
+    )
     private val running = AtomicBoolean(false)
 
     /** Maximum providers executed at once in parallel mode. */
@@ -57,6 +66,12 @@ class CheckInAllUseCase @Inject constructor(
         }
         try {
             kotlinx.coroutines.coroutineScope {
+                LegacyAuthHealthMigration.seedIfNeeded(
+                    providers,
+                    repository.observeServices().first(),
+                    credentialStore,
+                    authHealthStore
+                )
                 val overallMark = TimeSource.Monotonic.markNow()
                 val initial = providers.associate { provider ->
                     provider.meta.id to ServiceCheckInState(
@@ -150,6 +165,16 @@ class CheckInAllUseCase @Inject constructor(
                             reward = result.reward,
                             timestamp = result.timestamp
                         )
+                    }
+                    if (provider.requiresCredentials) {
+                        when (result.outcome) {
+                            is CheckInOutcome.AuthenticationExpired ->
+                                authHealthStore.set(provider.credentialOwnerId, AuthHealth.EXPIRED)
+                            is CheckInOutcome.Success,
+                            is CheckInOutcome.AlreadyCompleted ->
+                                authHealthStore.set(provider.credentialOwnerId, AuthHealth.VALID)
+                            else -> Unit
+                        }
                     }
                     repository.saveResult(result)
                 }

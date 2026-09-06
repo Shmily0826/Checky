@@ -133,6 +133,9 @@
     <string name="connect_no_credential">此服务无需凭据即可签到。</string>
     <string name="connect_connected">已连接</string>
     <string name="connect_token_saved">令牌已保存。再次签到时会使用它。</string>
+    <string name="connect_credential_unverified">凭据已保存在本地，但尚未得到服务方验证。请先成功签到或重新连接，再启用自动签到。</string>
+    <string name="connect_auth_expired_preserved">服务方报告登录已失效。本地凭据已保留；重新连接后即可恢复自动签到。</string>
+    <string name="connect_verify_saved_credential">立即签到以验证凭据</string>
     <string name="connect_genshin_account">原神账号</string>
     <string name="connect_fetching_roles">正在获取绑定的原神角色…</string>
     <string name="connect_multiple_roles">检测到多个角色，请选择要签到的角色：</string>
@@ -235,4 +238,5 @@
     <string name="provider_taygedo_community_name">塔吉多社区签到</string>
     <string name="provider_taygedo_community_description">完成塔吉多 App 与异环版区每日签到，并读取任务状态；不自动点赞、不分享。</string>
     <string name="provider_taygedo_community_category">社区</string>
+    <string name="connect_error_verification_failed">凭据未能通过验证，请重试或重新连接。</string>
 </resources>

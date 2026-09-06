@@ -162,13 +162,11 @@ class MiyousheCommunityProvider(
 
     private fun runCheckIn(cookie: String): CheckInOutcome = try {
         val body = JSONObject().put("gids", GENSHIN_GID).toString()
-        val response = request(cookie, body)
-        mapMiyousheCommunityResponse(response)
+        runMiyousheCommunityMutation { request(cookie, body) }
     } catch (_: Exception) {
-        CheckInOutcome.TemporaryFailure(
-            "米游社讨论区暂时无法连接，请稍后重试。",
-            "MIYOUSHE_COMMUNITY_NETWORK"
-        )
+        // Keep unexpected local failures terminal as well; no subsequent
+        // mutation is safe after this provider has started the sign-in flow.
+        miyousheCommunityUncertainMutationOutcome()
     }
 
     private fun request(cookie: String, body: String): String {
@@ -460,18 +458,49 @@ internal fun parseMiyousheCommunityQrResponse(body: String): MiyousheCommunityQr
 
 internal fun mapMiyousheCommunityResponse(body: String): CheckInOutcome {
     val json = runCatching { JSONObject(body) }.getOrNull()
-        ?: return CheckInOutcome.PermanentFailure(
-            "米游社返回了无法识别的签到结果，已停止操作。",
-            "MIYOUSHE_COMMUNITY_BAD_RESPONSE"
-        )
-    val retcode = json.optInt("retcode", Int.MIN_VALUE).takeIf { json.has("retcode") }
+        ?: return miyousheCommunityUncertainMutationOutcome()
+    val retcode = json.optionalInteger("retcode")
     val message = json.optString("message")
     val data = json.optJSONObject("data")
     return mapMiyousheCommunityFields(
         retcode = retcode,
         message = message,
-        points = data?.optInt("points")?.takeIf { data.has("points") }
+        points = data?.optionalInteger("points")
     )
+}
+
+private fun JSONObject.optionalInteger(name: String): Int? {
+    if (!has(name)) return null
+    val number = opt(name) as? Number ?: return null
+    val value = number.toDouble()
+    return if (value.isFinite() && value % 1.0 == 0.0 &&
+        value >= Int.MIN_VALUE && value <= Int.MAX_VALUE
+    ) {
+        value.toInt()
+    } else {
+        null
+    }
+}
+
+/**
+ * The community mutation has no verified read-only status endpoint. A
+ * transport failure or malformed response therefore leaves the mutation
+ * outcome unknown and must be terminal so the shared retry cannot POST again.
+ */
+internal fun miyousheCommunityUncertainMutationOutcome(): CheckInOutcome =
+    CheckInOutcome.PermanentFailure(
+        "米游社签到请求可能已发送，但结果无法确认，已停止自动重试。",
+        "MIYOUSHE_COMMUNITY_UNCERTAIN"
+    )
+
+/** Maps the result of the single community mutation without permitting retry. */
+internal fun runMiyousheCommunityMutation(request: () -> String): CheckInOutcome = try {
+    mapMiyousheCommunityResponse(request())
+} catch (_: Exception) {
+    // The POST may have reached the server before the client observed the
+    // transport failure. There is no verified read-only preflight here, so
+    // do not let CheckInAllUseCase blindly send the same mutation again.
+    miyousheCommunityUncertainMutationOutcome()
 }
 
 internal fun mapMiyousheCommunityFields(
@@ -480,18 +509,12 @@ internal fun mapMiyousheCommunityFields(
     points: Int?
 ): CheckInOutcome {
     if (retcode == null) {
-        return CheckInOutcome.PermanentFailure(
-            "米游社返回了缺少状态码的签到结果，已停止操作。",
-            "MIYOUSHE_COMMUNITY_BAD_RESPONSE"
-        )
+        return miyousheCommunityUncertainMutationOutcome()
     }
     return when {
         retcode == 0 -> {
             if (points == null) {
-                CheckInOutcome.PermanentFailure(
-                    "米游社返回了无法识别的签到结果，已停止操作。",
-                    "MIYOUSHE_COMMUNITY_BAD_RESPONSE"
-                )
+                miyousheCommunityUncertainMutationOutcome()
             } else {
                 if (points > 0) {
                     CheckInOutcome.Success(

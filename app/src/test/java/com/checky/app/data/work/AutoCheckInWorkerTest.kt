@@ -1,6 +1,8 @@
 package com.checky.app.data.work
 
 import com.checky.app.domain.FakeCredentialStore
+import com.checky.app.domain.FakeAuthHealthStore
+import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.SequenceCheckInProvider
 import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CredentialType
@@ -33,21 +35,23 @@ class AutoCheckInWorkerTest {
             CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
         )
         val credentials = FakeCredentialStore()
+        val health = FakeAuthHealthStore()
         val providers = listOf(auth, selectedFree, unselectedAuth)
 
         assertEquals(
             listOf("free"),
-            selectExecutableProviders(setOf("auth", "free"), providers, credentials).map { it.meta.id }
+            selectExecutableProviders(setOf("auth", "free"), providers, credentials, health).map { it.meta.id }
         )
 
         credentials.save("auth", "synthetic-test-secret")
+        health.set("auth", AuthHealth.VALID)
         assertEquals(
             listOf("auth", "free"),
-            selectExecutableProviders(setOf("auth", "free"), providers, credentials).map { it.meta.id }
+            selectExecutableProviders(setOf("auth", "free"), providers, credentials, health).map { it.meta.id }
         )
         assertEquals(
             listOf("auth"),
-            selectExecutableProviders(setOf("auth"), providers, credentials).map { it.meta.id }
+            selectExecutableProviders(setOf("auth"), providers, credentials, health).map { it.meta.id }
         )
     }
 }

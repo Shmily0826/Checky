@@ -4,6 +4,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.AuthHealth
+import com.checky.app.domain.AuthHealthStore
+import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.GameAccountConfigProvider
@@ -13,11 +16,14 @@ import com.checky.app.domain.QrLoginProvider
 import com.checky.app.domain.QrLoginSession
 import com.checky.app.domain.SmsLoginProvider
 import com.checky.app.domain.SmsLoginResult
+import com.checky.app.domain.ProviderConnectionGate
+import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.ProviderMeta
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,7 +40,9 @@ import kotlin.jvm.JvmSuppressWildcards
 class ConnectProviderViewModel @Inject constructor(
     private val credentialStore: CredentialStore,
     private val providers: @JvmSuppressWildcards List<CheckInProvider>,
-    savedStateHandle: SavedStateHandle
+    savedStateHandle: SavedStateHandle,
+    private val authHealthStore: AuthHealthStore,
+    private val checkInAllUseCase: CheckInAllUseCase
 ) : ViewModel() {
 
     val serviceId: String = savedStateHandle.get<String>("serviceId") ?: ""
@@ -56,6 +64,12 @@ class ConnectProviderViewModel @Inject constructor(
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
+
+    private val _authHealth = MutableStateFlow<AuthHealth?>(null)
+    val authHealth: StateFlow<AuthHealth?> = _authHealth.asStateFlow()
+
+    private val _verifying = MutableStateFlow(false)
+    val verifying: StateFlow<Boolean> = _verifying.asStateFlow()
 
     private val _secret = MutableStateFlow("")
     val secret: StateFlow<String> = _secret.asStateFlow()
@@ -103,10 +117,10 @@ class ConnectProviderViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _connected.value = when {
-                smsProvider != null -> smsProvider.isSmsConnected()
-                else -> credentialStore.has(serviceId)
+            _authHealth.value = provider?.let {
+                ProviderConnectionGate.health(it, credentialStore, authHealthStore)
             }
+            _connected.value = _authHealth.value == AuthHealth.VALID
             gameAccountProvider?.gameAccountConfig()?.let { config ->
                 _gameUid.value = config.uid
                 _gameRegion.value = config.region
@@ -146,8 +160,9 @@ class ConnectProviderViewModel @Inject constructor(
         viewModelScope.launch {
             _smsBusy.value = true
             when (val result = target.confirmSmsCode(_phone.value, _smsCode.value)) {
-                is SmsLoginResult.Connected -> {
-                    _connected.value = true; _saved.value = true; _error.value = null
+                    is SmsLoginResult.Connected -> {
+                    markProviderConfirmedValid()
+                    _saved.value = true; _error.value = null
                     _smsCode.value = ""
                 }
                 is SmsLoginResult.Failed -> _error.value = ConnectError.Provider(result.message)
@@ -159,6 +174,29 @@ class ConnectProviderViewModel @Inject constructor(
 
     fun toggleSecretVisibility() {
         _showSecret.value = !_showSecret.value
+    }
+
+    /** Explicit foreground evidence path for structurally saved credentials. */
+    fun verifySavedCredential() {
+        val target = provider ?: return
+        if (_authHealth.value != AuthHealth.UNVERIFIED || _verifying.value) return
+        viewModelScope.launch {
+            _verifying.value = true
+            _error.value = null
+            try {
+                checkInAllUseCase(listOf(target), parallel = false).collect { progress ->
+                    if (progress is CheckInAllProgress.Finished) {
+                        _authHealth.value = authHealthStore.get(target.credentialOwnerId)
+                        _connected.value = _authHealth.value == AuthHealth.VALID
+                        if (!_connected.value && _authHealth.value != AuthHealth.EXPIRED) {
+                            _error.value = ConnectError.App(ConnectAppError.VERIFICATION_FAILED)
+                        }
+                    }
+                }
+            } finally {
+                _verifying.value = false
+            }
+        }
     }
 
     fun save() {
@@ -173,11 +211,13 @@ class ConnectProviderViewModel @Inject constructor(
             try {
                 when (val validation = target.validateCredentials(value)) {
                     is CredentialValidation.Valid -> {
-                        credentialStore.save(serviceId, value)
+                        credentialStore.save(target.credentialOwnerId, value)
+                        authHealthStore.set(target.credentialOwnerId, AuthHealth.UNVERIFIED)
+                        _authHealth.value = AuthHealth.UNVERIFIED
                         _secret.value = ""
                         _error.value = null
                         _saved.value = true
-                        _connected.value = true
+                        _connected.value = false
                     }
                     is CredentialValidation.Invalid -> _error.value = ConnectError.Provider(validation.reason)
                 }
@@ -223,7 +263,7 @@ class ConnectProviderViewModel @Inject constructor(
                         QrLoginPollResult.Waiting -> _qrStatus.value = QrUiStatus.Waiting
                         QrLoginPollResult.Scanned -> _qrStatus.value = QrUiStatus.Scanned
                         is QrLoginPollResult.Confirmed -> {
-                            _connected.value = true
+                            markProviderConfirmedValid()
                             _saved.value = true
                             _qrStatus.value = QrUiStatus.Confirmed(result.accountLabel)
                             _qrSession.value = null
@@ -330,9 +370,13 @@ class ConnectProviderViewModel @Inject constructor(
     fun deleteCredentials() {
         cancelQrLogin()
         viewModelScope.launch {
-            credentialStore.delete(serviceId)
+            provider?.let { target ->
+                credentialStore.delete(target.credentialOwnerId)
+                authHealthStore.clear(target.credentialOwnerId)
+            }
             provider?.disconnect()
             _connected.value = false
+            _authHealth.value = null
             _saved.value = false
             _gameAccountSaved.value = false
             _gameUid.value = ""
@@ -340,6 +384,13 @@ class ConnectProviderViewModel @Inject constructor(
             _smsCode.value = ""
             _error.value = null
         }
+    }
+
+    private suspend fun markProviderConfirmedValid() {
+        val target = provider ?: return
+        authHealthStore.set(target.credentialOwnerId, AuthHealth.VALID)
+        _authHealth.value = AuthHealth.VALID
+        _connected.value = true
     }
 
     override fun onCleared() {

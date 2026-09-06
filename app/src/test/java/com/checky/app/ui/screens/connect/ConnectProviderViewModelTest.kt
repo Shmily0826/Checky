@@ -3,6 +3,10 @@ package com.checky.app.ui.screens.connect
 import androidx.lifecycle.SavedStateHandle
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.AuthHealth
+import com.checky.app.domain.FakeAuthHealthStore
+import com.checky.app.domain.FakeCheckInRepository
+import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.GameAccountConfig
@@ -51,7 +55,8 @@ class ConnectProviderViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val credentials = RecordingCredentialStore()
         credentials.save("fake-session", "token")
-        val vm = vmWith(credentials, ScriptedProvider())
+        val health = FakeAuthHealthStore().also { it.set("fake-session", AuthHealth.VALID) }
+        val vm = vmWith(credentials, ScriptedProvider(), health)
         advanceUntilIdle()
         assertTrue(vm.connected.value)
     }
@@ -92,8 +97,29 @@ class ConnectProviderViewModelTest {
         assertEquals("a-valid-token", credentials.vault["fake-session"])
         assertEquals("", vm.secret.value)
         assertTrue(vm.saved.value)
-        assertTrue(vm.connected.value)
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
         assertNull(vm.error.value)
+    }
+
+    @Test
+    fun newlySavedManualCredentialCanBeExplicitlyVerifiedInForeground() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore()
+        val health = FakeAuthHealthStore()
+        val vm = vmWith(credentials, ScriptedProvider(), health)
+
+        vm.updateSecret("a-valid-token")
+        vm.save()
+        advanceUntilIdle()
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertFalse(vm.connected.value)
+
+        vm.verifySavedCredential()
+        advanceUntilIdle()
+
+        assertEquals(AuthHealth.VALID, vm.authHealth.value)
+        assertTrue(vm.connected.value)
     }
 
     @Test
@@ -119,7 +145,8 @@ class ConnectProviderViewModelTest {
         val credentials = RecordingCredentialStore()
         credentials.save("fake-session", "token")
         val provider = ScriptedProvider()
-        val vm = vmWith(credentials, provider)
+        val health = FakeAuthHealthStore().also { it.set("fake-session", AuthHealth.VALID) }
+        val vm = vmWith(credentials, provider, health)
         advanceUntilIdle()
         assertTrue(vm.connected.value)
 
@@ -233,9 +260,11 @@ class ConnectProviderViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val credentials = RecordingCredentialStore()
         credentials.save("fake-qr", "token")
+        val health = FakeAuthHealthStore().also { it.set("fake-qr", AuthHealth.VALID) }
         val vm = vmWith(
             credentials,
-            FakeQrProvider(listOf(QrLoginPollResult.Confirmed()))
+            FakeQrProvider(listOf(QrLoginPollResult.Confirmed())),
+            health
         )
         advanceUntilIdle()
         assertTrue(vm.connected.value)
@@ -345,13 +374,15 @@ class ConnectProviderViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val credentials = RecordingCredentialStore()
         credentials.save("fake-game", "session-cookie")
+        val health = FakeAuthHealthStore().also { it.set("fake-game", AuthHealth.VALID) }
         val vm = vmWith(
             credentials,
             FakeGameAccountProvider(
                 roles = listOf(
                     GameRole(GameAccountConfig("100001", "cn_gf01"), "天空岛 · 派蒙 Lv.60")
                 )
-            )
+            ),
+            health
         )
         advanceUntilIdle()
 
@@ -366,6 +397,7 @@ class ConnectProviderViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val credentials = RecordingCredentialStore()
         credentials.save("fake-game", "session-cookie")
+        val health = FakeAuthHealthStore().also { it.set("fake-game", AuthHealth.VALID) }
         val vm = vmWith(
             credentials,
             FakeGameAccountProvider(
@@ -373,7 +405,8 @@ class ConnectProviderViewModelTest {
                     GameRole(GameAccountConfig("100001", "cn_gf01"), "天空岛 · 派蒙"),
                     GameRole(GameAccountConfig("200002", "cn_qd01"), "世界树 · 凯亚")
                 )
-            )
+            ),
+            health
         )
         advanceUntilIdle()
 
@@ -394,7 +427,8 @@ class ConnectProviderViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val credentials = RecordingCredentialStore()
         credentials.save("fake-game", "session-cookie")
-        val vm = vmWith(credentials, FakeGameAccountProvider(roles = emptyList()))
+        val health = FakeAuthHealthStore().also { it.set("fake-game", AuthHealth.VALID) }
+        val vm = vmWith(credentials, FakeGameAccountProvider(roles = emptyList()), health)
         advanceUntilIdle()
 
         assertEquals(ConnectError.App(ConnectAppError.GAME_ROLES_UNAVAILABLE), vm.error.value)
@@ -448,11 +482,14 @@ class ConnectProviderViewModelTest {
 
     private fun vmWith(
         credentials: RecordingCredentialStore,
-        provider: CheckInProvider
+        provider: CheckInProvider,
+        authHealthStore: FakeAuthHealthStore = FakeAuthHealthStore()
     ): ConnectProviderViewModel = ConnectProviderViewModel(
         credentialStore = credentials,
         providers = listOf(provider),
-        savedStateHandle = SavedStateHandle(mapOf("serviceId" to provider.meta.id))
+        savedStateHandle = SavedStateHandle(mapOf("serviceId" to provider.meta.id)),
+        authHealthStore = authHealthStore,
+        checkInAllUseCase = CheckInAllUseCase(FakeCheckInRepository(), credentials, authHealthStore)
     )
 }
 
@@ -463,7 +500,8 @@ private fun testMeta(id: String) = ProviderMeta(
     category = "Test",
     iconKey = "star",
     accentColor = 0xFF000000,
-    isEnabledByDefault = false
+    isEnabledByDefault = false,
+    credentialType = com.checky.app.domain.model.CredentialType.SESSION_TOKEN
 )
 
 private open class BaseFakeProvider(

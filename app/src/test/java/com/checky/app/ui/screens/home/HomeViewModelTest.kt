@@ -3,6 +3,8 @@ package com.checky.app.ui.screens.home
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.domain.FakeCredentialStore
+import com.checky.app.domain.FakeAuthHealthStore
+import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.FakeCheckInRepository
 import com.checky.app.domain.ScriptedCheckInProvider
@@ -244,13 +246,16 @@ class HomeViewModelTest {
         val repo = FakeCheckInRepository(listOf(service(provider.meta.id)))
         val credentials = FakeCredentialStore()
         credentials.save(provider.meta.id, "synthetic-test-secret")
+        val health = FakeAuthHealthStore()
+        health.set(provider.meta.id, AuthHealth.VALID)
         val vm = HomeViewModel(
             repository = repo,
             userPreferencesRepository = prefsRepo(this),
-            checkInAllUseCase = CheckInAllUseCase(repo),
+            checkInAllUseCase = CheckInAllUseCase(repo, credentials, health),
             credentialStore = credentials,
             providers = listOf(provider),
-            metas = listOf(provider.meta)
+            metas = listOf(provider.meta),
+            authHealthStore = health
         )
         backgroundScope.launch { vm.services.collect {} }
         advanceUntilIdle()

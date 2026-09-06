@@ -1,5 +1,6 @@
 package com.checky.app.domain
 
+import com.checky.app.domain.providers.miyousheCommunityUncertainMutationOutcome
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.model.CheckInStatus
@@ -178,6 +179,27 @@ class CheckInAllUseCaseTest {
         assertEquals(1, broken.attempts)
         assertEquals(1, repo.saved.size)
         assertEquals(CheckInStatus.FAILED, repo.saved.single().status)
+    }
+
+    @Test
+    fun uncertainMiyousheMutationIsNotRetriedIntoAnotherAttempt() = runTest {
+        val repo = FakeCheckInRepository()
+        val useCase = CheckInAllUseCase(repo).apply { retryDelayMs = 500 }
+        val provider = SequenceCheckInProvider(
+            testProviderMeta("miyoushe-community"),
+            miyousheCommunityUncertainMutationOutcome(),
+            CheckInOutcome.Success("must not be reached", "UNEXPECTED", Reward.empty())
+        )
+
+        val progress = mutableListOf<CheckInAllProgress>()
+        val job = launch { useCase(listOf(provider)).toList(progress) }
+        advanceUntilIdle()
+        job.join()
+
+        assertEquals(1, provider.attempts)
+        assertEquals("MIYOUSHE_COMMUNITY_UNCERTAIN", repo.saved.single().diagnosticCode)
+        assertTrue(progress.filterIsInstance<CheckInAllProgress.Finished>().single().states.values
+            .single().status == CheckInStatus.FAILED)
     }
 }
 

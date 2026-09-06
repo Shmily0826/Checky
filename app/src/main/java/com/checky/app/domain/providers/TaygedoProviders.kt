@@ -36,6 +36,7 @@ abstract class TaygedoProvider(
     protected val client: TaygedoClient
 ) : CheckInProvider, SmsLoginProvider {
     override val requiresCredentials = true
+    override val credentialOwnerId: String = TaygedoClient.SESSION_KEY
 
     override suspend fun isSmsConnected(): Boolean = client.hasSession()
 
@@ -168,13 +169,9 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
         // the app-level daily sign-in (communityId=1) and the BBS/section
         // sign-in (communityId=2). Treat an upstream "already signed" reply
         // as positive so a repeat run is idempotent.
-        val signIns = runCommunitySignInSequence { communityId ->
-            // Read-only preflight: if the official endpoint already reports today's
-            // sign-in, skip the mutation and treat it as AlreadyCompleted.
-            val preflight = readCommunitySignState(communityId)
-            if (preflight == CommunitySignState.SIGNED) {
-                CommunitySignResponse(code = 0, message = "今日已签到", hasExpectedData = true)
-            } else {
+        val signIns = runCommunitySignInSequence(
+            readState = ::readCommunitySignState,
+            signIn = { communityId ->
                 // Live-verified contract (2026-08-30): plain Authorization +
                 // form body + ds signature. AuthorizationV2 + JSON body made
                 // the server answer 系统错误; omitting ds answered
@@ -185,7 +182,7 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
                     useDs = true
                 ).toCommunitySignResponse()
             }
-        }
+        )
         val appSignin = signIns[0]
         if (!appSignin.classification.mayContinue) {
             return appSignin.classification.toOutcome("异环 APP 签到失败。", appSignin.response.message)
@@ -256,8 +253,8 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
      * Recovered contract (HBC 98, official 1.2.6):
      *   GET /apihub/api/getSignState?communityId=<id>
      *   headers: Authorization (access token) — official BearerAuthService contract
-     * Fails closed: ambiguous or errored responses return UNKNOWN so the
-     * subsequent sign-in call (not a guessed mutation) makes the decision.
+     * Fails closed: ambiguous or errored responses return UNKNOWN, which
+     * prevents the subsequent sign-in mutation from being sent.
      */
     private suspend fun readCommunitySignState(communityId: String): CommunitySignState {
         return runCatching {
@@ -359,7 +356,8 @@ internal enum class CommunitySignDisposition {
     AUTH_EXPIRED,
     VERIFICATION_REQUIRED,
     FAILURE,
-    MALFORMED
+    MALFORMED,
+    PREFLIGHT_UNKNOWN
 }
 
 /**
@@ -373,20 +371,27 @@ internal enum class CommunitySignState { SIGNED, UNSIGNED, UNKNOWN }
 internal fun TaygedoClient.ApiResult.toCommunitySignState(): CommunitySignState {
     if (code != 0) return CommunitySignState.UNKNOWN
     val data = data as? JSONObject ?: return CommunitySignState.UNKNOWN
-    val signed = when {
-        data.has("isSign") -> data.optBoolean("isSign")
-        data.has("signed") -> data.optBoolean("signed")
-        data.has("todaySign") -> data.optBoolean("todaySign")
-        data.has("signState") -> data.optInt("signState") == 1
-        data.has("status") -> data.optInt("status") == 1
-        data.has("sign") -> data.optInt("sign") == 1
-        else -> null
+    val fields = listOf("isSign", "signed", "todaySign", "signState", "status", "sign")
+        .filter(data::has)
+    if (fields.isEmpty()) return CommunitySignState.UNKNOWN
+
+    val states = fields.mapNotNull { field ->
+        val value = data.opt(field)
+        when (field) {
+            "isSign", "signed", "todaySign" -> (value as? Boolean)?.let {
+                if (it) CommunitySignState.SIGNED else CommunitySignState.UNSIGNED
+            }
+            else -> (value as? Number)?.toDouble()?.let {
+                when (it) {
+                    1.0 -> CommunitySignState.SIGNED
+                    0.0 -> CommunitySignState.UNSIGNED
+                    else -> null
+                }
+            }
+        }
     }
-    return when (signed) {
-        true -> CommunitySignState.SIGNED
-        false -> CommunitySignState.UNSIGNED
-        null -> CommunitySignState.UNKNOWN
-    }
+    if (states.size != fields.size || states.distinct().size != 1) return CommunitySignState.UNKNOWN
+    return states.single()
 }
 
 internal data class CommunitySignResponse(
@@ -394,7 +399,8 @@ internal data class CommunitySignResponse(
     val message: String,
     val hasExpectedData: Boolean,
     val exp: Int = 0,
-    val goldCoin: Int = 0
+    val goldCoin: Int = 0,
+    val preflightState: CommunitySignState? = null
 )
 
 internal data class CommunitySignCall(
@@ -410,6 +416,9 @@ internal val CommunitySignDisposition.mayContinue: Boolean
 internal fun classifyCommunitySignResponse(
     response: CommunitySignResponse
 ): CommunitySignDisposition {
+    if (response.preflightState == CommunitySignState.UNKNOWN) {
+        return CommunitySignDisposition.PREFLIGHT_UNKNOWN
+    }
     val message = response.message
     return when {
         response.code == 401 || response.code == -401 -> CommunitySignDisposition.AUTH_EXPIRED
@@ -432,11 +441,25 @@ private fun isAlreadySignedMessage(message: String): Boolean {
 }
 
 internal suspend fun runCommunitySignInSequence(
+    readState: suspend (communityId: String) -> CommunitySignState,
     signIn: suspend (communityId: String) -> CommunitySignResponse
 ): List<CommunitySignCall> {
     val calls = mutableListOf<CommunitySignCall>()
     for (communityId in listOf("1", "2")) {
-        val response = signIn(communityId)
+        val response = when (readState(communityId)) {
+            CommunitySignState.SIGNED -> CommunitySignResponse(
+                code = 0,
+                message = "今日已签到",
+                hasExpectedData = true
+            )
+            CommunitySignState.UNSIGNED -> signIn(communityId)
+            CommunitySignState.UNKNOWN -> CommunitySignResponse(
+                code = 0,
+                message = "无法确认今日签到状态，未执行签到",
+                hasExpectedData = false,
+                preflightState = CommunitySignState.UNKNOWN
+            )
+        }
         val classification = classifyCommunitySignResponse(response)
         calls += CommunitySignCall(communityId, response, classification)
         if (!classification.mayContinue) break
@@ -468,6 +491,10 @@ internal fun CommunitySignDisposition.toOutcome(
     CommunitySignDisposition.MALFORMED -> CheckInOutcome.PermanentFailure(
         "塔吉多返回了无法识别的社区签到结果，已停止后续操作。",
         "TAYGEDO_COMMUNITY_BAD_RESPONSE"
+    )
+    CommunitySignDisposition.PREFLIGHT_UNKNOWN -> CheckInOutcome.PermanentFailure(
+        "塔吉多社区签到状态无法确认，未执行签到，请在官方 App 核实后再试。",
+        "TAYGEDO_COMMUNITY_STATE_UNKNOWN"
     )
     CommunitySignDisposition.FAILURE -> CheckInOutcome.TemporaryFailure(
         if (detail.isBlank()) fallback else "$fallback（服务返回：$detail）",

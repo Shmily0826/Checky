@@ -5,6 +5,8 @@ import com.checky.app.data.model.CheckInRecord
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.FakeCredentialStore
+import com.checky.app.domain.FakeAuthHealthStore
+import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.SequenceCheckInProvider
 import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.CheckInOutcome
@@ -120,12 +122,14 @@ class ProviderDetailsViewModelTest {
             )
         }
         val credentials = FakeCredentialStore()
+        val health = FakeAuthHealthStore()
         val vm = ProviderDetailsViewModel(
             repository = repo,
             credentialStore = credentials,
             providers = listOf(provider),
             metas = listOf(TaygedoNteProvider.META),
-            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "taygedo_nte"))
+            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "taygedo_nte")),
+            authHealthStore = health
         )
 
         val details = async { vm.service.first { it != null } }
@@ -138,6 +142,7 @@ class ProviderDetailsViewModelTest {
         assertEquals(0, provider.attempts)
 
         credentials.save(provider.meta.id, "synthetic-test-secret")
+        health.set(provider.credentialOwnerId, AuthHealth.VALID)
         vm.refreshConnection()
         assertEquals(true, vm.isConnected.first { it })
         assertEquals(ConnectionAction.MANAGE_CONNECTION, connectionAction(vm.isConnected.value))
