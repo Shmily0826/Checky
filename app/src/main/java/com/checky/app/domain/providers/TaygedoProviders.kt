@@ -10,6 +10,7 @@ import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.ConnectionType
 import com.checky.app.domain.model.CredentialType
 import com.checky.app.domain.model.ProviderMeta
+import java.time.ZoneId
 import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RewardType
 import com.checky.app.domain.model.RiskLevel
@@ -154,7 +155,8 @@ class TaygedoNteProvider(client: TaygedoClient) : TaygedoProvider(client) {
             category = "游戏", iconKey = "gamepad", accentColor = 0xFF7257E8,
             isEnabledByDefault = false, connectionType = ConnectionType.HTTP_SESSION,
             riskLevel = RiskLevel.HIGH, credentialType = CredentialType.SESSION_TOKEN,
-            supportStatus = SupportStatus.SUPPORTED, allowedHosts = HOSTS
+            supportStatus = SupportStatus.SUPPORTED, allowedHosts = HOSTS,
+            businessZone = ZoneId.of("Asia/Shanghai")
         )
     }
 }
@@ -321,7 +323,8 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
             category = "社区", iconKey = "star", accentColor = 0xFFEE7B45,
             isEnabledByDefault = false, connectionType = ConnectionType.HTTP_SESSION,
             riskLevel = RiskLevel.HIGH, credentialType = CredentialType.SESSION_TOKEN,
-            supportStatus = SupportStatus.SUPPORTED, allowedHosts = HOSTS
+            supportStatus = SupportStatus.SUPPORTED, allowedHosts = HOSTS,
+            businessZone = ZoneId.of("Asia/Shanghai")
         )
     }
 }

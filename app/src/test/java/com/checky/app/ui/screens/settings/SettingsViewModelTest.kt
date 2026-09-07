@@ -103,6 +103,7 @@ class SettingsViewModelTest {
             repository = repo,
             credentialStore = credentials,
             backgroundReliabilityReader = BackgroundReliabilityReader(context),
+            providerMetas = emptyList(),
             context = context
         )
     }

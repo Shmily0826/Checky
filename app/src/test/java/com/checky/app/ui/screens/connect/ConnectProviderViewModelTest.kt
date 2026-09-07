@@ -348,6 +348,22 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
+    fun smsResendKeepsTheInProgressVerificationStep() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = vmWith(RecordingCredentialStore(), FakeSmsProvider())
+        vm.updatePhone("13800138000")
+        vm.sendSmsCode()
+        advanceUntilIdle()
+        vm.updateSmsCode("1234")
+        vm.sendSmsCode()
+        advanceUntilIdle()
+
+        assertTrue(vm.smsSent.value)
+        assertEquals("13800138000", vm.phone.value)
+        assertEquals("1234", vm.smsCode.value)
+    }
+
+    @Test
     fun smsSendCodeFailureSurfacesMessage() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = vmWith(

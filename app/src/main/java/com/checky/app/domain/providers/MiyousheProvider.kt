@@ -20,6 +20,7 @@ import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.ConnectionType
 import com.checky.app.domain.model.CredentialType
 import com.checky.app.domain.model.ProviderMeta
+import java.time.ZoneId
 import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RiskLevel
 import com.checky.app.domain.model.SupportStatus
@@ -556,7 +557,8 @@ class MiyousheProvider(
             riskLevel = RiskLevel.HIGH,
             credentialType = CredentialType.SESSION_TOKEN,
             supportStatus = SupportStatus.SUPPORTED,
-            allowedHosts = setOf(API_HOST, WEB_QR_HOST)
+            allowedHosts = setOf(API_HOST, WEB_QR_HOST),
+            businessZone = ZoneId.of("Asia/Shanghai")
         )
     }
 }

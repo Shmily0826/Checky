@@ -24,6 +24,7 @@ import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.CheckInSummary
 import com.checky.app.domain.model.expiredServiceNames
+import com.checky.app.domain.model.ProviderMeta
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.CancellationException
 import java.time.ZonedDateTime
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -99,6 +101,7 @@ class AutoCheckInWorker(
                 applicationContext,
                 latestPreferences.autoCheckInHour,
                 latestPreferences.autoCheckInMinute,
+                providerMetas = entryPoint.providers().map { it.meta },
                 diagnostics = entryPoint.diagnostics()
             )
         }
@@ -113,17 +116,19 @@ class AutoCheckInWorker(
             hour: Int,
             minute: Int,
             now: ZonedDateTime = ZonedDateTime.now(),
+            providerMetas: List<ProviderMeta> = emptyList(),
             diagnostics: AutoCheckInDiagnosticsStore? = null
         ) {
             // Do not cancel an in-flight provider mutation. The running worker
             // reads latest preferences on completion and appends its next run.
             if (isRunning(context)) return
             val diagnosticsStore = diagnostics ?: diagnosticsStore(context)
-            val target = AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now)
+            val zones = providerMetas.map { it.businessZone }.toSet()
+            val target = AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now, zones)
             val request = OneTimeWorkRequestBuilder<AutoCheckInWorker>()
                 .setInputData(workDataOf(DAILY_SCHEDULED_INPUT to true))
                 .setInitialDelay(
-                    AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now),
+                    AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now, zones),
                     TimeUnit.MILLISECONDS
                 )
                 .build()
@@ -184,6 +189,7 @@ class AutoCheckInWorker(
                     context,
                     prefs.autoCheckInHour,
                     prefs.autoCheckInMinute,
+                    providerMetas = entryPoint.providers().map { it.meta },
                     diagnostics = entryPoint.diagnostics()
                 )
             } else {
@@ -197,14 +203,16 @@ class AutoCheckInWorker(
             hour: Int,
             minute: Int,
             now: ZonedDateTime = ZonedDateTime.now(),
+            providerMetas: List<ProviderMeta> = emptyList(),
             diagnostics: AutoCheckInDiagnosticsStore? = null
         ) {
             val diagnosticsStore = diagnostics ?: diagnosticsStore(context)
-            val target = AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now)
+            val zones = providerMetas.map { it.businessZone }.toSet()
+            val target = AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now, zones)
             val request = OneTimeWorkRequestBuilder<AutoCheckInWorker>()
                 .setInputData(workDataOf(DAILY_SCHEDULED_INPUT to true))
                 .setInitialDelay(
-                    AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now),
+                    AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now, zones),
                     TimeUnit.MILLISECONDS
                 )
                 .build()
@@ -225,11 +233,11 @@ class AutoCheckInWorker(
             }
         }
 
-        internal fun nextRunDelayMillis(hour: Int, minute: Int, now: ZonedDateTime): Long =
-            AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now)
+        internal fun nextRunDelayMillis(hour: Int, minute: Int, now: ZonedDateTime, businessZones: Set<ZoneId> = emptySet()): Long =
+            AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now, businessZones)
 
-        internal fun nextScheduledDateTime(hour: Int, minute: Int, now: ZonedDateTime): ZonedDateTime {
-            return AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now)
+        internal fun nextScheduledDateTime(hour: Int, minute: Int, now: ZonedDateTime, businessZones: Set<ZoneId> = emptySet()): ZonedDateTime {
+            return AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now, businessZones)
         }
 
         private suspend fun diagnosticsStore(context: Context): AutoCheckInDiagnosticsStore =

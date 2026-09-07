@@ -191,6 +191,9 @@
     <string name="connect_save_and_connect">保存并连接</string>
     <string name="connect_delete_title">删除凭据？</string>
     <string name="connect_delete_message">这会删除本机保存的连接，之后仍可重新连接。</string>
+    <string name="connect_leave_sms_title">离开验证？</string>
+    <string name="connect_leave_sms_message">验证码已请求。现在离开会放弃当前验证步骤，需要重新获取验证码。</string>
+    <string name="action_leave">离开</string>
     <string name="provider_status">状态</string>
     <string name="provider_last_checkin">上次签到</string>
     <string name="provider_last_update">上次更新</string>

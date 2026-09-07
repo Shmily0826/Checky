@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.LocalDate
+import java.time.Instant
 import javax.inject.Inject
 import kotlin.jvm.JvmSuppressWildcards
 
@@ -48,10 +48,10 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val connectionRefresh = MutableStateFlow(0)
-    private val _today = MutableStateFlow(LocalDate.now())
-    val today: StateFlow<LocalDate> = _today.asStateFlow()
-    private val _progressDate = MutableStateFlow<LocalDate?>(null)
-    val progressDate: StateFlow<LocalDate?> = _progressDate.asStateFlow()
+    private val _now = MutableStateFlow(Instant.now())
+    val now: StateFlow<Instant> = _now.asStateFlow()
+    private val _runStartedAt = MutableStateFlow<Instant?>(null)
+    val runStartedAt: StateFlow<Instant?> = _runStartedAt.asStateFlow()
 
     val services = repository.observeServices()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -94,7 +94,7 @@ class HomeViewModel @Inject constructor(
             )
             val targets = enabledProviders()
             if (targets.isEmpty()) return@launch
-            _progressDate.value = LocalDate.now()
+            _runStartedAt.value = Instant.now()
             val parallel = prefs.value.runMode == RunMode.PARALLEL
             checkInAllUseCase(targets, parallel = parallel).collect { _progress.value = it }
         }
@@ -110,7 +110,7 @@ class HomeViewModel @Inject constructor(
                 providers, services.value, credentialStore, authHealthStore
             )
             if (!isConnected(serviceId)) return@launch
-            _progressDate.value = LocalDate.now()
+            _runStartedAt.value = Instant.now()
             checkInAllUseCase(listOf(provider), parallel = false).collect { _progress.value = it }
         }
     }
@@ -120,12 +120,12 @@ class HomeViewModel @Inject constructor(
         runningJob?.cancel()
         runningJob = null
         _progress.value = null
-        _progressDate.value = null
+        _runStartedAt.value = null
     }
 
     fun dismissSummary() {
         _progress.value = null
-        _progressDate.value = null
+        _runStartedAt.value = null
     }
 
     fun refreshConnections() {
@@ -133,8 +133,8 @@ class HomeViewModel @Inject constructor(
     }
 
     /** Refresh the local date projection when Home returns to the foreground. */
-    fun refreshToday() {
-        _today.value = LocalDate.now()
+    fun refreshNow() {
+        _now.value = Instant.now()
     }
 
     fun setEnabled(serviceId: String, enabled: Boolean) {

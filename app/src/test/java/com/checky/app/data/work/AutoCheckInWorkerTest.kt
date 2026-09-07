@@ -25,8 +25,8 @@ import org.junit.Assert.fail
 import org.junit.Test
 import androidx.work.Data
 import java.time.LocalDateTime
-import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.ZoneId
 
 class AutoCheckInWorkerTest {
     @Test
@@ -63,6 +63,30 @@ class AutoCheckInWorkerTest {
         assertEquals(LocalDateTime.of(2026, 3, 8, 8, 0), next.toLocalDateTime())
         assertEquals("-04:00", next.offset.toString())
         assertEquals(6 * 60 * 60 * 1000L, AutoCheckInWorker.nextRunDelayMillis(8, 0, now))
+    }
+
+    @Test
+    fun businessMidnightClampsAucklandOneAmInNzst() {
+        val zone = ZoneId.of("Pacific/Auckland")
+        val now = ZonedDateTime.of(2026, 6, 6, 0, 30, 0, 0, zone)
+        val next = AutoCheckInWorker.nextScheduledDateTime(1, 0, now, setOf(ZoneId.of("Asia/Shanghai")))
+        assertEquals(ZonedDateTime.of(2026, 6, 6, 4, 0, 0, 0, zone), next)
+    }
+
+    @Test
+    fun businessMidnightClampsAucklandOneAmInNzdt() {
+        val zone = ZoneId.of("Pacific/Auckland")
+        val now = ZonedDateTime.of(2026, 1, 6, 0, 30, 0, 0, zone)
+        val next = AutoCheckInWorker.nextScheduledDateTime(1, 0, now, setOf(ZoneId.of("Asia/Shanghai")))
+        assertEquals(ZonedDateTime.of(2026, 1, 6, 5, 0, 0, 0, zone), next)
+    }
+
+    @Test
+    fun eightAmAucklandRemainsEightAmWhenItStartsNewShanghaiDate() {
+        val zone = ZoneId.of("Pacific/Auckland")
+        val now = ZonedDateTime.of(2026, 6, 6, 7, 30, 0, 0, zone)
+        val next = AutoCheckInWorker.nextScheduledDateTime(8, 0, now, setOf(ZoneId.of("Asia/Shanghai")))
+        assertEquals(ZonedDateTime.of(2026, 6, 6, 8, 0, 0, 0, zone), next)
     }
 
     @Test

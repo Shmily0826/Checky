@@ -13,6 +13,7 @@ import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.data.work.ReminderWorker
 import com.checky.app.data.work.AutoCheckInWorker
 import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.background.BackgroundReliabilityReader
 import com.checky.app.domain.background.BackgroundReliabilityReport
 import com.checky.app.domain.background.BackgroundReliabilityClassifier
@@ -34,6 +35,7 @@ class SettingsViewModel @Inject constructor(
     private val repository: CheckInRepository,
     private val credentialStore: CredentialStore,
     private val backgroundReliabilityReader: BackgroundReliabilityReader,
+    private val providerMetas: List<ProviderMeta>,
     @param:ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -87,6 +89,7 @@ class SettingsViewModel @Inject constructor(
                     context,
                     prefs.autoCheckInHour,
                     prefs.autoCheckInMinute,
+                    providerMetas = providerMetas,
                     diagnostics = autoCheckInDiagnosticsStore
                 )
             } else {
@@ -104,6 +107,7 @@ class SettingsViewModel @Inject constructor(
                     context,
                     prefs.autoCheckInHour,
                     prefs.autoCheckInMinute,
+                    providerMetas = providerMetas,
                     diagnostics = autoCheckInDiagnosticsStore
                 )
             }

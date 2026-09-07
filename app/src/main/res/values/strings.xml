@@ -192,6 +192,9 @@
     <string name="connect_save_and_connect">Save and connect</string>
     <string name="connect_delete_title">Delete credentials?</string>
     <string name="connect_delete_message">This removes the saved connection from this device. You can connect again later.</string>
+    <string name="connect_leave_sms_title">Leave verification?</string>
+    <string name="connect_leave_sms_message">A verification code has been requested. Leaving now will discard this in-progress step and require a new code.</string>
+    <string name="action_leave">Leave</string>
     <string name="provider_status">Status</string>
     <string name="provider_last_checkin">Last check-in</string>
     <string name="provider_last_update">Last update</string>

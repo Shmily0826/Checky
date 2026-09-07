@@ -3,6 +3,7 @@ package com.checky.app.ui.screens.connect
 import android.app.Activity
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.Image
@@ -139,13 +141,21 @@ fun ConnectProviderScreen(
     val smsBusy by viewModel.smsBusy.collectAsStateWithLifecycle()
     val isMiyousheCommunity = meta?.id == "miyoushe_community_signin"
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var showLeaveSmsConfirmation by remember { mutableStateOf(false) }
+
+    val leaveScreen = { navController.popBackStack() }
+    BackHandler(enabled = smsSent && !connected) {
+        showLeaveSmsConfirmation = true
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (meta != null) localizedProviderName(meta) else stringResource(R.string.connect_title)) },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
+                    IconButton(onClick = {
+                        if (smsSent && !connected) showLeaveSmsConfirmation = true else leaveScreen()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 }
@@ -156,6 +166,7 @@ fun ConnectProviderScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -530,6 +541,25 @@ fun ConnectProviderScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmation = false }) { Text(stringResource(R.string.action_cancel)) }
+            }
+        )
+    }
+
+    if (showLeaveSmsConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showLeaveSmsConfirmation = false },
+            title = { Text(stringResource(R.string.connect_leave_sms_title)) },
+            text = { Text(stringResource(R.string.connect_leave_sms_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLeaveSmsConfirmation = false
+                    leaveScreen()
+                }) { Text(stringResource(R.string.action_leave)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveSmsConfirmation = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
             }
         )
     }

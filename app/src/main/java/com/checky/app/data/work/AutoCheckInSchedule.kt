@@ -4,19 +4,24 @@ import java.time.Duration
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZonedDateTime
+import java.time.ZoneId
 
 /** Shared local-wall-clock calculation used by WorkManager and Settings. */
 internal object AutoCheckInSchedule {
-    fun nextRunDelayMillis(hour: Int, minute: Int, now: ZonedDateTime): Long =
-        Duration.between(now, nextScheduledDateTime(hour, minute, now))
+    fun nextRunDelayMillis(hour: Int, minute: Int, now: ZonedDateTime, businessZones: Set<ZoneId> = emptySet()): Long =
+        Duration.between(now, nextScheduledDateTime(hour, minute, now, businessZones))
             .toMillis()
             .coerceAtLeast(0)
 
-    fun nextScheduledDateTime(hour: Int, minute: Int, now: ZonedDateTime): ZonedDateTime {
+    fun nextScheduledDateTime(hour: Int, minute: Int, now: ZonedDateTime, businessZones: Set<ZoneId> = emptySet()): ZonedDateTime {
         require(hour in 0..23 && minute in 0..59)
         val target = LocalTime.of(hour, minute)
         val today = ZonedDateTime.of(LocalDateTime.of(now.toLocalDate(), target), now.zone)
-        return if (today.isAfter(now)) today else
+        val preferred = if (today.isAfter(now)) today else
             ZonedDateTime.of(LocalDateTime.of(now.toLocalDate().plusDays(1), target), now.zone)
+        return businessZones.fold(preferred) { current, zone ->
+            val boundary = preferred.toLocalDate().atStartOfDay(zone).withZoneSameInstant(now.zone)
+            if (preferred.isBefore(boundary)) maxOf(current, boundary) else current
+        }
     }
 }

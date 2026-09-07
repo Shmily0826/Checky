@@ -59,8 +59,7 @@ import com.checky.app.ui.theme.CheckyTheme
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.res.stringResource
 import com.checky.app.R
-import java.time.LocalDate
-import java.time.ZoneId
+import java.time.Instant
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -83,7 +82,7 @@ fun HomeScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshConnections()
-                viewModel.refreshToday()
+                viewModel.refreshNow()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -92,7 +91,7 @@ fun HomeScreen(
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent?) {
-                if (intent?.action == Intent.ACTION_DATE_CHANGED) viewModel.refreshToday()
+                if (intent?.action == Intent.ACTION_DATE_CHANGED) viewModel.refreshNow()
             }
         }
         ContextCompat.registerReceiver(
@@ -105,12 +104,12 @@ fun HomeScreen(
     }
     LaunchedEffect(Unit) {
         viewModel.refreshConnections()
-        viewModel.refreshToday()
+        viewModel.refreshNow()
     }
     val homeServices by viewModel.homeServices.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
-    val progressDate by viewModel.progressDate.collectAsStateWithLifecycle()
-    val today by viewModel.today.collectAsStateWithLifecycle()
+    val runStartedAt by viewModel.runStartedAt.collectAsStateWithLifecycle()
+    val now by viewModel.now.collectAsStateWithLifecycle()
     val isRunning by viewModel.isRunning.collectAsStateWithLifecycle()
 
     HomeContent(
@@ -120,8 +119,8 @@ fun HomeScreen(
         authHealthById = homeServices.associate { it.service.serviceId to it.authHealth },
         metas = viewModel.metas,
         progress = progress,
-        progressDate = progressDate,
-        today = today,
+        runStartedAt = runStartedAt,
+        now = now,
         isRunning = isRunning,
         onCheckInAll = viewModel::checkInAll,
         onCancel = viewModel::cancelCheckInAll,
@@ -152,8 +151,8 @@ private fun HomeContent(
     services: List<ServiceSnapshot>,
     metas: List<ProviderMeta>,
     progress: CheckInAllProgress?,
-    progressDate: LocalDate? = null,
-    today: LocalDate = LocalDate.now(),
+    runStartedAt: Instant? = null,
+    now: Instant = Instant.now(),
     isRunning: Boolean,
     onCheckInAll: () -> Unit,
     onCancel: () -> Unit,
@@ -166,8 +165,7 @@ private fun HomeContent(
     authHealthById: Map<String, AuthHealth?> = emptyMap()
 ) {
     val metaById = metas.associateBy { it.id }
-    val zone = ZoneId.systemDefault()
-    val live = progress?.states.takeIf { hasCurrentLiveProgress(progress, today, zone, progressDate) }
+    val live = progress?.states.takeIf { hasCurrentLiveBusinessProgress(progress, now, runStartedAt) }
     val cards: List<CardInput> = services.mapNotNull { s ->
         val meta = metaById[s.serviceId] ?: return@mapNotNull null
         val connected = connectionById[s.serviceId] == true
@@ -175,8 +173,8 @@ private fun HomeContent(
         val authHealth = authHealthById[s.serviceId]
         val needsVerification = hasAuthHealth && authHealth == AuthHealth.UNVERIFIED
         val liveState = live?.get(s.serviceId)
-            ?.takeIf { isLiveStateForDate(it, today, zone, progressDate) }
-        val persisted = projectHomeStatus(s, today, zone)
+            ?.takeIf { isLiveStateForBusinessDate(it, now, runStartedAt) }
+        val persisted = projectHomeStatus(s, meta, now)
         val status = when {
             needsVerification -> CheckInStatus.USER_ACTION_REQUIRED
             !connected -> CheckInStatus.LOGIN_EXPIRED
@@ -226,26 +224,26 @@ private fun HomeContent(
     val currentServices = currentSummaryServices(services, connectionById)
     val executableIds = currentServices.map { it.serviceId }.toSet()
     val doneCount = if (live != null) {
-        live.values.count { isLiveStateForDate(it, today, zone, progressDate) && it.status.isTerminal }
+        live.values.count { isLiveStateForBusinessDate(it, now, runStartedAt) && it.status.isTerminal }
     } else {
         services.count {
             it.serviceId in executableIds &&
-                projectHomeStatus(it, today, zone).status.isTerminal
+                projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isTerminal
         }
     }
     val completed = currentServices.count {
-        projectHomeStatus(it, today, zone).status.isPositive
+        projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isPositive
     }
     val remaining = services.size - completed
     val attention = services.count {
         connectionById[it.serviceId] != true ||
-            (projectHomeStatus(it, today, zone).hasCurrentDayResult && it.lastStatus!!.requiresUserAction)
+            (projectHomeStatus(it, metaById[it.serviceId]!!, now).hasCurrentDayResult && it.lastStatus!!.requiresUserAction)
     }
-    val points = currentServices.filter { projectHomeStatus(it, today, zone).status.isPositive }
+    val points = currentServices.filter { projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.POINTS) r.amount else 0 }
-    val xp = currentServices.filter { projectHomeStatus(it, today, zone).status.isPositive }
+    val xp = currentServices.filter { projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.EXPERIENCE) r.amount else 0 }
-    val days = currentServices.filter { projectHomeStatus(it, today, zone).status.isPositive }
+    val days = currentServices.filter { projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.MEMBERSHIP_DAY) r.amount else 0 }
 
     Scaffold(
@@ -281,7 +279,8 @@ private fun HomeContent(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (progress is CheckInAllProgress.Finished && progressDate == today) {
+            if (progress is CheckInAllProgress.Finished && runStartedAt != null &&
+                hasCurrentLiveBusinessProgress(progress, now, runStartedAt)) {
                 item {
                     SummaryBanner(summary = progress.summary, onDismiss = onDismissSummary)
                 }

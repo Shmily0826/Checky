@@ -12,12 +12,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.Instant
 
 class HomeFreshnessTest {
 
     private val zone = ZoneId.of("Pacific/Auckland")
     private val yesterday = LocalDate.of(2026, 9, 3)
     private val today = yesterday.plusDays(1)
+    private val shanghai = ZoneId.of("Asia/Shanghai")
 
     @Test
     fun yesterdayPositiveResultProjectsToTodayAsNeutral() {
@@ -86,6 +88,30 @@ class HomeFreshnessTest {
 
         assertFalse(hasCurrentLiveProgress(finished, today, zone, yesterday))
         assertFalse(hasCurrentLiveProgress(finished, today, zone, null))
+    }
+
+    @Test
+    fun businessDateDoesNotUseAucklandNominalDate() {
+        val now = Instant.parse("2026-09-06T12:30:00Z") // Auckland Sep 7 00:30, Shanghai Sep 6 20:30
+        val meta = com.checky.app.domain.testProviderMeta("shanghai").copy(businessZone = shanghai)
+        val timestamp = Instant.parse("2026-09-06T11:30:00Z").toEpochMilli()
+        val service = ServiceSnapshot("shanghai", "service", true, CheckInStatus.SUCCESS, null, "ok", timestamp)
+
+        val projection = projectHomeStatus(service, meta, now)
+
+        assertTrue(projection.hasCurrentDayResult)
+        assertEquals(CheckInStatus.SUCCESS, projection.status)
+    }
+
+    @Test
+    fun previousShanghaiDayIsStaleImmediatelyAfterShanghaiMidnight() {
+        val now = Instant.parse("2026-09-05T16:01:00Z")
+        val meta = com.checky.app.domain.testProviderMeta("shanghai").copy(businessZone = shanghai)
+        val previous = Instant.parse("2026-09-05T15:59:00Z").toEpochMilli()
+        val current = Instant.parse("2026-09-05T16:00:30Z").toEpochMilli()
+
+        assertFalse(projectHomeStatus(ServiceSnapshot("p", "p", true, CheckInStatus.SUCCESS, null, "", previous), meta, now).hasCurrentDayResult)
+        assertTrue(projectHomeStatus(ServiceSnapshot("p", "p", true, CheckInStatus.SUCCESS, null, "", current), meta, now).hasCurrentDayResult)
     }
 
     private fun service(status: CheckInStatus, date: LocalDate) = ServiceSnapshot(
