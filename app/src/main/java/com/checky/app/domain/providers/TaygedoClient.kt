@@ -32,7 +32,13 @@ class TaygedoClient(
         val deviceId: String
     )
 
-    data class ApiResult(val code: Int, val data: Any?, val message: String, val raw: JSONObject)
+    data class ApiResult(
+        val code: Int,
+        val data: Any?,
+        val message: String,
+        val raw: JSONObject,
+        val httpStatus: Int = 200
+    )
 
     private val deviceId: String = UUID.nameUUIDFromBytes(
         (Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
@@ -197,7 +203,7 @@ class TaygedoClient(
             val json = runCatching { JSONObject(text) }.getOrElse { JSONObject() }
             val code = if (response.code == 401) 401 else json.optInt("code", response.code)
             val message = json.optString("msg").ifBlank { json.optString("message") }
-            return ApiResult(code, json.opt("data"), message, json)
+            return ApiResult(code, json.opt("data"), message, json, response.code)
         }
     }
 

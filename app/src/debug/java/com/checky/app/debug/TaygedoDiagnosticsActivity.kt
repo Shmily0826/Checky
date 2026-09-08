@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +45,8 @@ import javax.inject.Inject
 internal class TaygedoDiagnosticsActivity : ComponentActivity() {
     @Inject
     lateinit var readClient: TaygedoDebugReadClient
+    @Inject
+    lateinit var shareVerifier: TaygedoDebugShareVerifier
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +54,7 @@ internal class TaygedoDiagnosticsActivity : ComponentActivity() {
             CheckyTheme {
                 TaygedoDiagnosticsScreen(
                     readClient = readClient,
+                    shareVerifier = shareVerifier,
                     onBack = { finish() }
                 )
             }
@@ -62,12 +66,16 @@ internal class TaygedoDiagnosticsActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 private fun TaygedoDiagnosticsScreen(
     readClient: TaygedoDebugReadClient,
+    shareVerifier: TaygedoDebugShareVerifier,
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf<DiagnosticsUiState>(DiagnosticsUiState.Idle) }
     var localState by remember { mutableStateOf<LocalAuthUiState>(LocalAuthUiState.Loading) }
     var oneShotState by remember { mutableStateOf<OneShotUiState>(OneShotUiState.Idle) }
+    var shareState by remember {
+        mutableStateOf<TaygedoShareVerificationUiState>(TaygedoShareVerificationUiState.Idle)
+    }
 
     LaunchedEffect(readClient) {
         localState = try {
@@ -155,6 +163,59 @@ private fun TaygedoDiagnosticsScreen(
                         is CoinStateDiagnostic.Known ->
                             "One-shot GET accepted: todayCoin=${coin.todayCoin}, limitCoin=${coin.limitCoin}"
                         CoinStateDiagnostic.Unknown -> "One-shot GET returned an unknown state."
+                    }
+                )
+            }
+            Button(
+                enabled = localReady && shareState == TaygedoShareVerificationUiState.Idle,
+                onClick = { shareState = TaygedoShareVerificationUiState.Confirming },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Verify one share once (REAL social mutation)")
+            }
+            when (val current = shareState) {
+                TaygedoShareVerificationUiState.Idle,
+                TaygedoShareVerificationUiState.Confirming -> Unit
+                TaygedoShareVerificationUiState.Loading -> Text(
+                    "Verifying one share once..."
+                )
+                is TaygedoShareVerificationUiState.Completed -> Text(current.value.render())
+                is TaygedoShareVerificationUiState.Failed -> Text(
+                    current.message,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            if (shareState == TaygedoShareVerificationUiState.Confirming) {
+                AlertDialog(
+                    onDismissRequest = { shareState = TaygedoShareVerificationUiState.Idle },
+                    title = { Text("Send one real share?") },
+                    text = {
+                        Text(
+                            "This sends exactly one real post share if the task state and post are explicit and safe. Continue only if you intend to change the account."
+                        )
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            claimTaygedoShareVerification(shareState)?.let { claimed ->
+                                shareState = claimed
+                                scope.launch {
+                                    shareState = try {
+                                        TaygedoShareVerificationUiState.Completed(
+                                            shareVerifier.verifyOnce()
+                                        )
+                                    } catch (_: Exception) {
+                                        TaygedoShareVerificationUiState.Failed(
+                                            "Share verification failed; no retry was attempted."
+                                        )
+                                    }
+                                }
+                            }
+                        }) { Text("Send once") }
+                    },
+                    dismissButton = {
+                        Button(onClick = { shareState = TaygedoShareVerificationUiState.Idle }) {
+                            Text("Cancel")
+                        }
                     }
                 )
             }

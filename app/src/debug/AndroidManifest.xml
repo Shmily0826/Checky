@@ -3,7 +3,7 @@
     <application>
         <activity
             android:name=".debug.TaygedoDiagnosticsActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="Taygedo diagnostics" />
     </application>
 </manifest>

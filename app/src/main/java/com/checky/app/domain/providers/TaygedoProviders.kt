@@ -15,6 +15,7 @@ import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RewardType
 import com.checky.app.domain.model.RiskLevel
 import com.checky.app.domain.model.SupportStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
@@ -329,12 +330,321 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
     }
 }
 
+private fun taygedoNonNegativeInt(value: Any?): Int? {
+    val number = value as? Number ?: return null
+    val double = number.toDouble()
+    return if (double.isFinite() && double % 1.0 == 0.0 && double >= 0.0 &&
+        double <= Int.MAX_VALUE
+    ) double.toInt() else null
+}
+
+internal fun parseTaygedoBrowsePostIds(
+    result: TaygedoClient.ApiResult
+): List<String>? {
+    if (!result.isKnownTaygedoReadSuccess()) return null
+    val posts = when (val data = result.data) {
+        is JSONArray -> data
+        is JSONObject -> {
+            val containers = listOf("list", "posts").filter(data::has)
+            if (containers.size != 1) return null
+            data.optJSONArray(containers.single()) ?: return null
+        }
+        else -> return null
+    }
+
+    val ids = linkedSetOf<String>()
+    for (index in 0 until posts.length()) {
+        val post = posts.optJSONObject(index) ?: return null
+        val fields = listOf("postId", "id").filter(post::has)
+        if (fields.isEmpty()) continue
+        val postIds = fields.map { taygedoPostId(post.opt(it)) }
+        if (postIds.any { it == null }) continue
+        val distinct = postIds.filterNotNull().distinct()
+        if (distinct.size != 1) continue
+        ids += distinct.single()
+    }
+    return ids.toList()
+}
+
+private fun taygedoPostId(value: Any?): String? {
+    val text = when (value) {
+        is String -> value.trim()
+        is Number -> {
+            val double = value.toDouble()
+            if (!double.isFinite() || double < 0.0 || double % 1.0 != 0.0 ||
+                double > Long.MAX_VALUE
+            ) return null
+            double.toLong().toString()
+        }
+        else -> return null
+    }
+    return text.takeIf { it.isNotBlank() && it.length <= 128 && it.none(Char::isISOControl) }
+}
+
+private fun TaygedoClient.ApiResult.isKnownTaygedoReadSuccess(): Boolean {
+    if (httpStatus !in 200..299 || code != 0) return false
+    val text = listOf(message, raw.optString("message"), raw.optString("msg"))
+        .joinToString(" ")
+        .lowercase()
+    return listOf(
+        "captcha", "verification", "verify", "risk", "recaptcha", "challenge",
+        "风控", "验证", "验证码"
+    ).none(text::contains)
+}
+
+internal enum class TaygedoShareStep {
+    PRE_TASK_STATE,
+    RECOMMENDATIONS,
+    SHARE,
+    POST_TASK_STATE
+}
+
+internal data class TaygedoShareRequest(
+    val step: TaygedoShareStep,
+    val method: String,
+    val path: String,
+    val query: Map<String, String> = emptyMap(),
+    val form: Map<String, String> = emptyMap(),
+    val useDs: Boolean,
+    val authV2: Boolean,
+    val jsonBody: Boolean = false
+)
+
+internal fun taygedoShareRequest(step: TaygedoShareStep, postId: String = "") = when (step) {
+    TaygedoShareStep.PRE_TASK_STATE,
+    TaygedoShareStep.POST_TASK_STATE -> TaygedoShareRequest(
+        step,
+        "GET",
+        "/apihub/api/getUserTasks",
+        mapOf("gid" to "1"),
+        useDs = true,
+        authV2 = false
+    )
+    TaygedoShareStep.RECOMMENDATIONS -> TaygedoShareRequest(
+        step,
+        "GET",
+        "/bbs/api/getRecommendPostList",
+        mapOf("communityId" to "2", "count" to "20", "page" to "1"),
+        useDs = true,
+        authV2 = false
+    )
+    TaygedoShareStep.SHARE -> TaygedoShareRequest(
+        step,
+        "POST",
+        "/bbs/api/post/share",
+        form = mapOf("platform" to "qq", "postId" to postId),
+        useDs = true,
+        authV2 = false
+    )
+}
+
+internal data class TaygedoShareTaskState(
+    val complete: Int,
+    val limit: Int
+) {
+    val remaining: Int get() = (limit - complete).coerceAtLeast(0)
+}
+
+internal enum class TaygedoShareOutcome {
+    ALREADY_COMPLETED,
+    COMPLETED,
+    STOPPED_PRE_STATE_UNKNOWN,
+    STOPPED_RECOMMEND_UNKNOWN,
+    STOPPED_INCOMPLETE,
+    STOPPED_MUTATION_FAILURE,
+    STOPPED_MUTATION_UNCERTAIN,
+    STOPPED_POST_STATE_UNKNOWN,
+    STOPPED_POST_STATE_INCOMPLETE
+}
+
+internal data class TaygedoShareRun(
+    val before: TaygedoShareTaskState?,
+    val after: TaygedoShareTaskState?,
+    val sharedPostId: String?,
+    val outcome: TaygedoShareOutcome,
+    val failureEvidence: TaygedoShareFailureEvidence? = null
+) {
+    fun toMessage(): String = when (outcome) {
+        TaygedoShareOutcome.ALREADY_COMPLETED -> "分享任务今日已完成"
+        TaygedoShareOutcome.COMPLETED -> "自动分享 1 篇帖子"
+        else -> "分享任务未完成"
+    }
+
+    fun toOutcome(): CheckInOutcome = when (outcome) {
+        TaygedoShareOutcome.ALREADY_COMPLETED,
+        TaygedoShareOutcome.COMPLETED -> error("Positive share result cannot be converted to failure")
+        else -> CheckInOutcome.PermanentFailure(
+            "塔吉多分享任务状态或结果无法确认，已停止后续操作。",
+            "TAYGEDO_COMMUNITY_SHARE_UNKNOWN"
+        )
+    }
+}
+
+internal data class TaygedoShareFailureEvidence(
+    val httpStatus: Int,
+    val businessCode: Int?,
+    val message: String?
+)
+
+internal val TaygedoShareOutcome.mayContinue: Boolean
+    get() = this == TaygedoShareOutcome.ALREADY_COMPLETED ||
+        this == TaygedoShareOutcome.COMPLETED
+
+internal fun parseTaygedoShareTaskState(
+    result: TaygedoClient.ApiResult
+): TaygedoShareTaskState? {
+    if (!result.isKnownTaygedoReadSuccess()) return null
+    val data = result.data as? JSONObject ?: return null
+    val taskList = data.opt("task_list1") as? JSONArray ?: return null
+    var share: TaygedoShareTaskState? = null
+    for (index in 0 until taskList.length()) {
+        val task = taskList.optJSONObject(index) ?: continue
+        val taskKeyValue = task.opt("taskKey")
+        val codeValue = task.opt("code")
+        val taskKey = (taskKeyValue as? String)?.trim()
+        val code = (codeValue as? String)?.trim()
+        val taskCode = taskKey?.takeIf { it.isNotBlank() } ?: code
+        if (taskCode != "share") continue
+        if ((taskKeyValue != null && taskKey == null) ||
+            (codeValue != null && code == null)
+        ) return null
+        if (share != null) return null
+        val complete = taygedoNonNegativeInt(task.opt("completeTimes")) ?: return null
+        val limit = taygedoNonNegativeInt(task.opt("limitTimes")) ?: return null
+        if (limit == 0 || complete > limit) return null
+        share = TaygedoShareTaskState(complete, limit)
+    }
+    return share
+}
+
+private fun isExplicitTaygedoShareSuccess(result: TaygedoClient.ApiResult): Boolean =
+    result.isKnownTaygedoReadSuccess() && result.raw.has("code")
+
+private fun TaygedoClient.ApiResult.toTaygedoShareFailureEvidence() =
+    TaygedoShareFailureEvidence(
+        httpStatus = httpStatus,
+        businessCode = if (raw.has("code")) taygedoDiagnosticInt(raw.opt("code")) else null,
+        message = taygedoDiagnosticMessage(message)
+    )
+
+private fun taygedoDiagnosticInt(value: Any?): Int? {
+    if (value is String) return value.trim().toIntOrNull()
+    val number = value as? Number ?: return null
+    val double = number.toDouble()
+    return if (double.isFinite() && double % 1.0 == 0.0 &&
+        double >= Int.MIN_VALUE && double <= Int.MAX_VALUE
+    ) double.toInt() else null
+}
+
+private fun taygedoDiagnosticMessage(value: String): String? {
+    val compact = value.replace(Regex("\\s+"), " ").trim()
+    if (compact.isBlank() || compact.length > 160) return null
+    if (Regex(
+            "(?i)(access[_-]?token|refresh[_-]?token|authorization|cookie|stoken|ltoken|device(id)?|uid)\\s*[:=]|bearer\\s+"
+        ).containsMatchIn(compact)
+    ) return null
+    return compact
+}
+
+internal suspend fun runTaygedoShareTask(
+    read: suspend (TaygedoShareRequest) -> TaygedoClient.ApiResult
+): TaygedoShareRun {
+    suspend fun readOrNull(request: TaygedoShareRequest): TaygedoClient.ApiResult? = try {
+        read(request)
+    } catch (error: TaygedoClient.AuthException) {
+        throw error
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        null
+    }
+
+    val before = readOrNull(taygedoShareRequest(TaygedoShareStep.PRE_TASK_STATE))
+        ?.let(::parseTaygedoShareTaskState)
+        ?: return TaygedoShareRun(
+            null,
+            null,
+            null,
+            TaygedoShareOutcome.STOPPED_PRE_STATE_UNKNOWN
+        )
+    if (before.remaining == 0) {
+        return TaygedoShareRun(
+            before,
+            null,
+            null,
+            TaygedoShareOutcome.ALREADY_COMPLETED
+        )
+    }
+
+    val postId = readOrNull(taygedoShareRequest(TaygedoShareStep.RECOMMENDATIONS))
+        ?.let(::parseTaygedoBrowsePostIds)
+        ?.firstOrNull()
+        ?: return TaygedoShareRun(
+            before,
+            null,
+            null,
+            TaygedoShareOutcome.STOPPED_RECOMMEND_UNKNOWN
+        )
+
+    val response = try {
+        read(taygedoShareRequest(TaygedoShareStep.SHARE, postId))
+    } catch (error: TaygedoClient.AuthException) {
+        throw error
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        return TaygedoShareRun(
+            before,
+            null,
+            postId,
+            TaygedoShareOutcome.STOPPED_MUTATION_UNCERTAIN
+        )
+    }
+    if (!isExplicitTaygedoShareSuccess(response)) {
+        return TaygedoShareRun(
+            before,
+            null,
+            postId,
+            TaygedoShareOutcome.STOPPED_MUTATION_FAILURE,
+            failureEvidence = response.toTaygedoShareFailureEvidence()
+        )
+    }
+
+    val after = readOrNull(taygedoShareRequest(TaygedoShareStep.POST_TASK_STATE))
+        ?.let(::parseTaygedoShareTaskState)
+        ?: return TaygedoShareRun(
+            before,
+            null,
+            postId,
+            TaygedoShareOutcome.STOPPED_POST_STATE_UNKNOWN
+        )
+    if (after.limit != before.limit || after.complete < before.complete) {
+        return TaygedoShareRun(
+            before,
+            after,
+            postId,
+            TaygedoShareOutcome.STOPPED_POST_STATE_UNKNOWN
+        )
+    }
+    return TaygedoShareRun(
+        before,
+        after,
+        postId,
+        if (after.remaining == 0) {
+            TaygedoShareOutcome.COMPLETED
+        } else {
+            TaygedoShareOutcome.STOPPED_POST_STATE_INCOMPLETE
+        }
+    )
+}
+
 /**
  * Parse community task counters from a `task_list3` JSON array (read-only).
  * Like/share/follow counters are read for display only; this function never
  * performs any of those interactions. Returns null when the array is missing
  * or unusable so callers fail closed.
  */
+
 internal fun parseCommunityTaskState(taskList: JSONArray?): CommunityTaskState? {
     if (taskList == null) return null
     fun remaining(code: String): Int? {

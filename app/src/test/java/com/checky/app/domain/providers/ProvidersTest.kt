@@ -410,4 +410,121 @@ class ProvidersTest {
         assertTrue(credentials.has(MiyousheProvider.META.id))
         assertTrue(!credentials.has(MiyousheCommunityProvider.META.id))
     }
+
+    @Test
+    fun shareWithNoRemainingSkipsRecommendationAndMutation() = runTest {
+        val calls = mutableListOf<TaygedoShareStep>()
+        val result = runTaygedoShareTask { request ->
+            calls += request.step
+            assertEquals(TaygedoShareStep.PRE_TASK_STATE, request.step)
+            shareResult(shareState(1, 1))
+        }
+
+        assertEquals(TaygedoShareOutcome.ALREADY_COMPLETED, result.outcome)
+        assertEquals(listOf(TaygedoShareStep.PRE_TASK_STATE), calls)
+    }
+
+    @Test
+    fun shareSendsOneQqFormMutationAndRequiresCompletedPostState() = runTest {
+        val calls = mutableListOf<TaygedoShareRequest>()
+        val result = runTaygedoShareTask { request ->
+            calls += request
+            when (request.step) {
+                TaygedoShareStep.PRE_TASK_STATE -> shareResult(shareState(0, 1))
+                TaygedoShareStep.RECOMMENDATIONS -> shareResult(
+                    JSONObject("""{"list":[{"postId":"p1"},{"postId":"p2"}]}""")
+                )
+                TaygedoShareStep.SHARE -> shareResult(
+                    null,
+                    raw = JSONObject("""{"code":0}""")
+                )
+                TaygedoShareStep.POST_TASK_STATE -> shareResult(shareState(1, 1))
+            }
+        }
+
+        assertEquals(TaygedoShareOutcome.COMPLETED, result.outcome)
+        assertEquals("p1", result.sharedPostId)
+        assertEquals(1, calls.count { it.step == TaygedoShareStep.SHARE })
+        val share = calls.single { it.step == TaygedoShareStep.SHARE }
+        assertEquals("POST", share.method)
+        assertEquals("/bbs/api/post/share", share.path)
+        assertEquals(mapOf("platform" to "qq", "postId" to "p1"), share.form)
+        assertTrue(!share.jsonBody && share.useDs && !share.authV2)
+    }
+
+    @Test
+    fun shareStopsOnAmbiguousMutationWithoutPostStateRead() = runTest {
+        val calls = mutableListOf<TaygedoShareStep>()
+        val result = runTaygedoShareTask { request ->
+            calls += request.step
+            when (request.step) {
+                TaygedoShareStep.PRE_TASK_STATE -> shareResult(shareState(0, 1))
+                TaygedoShareStep.RECOMMENDATIONS -> shareResult(
+                    JSONObject("""{"list":[{"postId":"p1"}]}""")
+                )
+                TaygedoShareStep.SHARE -> throw IllegalStateException("ambiguous transport")
+                else -> error("must not continue after ambiguous share")
+            }
+        }
+
+        assertEquals(TaygedoShareOutcome.STOPPED_MUTATION_UNCERTAIN, result.outcome)
+        assertEquals(
+            listOf(
+                TaygedoShareStep.PRE_TASK_STATE,
+                TaygedoShareStep.RECOMMENDATIONS,
+                TaygedoShareStep.SHARE
+            ),
+            calls
+        )
+    }
+
+    @Test
+    fun shareDoesNotClaimCompletionWhenPostStateIsIncomplete() = runTest {
+        val calls = mutableListOf<TaygedoShareStep>()
+        val result = runTaygedoShareTask { request ->
+            calls += request.step
+            when (request.step) {
+                TaygedoShareStep.PRE_TASK_STATE -> shareResult(shareState(0, 1))
+                TaygedoShareStep.RECOMMENDATIONS -> shareResult(
+                    JSONObject("""{"list":[{"postId":"p1"}]}""")
+                )
+                TaygedoShareStep.SHARE -> shareResult(
+                    JSONObject(),
+                    raw = JSONObject("""{"code":0,"data":{}}""")
+                )
+                TaygedoShareStep.POST_TASK_STATE -> shareResult(shareState(0, 1))
+            }
+        }
+
+        assertEquals(TaygedoShareOutcome.STOPPED_POST_STATE_INCOMPLETE, result.outcome)
+        assertEquals(
+            listOf(
+                TaygedoShareStep.PRE_TASK_STATE,
+                TaygedoShareStep.RECOMMENDATIONS,
+                TaygedoShareStep.SHARE,
+                TaygedoShareStep.POST_TASK_STATE
+            ),
+            calls
+        )
+        assertTrue(result.toOutcome() is CheckInOutcome.PermanentFailure)
+    }
+
+    private fun shareResult(
+        data: Any?,
+        code: Int = 0,
+        raw: JSONObject = JSONObject().put("code", code)
+    ) = TaygedoClient.ApiResult(
+        code = code,
+        data = data,
+        message = "",
+        raw = raw
+    )
+
+    private fun shareState(complete: Int, limit: Int) = JSONObject().apply {
+        put("task_list1", JSONArray().put(JSONObject().apply {
+            put("taskKey", "share")
+            put("completeTimes", complete)
+            put("limitTimes", limit)
+        }))
+    }
 }
