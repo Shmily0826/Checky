@@ -412,6 +412,358 @@ class ProvidersTest {
     }
 
     @Test
+    fun gid1SigninTaskStateParsesStrictlyAndFailsClosed() {
+        fun state(data: String?) = signStateResult(0, data?.let(::JSONObject))
+            .toCommunityTaskSignState()
+
+        assertEquals(CommunitySignState.UNSIGNED, state("""{"task_list1":[{"taskKey":"signin_c","completeTimes":0,"limitTimes":1}]}"""))
+        assertEquals(CommunitySignState.SIGNED, state("""{"task_list1":[{"taskKey":"signin_c","completeTimes":1,"limitTimes":1}]}"""))
+        assertEquals(CommunitySignState.SIGNED, state("""{"task_list1":[{"taskKey":"signin_c","completeTimes":2,"limitTimes":1}]}"""))
+        listOf(
+            "{}",
+            """{"task_list1":{}}""",
+            """{"task_list1":[{"taskKey":"signin_c","completeTimes":"0","limitTimes":1}]}""",
+            """{"task_list1":[{"taskKey":"signin_c","completeTimes":-1,"limitTimes":1}]}""",
+            """{"task_list1":[{"taskKey":"signin_c","completeTimes":0,"limitTimes":0}]}""",
+            """{"task_list1":[{"taskKey":"signin_c","completeTimes":0,"limitTimes":1},{"taskKey":"signin_c","completeTimes":0,"limitTimes":1}]}"""
+        ).forEach { assertEquals(CommunitySignState.UNKNOWN, state(it)) }
+    }
+
+    @Test
+    fun independentBbsPreflightRunsAfterUnknownId1WithoutPostingId1() = runTest {
+        val mutationCalls = mutableListOf<String>()
+        val calls = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNKNOWN },
+            readIndependentBbsState = { CommunitySignState.UNSIGNED },
+            signIn = { communityId ->
+                mutationCalls += communityId
+                CommunitySignResponse(0, "", hasExpectedData = true)
+            }
+        )
+        assertEquals(listOf("2"), mutationCalls)
+        assertEquals(CommunitySignDisposition.PREFLIGHT_UNKNOWN, calls.first().classification)
+        assertEquals(CommunitySignDisposition.SUCCESS, calls.last().classification)
+    }
+
+    @Test
+    fun independentBbsCompleteOrUnknownDoesNotPostId2() = runTest {
+        listOf(CommunitySignState.SIGNED, CommunitySignState.UNKNOWN).forEach { bbsState ->
+            val mutationCalls = mutableListOf<String>()
+            runCommunitySignInSequence(
+                readState = { CommunitySignState.UNKNOWN },
+                readIndependentBbsState = { bbsState },
+                signIn = { communityId ->
+                    mutationCalls += communityId
+                    CommunitySignResponse(0, "", hasExpectedData = true)
+                }
+            )
+            assertTrue(mutationCalls.isEmpty())
+        }
+    }
+
+    @Test
+    fun browseRunsIndependentlyWhenId1SignStateIsUnknown() = runTest {
+        val browseCalls = mutableListOf<TaygedoBrowseRequest>()
+        val browse = runTaygedoBrowseTask { request ->
+            browseCalls += request
+            when (request.step) {
+                TaygedoBrowseStep.PRE_TASK_STATE -> browseResult(browseState(0, 1))
+                TaygedoBrowseStep.RECOMMEND_POSTS -> browseResult(
+                    JSONObject("""{"list":[{"postId":"post-1"}]}""")
+                )
+                TaygedoBrowseStep.POST_DETAIL -> browseResult(JSONObject("""{"postId":"post-1"}"""))
+                TaygedoBrowseStep.POST_TASK_STATE -> browseResult(browseState(1, 1))
+            }
+        }
+        val signPosts = mutableListOf<String>()
+        val signIns = runCommunitySignInSequence(
+            readState = { CommunitySignState.UNKNOWN },
+            readIndependentBbsState = { CommunitySignState.SIGNED },
+            signIn = { communityId ->
+                signPosts += communityId
+                CommunitySignResponse(0, "", hasExpectedData = true)
+            }
+        )
+
+        assertEquals(TaygedoBrowseOutcome.COMPLETED, browse.outcome)
+        assertTrue(browseCalls.any { it.step == TaygedoBrowseStep.POST_DETAIL })
+        assertTrue(signPosts.isEmpty())
+        assertEquals(CommunitySignDisposition.PREFLIGHT_UNKNOWN, signIns.first().classification)
+    }
+
+    @Test
+    fun browseWithNoRemainingSkipsRecommendationAndDetailReads() = runTest {
+        val calls = mutableListOf<TaygedoBrowseRequest>()
+        val result = runTaygedoBrowseTask { request ->
+            calls += request
+            assertEquals(TaygedoBrowseStep.PRE_TASK_STATE, request.step)
+            browseResult(browseState(5, 5))
+        }
+
+        assertEquals(TaygedoBrowseOutcome.ALREADY_COMPLETED, result.outcome)
+        assertEquals(listOf(TaygedoBrowseStep.PRE_TASK_STATE), calls.map { it.step })
+    }
+
+    @Test
+    fun browseUsesDistinctPostIdsAndNeverSendsUnauthorizedRequests() = runTest {
+        val calls = mutableListOf<TaygedoBrowseRequest>()
+        val result = runTaygedoBrowseTask { request ->
+            calls += request
+            when (request.step) {
+                TaygedoBrowseStep.PRE_TASK_STATE -> browseResult(browseState(0, 3))
+                TaygedoBrowseStep.RECOMMEND_POSTS -> browseResult(
+                    JSONObject("""{"list":[
+                        {"postId":"p1"},{"id":"p1"},{"postId":"p2"},{"postId":"p3"}
+                    ]}""")
+                )
+                TaygedoBrowseStep.POST_DETAIL -> browseResult(JSONObject())
+                TaygedoBrowseStep.POST_TASK_STATE -> browseResult(browseState(3, 3))
+            }
+        }
+
+        assertEquals(TaygedoBrowseOutcome.COMPLETED, result.outcome)
+        assertEquals(listOf("p1", "p2", "p3"), result.detailPostIds)
+        assertTrue(calls.filter {
+            it.step == TaygedoBrowseStep.PRE_TASK_STATE ||
+                it.step == TaygedoBrowseStep.POST_TASK_STATE
+        }.all { !it.authV2 && it.useDs })
+        assertTrue(calls.all { it.method == "GET" })
+        assertTrue(calls.none {
+            it.path.contains("signin") || it.path.contains("like") ||
+                it.path.contains("comment") || it.path.contains("share") ||
+                it.path.contains("follow") || it.path.contains("post/")
+        })
+    }
+
+    @Test
+    fun browseUsesAvailableUniquePostsWhenFewerThanRemaining() = runTest {
+        val detailIds = mutableListOf<String>()
+        val result = runTaygedoBrowseTask { request ->
+            when (request.step) {
+                TaygedoBrowseStep.PRE_TASK_STATE -> browseResult(browseState(0, 5))
+                TaygedoBrowseStep.RECOMMEND_POSTS -> browseResult(
+                    JSONObject("""{"list":[{"postId":"p1"},{"postId":"p2"}]}""")
+                )
+                TaygedoBrowseStep.POST_DETAIL -> {
+                    detailIds += request.query.getValue("postId")
+                    browseResult(JSONObject())
+                }
+                TaygedoBrowseStep.POST_TASK_STATE -> browseResult(browseState(2, 5))
+            }
+        }
+
+        assertEquals(TaygedoBrowseOutcome.STOPPED_POST_STATE_INCOMPLETE, result.outcome)
+        assertEquals(listOf("p1", "p2"), detailIds)
+    }
+
+    @Test
+    fun browseTaskStateRequiresOneStrictBrowseTask() {
+        val unrelated = browseState(0, 5).apply {
+            getJSONArray("task_list1").put(JSONObject("""{"taskKey":"other","code":"legacy"}"""))
+            getJSONArray("task_list1").put(JSONObject("""{"taskKey":7,"code":8}"""))
+            getJSONArray("task_list1").put(JSONObject("""{"unrelated":true}"""))
+        }
+        assertEquals(
+            TaygedoBrowseTaskState(0, 5),
+            parseTaygedoBrowseTaskState(browseResult(unrelated))
+        )
+
+        val duplicate = browseState(0, 5).apply {
+            getJSONArray("task_list1").put(
+                JSONObject("""{"taskKey":"browse_post_c","completeTimes":1,"limitTimes":5}""")
+            )
+        }
+        assertEquals(null, parseTaygedoBrowseTaskState(browseResult(duplicate)))
+        val conflicting = browseState(0, 5).apply {
+            getJSONArray("task_list1").put(
+                JSONObject("""{"taskKey":"browse_post_c","code":"other","completeTimes":0,"limitTimes":5}""")
+            )
+        }
+        assertEquals(null, parseTaygedoBrowseTaskState(browseResult(conflicting)))
+        listOf(
+            JSONObject("""{"task_list1":[{"taskKey":"browse_post_c","completeTimes":"0","limitTimes":5}]}"""),
+            JSONObject("""{"task_list1":[{"taskKey":"browse_post_c","completeTimes":-1,"limitTimes":5}]}"""),
+            JSONObject("""{"task_list1":[{"taskKey":"browse_post_c","completeTimes":0,"limitTimes":1.5}]}""")
+        ).forEach { assertEquals(null, parseTaygedoBrowseTaskState(browseResult(it))) }
+    }
+
+    @Test
+    fun malformedRecommendationOrDetailStopsWithoutDownstreamReads() = runTest {
+        val recommendationCalls = mutableListOf<TaygedoBrowseStep>()
+        val malformedRecommendation = runTaygedoBrowseTask { request ->
+            recommendationCalls += request.step
+            when (request.step) {
+                TaygedoBrowseStep.PRE_TASK_STATE -> browseResult(browseState(0, 1))
+                TaygedoBrowseStep.RECOMMEND_POSTS -> browseResult(JSONObject("""{"unknown":[]}"""))
+                else -> error("must not read after malformed recommendation")
+            }
+        }
+        assertEquals(
+            TaygedoBrowseOutcome.STOPPED_RECOMMEND_UNKNOWN,
+            malformedRecommendation.outcome
+        )
+        assertEquals(
+            listOf(TaygedoBrowseStep.PRE_TASK_STATE, TaygedoBrowseStep.RECOMMEND_POSTS),
+            recommendationCalls
+        )
+
+        val detailCalls = mutableListOf<TaygedoBrowseStep>()
+        val detailFailure = runTaygedoBrowseTask { request ->
+            detailCalls += request.step
+            when (request.step) {
+                TaygedoBrowseStep.PRE_TASK_STATE -> browseResult(browseState(0, 2))
+                TaygedoBrowseStep.RECOMMEND_POSTS -> browseResult(
+                    JSONObject("""{"list":[{"postId":"p1"},{"postId":"p2"}]}""")
+                )
+                TaygedoBrowseStep.POST_DETAIL -> browseResult(JSONObject(), code = 503)
+                TaygedoBrowseStep.POST_TASK_STATE -> error("must not read after detail failure")
+            }
+        }
+        assertEquals(TaygedoBrowseOutcome.STOPPED_DETAIL_FAILURE, detailFailure.outcome)
+        assertEquals(
+            listOf(
+                TaygedoBrowseStep.PRE_TASK_STATE,
+                TaygedoBrowseStep.RECOMMEND_POSTS,
+                TaygedoBrowseStep.POST_DETAIL
+            ),
+            detailCalls
+        )
+    }
+
+    @Test
+    fun browseDoesNotReportSuccessWhenFinalReadBackIsIncompleteOrUnknown() = runTest {
+        val incomplete = runTaygedoBrowseTask { request ->
+            when (request.step) {
+                TaygedoBrowseStep.PRE_TASK_STATE -> browseResult(browseState(0, 2))
+                TaygedoBrowseStep.RECOMMEND_POSTS -> browseResult(
+                    JSONObject("""{"list":[{"postId":"p1"},{"postId":"p2"}]}""")
+                )
+                TaygedoBrowseStep.POST_DETAIL -> browseResult(JSONObject())
+                TaygedoBrowseStep.POST_TASK_STATE -> browseResult(browseState(1, 2))
+            }
+        }
+        assertEquals(TaygedoBrowseOutcome.STOPPED_POST_STATE_INCOMPLETE, incomplete.outcome)
+        assertEquals(1, incomplete.after?.remaining)
+        assertTrue(incomplete.toOutcome() is CheckInOutcome.PermanentFailure)
+
+        val unknown = runTaygedoBrowseTask { request ->
+            when (request.step) {
+                TaygedoBrowseStep.PRE_TASK_STATE -> browseResult(browseState(0, 1))
+                TaygedoBrowseStep.RECOMMEND_POSTS -> browseResult(
+                    JSONObject("""{"list":[{"postId":"p1"}]}""")
+                )
+                TaygedoBrowseStep.POST_DETAIL -> browseResult(JSONObject())
+                TaygedoBrowseStep.POST_TASK_STATE -> browseResult(JSONObject("""{"task_list1":{}}"""))
+            }
+        }
+        assertEquals(TaygedoBrowseOutcome.STOPPED_POST_STATE_UNKNOWN, unknown.outcome)
+        assertTrue(unknown.toOutcome() is CheckInOutcome.PermanentFailure)
+    }
+
+    @Test
+    fun likeCapsToRemainingAndSkipsLikedOrUnknownTargets() = runTest {
+        val calls = mutableListOf<TaygedoLikeRequest>()
+        val result = runTaygedoLikeTask { request ->
+            calls += request
+            when (request.step) {
+                TaygedoLikeStep.PRE_TASK_STATE -> likeResult(likeState(3, 5))
+                TaygedoLikeStep.RECOMMENDATIONS -> likeResult(
+                    JSONObject("""{"list":[
+                        {"postId":"liked","selfOperation":{"liked":true}},
+                        {"postId":"unknown","selfOperation":{}},
+                        {"postId":"p1","selfOperation":{"liked":false}},
+                        {"postId":"p2","selfOperation":{"liked":false}},
+                        {"postId":"p3","selfOperation":{"liked":false}}
+                    ]}""")
+                )
+                TaygedoLikeStep.POST_DETAIL -> likeResult(
+                    JSONObject("""{"postId":"unknown","selfOperation":{}}""")
+                )
+                TaygedoLikeStep.LIKE -> likeResult(JSONObject(), raw = JSONObject("""{"code":0,"data":{}}"""))
+                TaygedoLikeStep.POST_TASK_STATE -> likeResult(likeState(5, 5))
+            }
+        }
+
+        assertEquals(TaygedoLikeOutcome.COMPLETED, result.outcome)
+        assertEquals(listOf("p1", "p2"), result.likedPostIds)
+        assertEquals(2, calls.count { it.step == TaygedoLikeStep.LIKE })
+        assertTrue(calls.filter { it.step == TaygedoLikeStep.LIKE }.all {
+            it.method == "POST" && it.jsonBody && !it.authV2 && it.useDs
+        })
+    }
+
+    @Test
+    fun likeStopsOnFirstAmbiguousMutationWithoutContinuing() = runTest {
+        val calls = mutableListOf<TaygedoLikeStep>()
+        val result = runTaygedoLikeTask { request ->
+            calls += request.step
+            when (request.step) {
+                TaygedoLikeStep.PRE_TASK_STATE -> likeResult(likeState(0, 5))
+                TaygedoLikeStep.RECOMMENDATIONS -> likeResult(
+                    JSONObject("""{"list":[
+                        {"postId":"p1","selfOperation":{"liked":false}},
+                        {"postId":"p2","selfOperation":{"liked":false}}
+                    ]}""")
+                )
+                TaygedoLikeStep.LIKE -> throw IllegalStateException("ambiguous transport")
+                else -> error("must not continue after ambiguous mutation")
+            }
+        }
+
+        assertEquals(TaygedoLikeOutcome.STOPPED_MUTATION_UNCERTAIN, result.outcome)
+        assertEquals(
+            listOf(
+                TaygedoLikeStep.PRE_TASK_STATE,
+                TaygedoLikeStep.RECOMMENDATIONS,
+                TaygedoLikeStep.LIKE
+            ),
+            calls
+        )
+    }
+
+    @Test
+    fun likeWithNoRemainingSkipsAllMutationAndRecommendationReads() = runTest {
+        val calls = mutableListOf<TaygedoLikeStep>()
+        val result = runTaygedoLikeTask { request ->
+            calls += request.step
+            assertEquals(TaygedoLikeStep.PRE_TASK_STATE, request.step)
+            likeResult(likeState(5, 5))
+        }
+
+        assertEquals(TaygedoLikeOutcome.ALREADY_COMPLETED, result.outcome)
+        assertEquals(listOf(TaygedoLikeStep.PRE_TASK_STATE), calls)
+    }
+
+    @Test
+    fun likeRequiresPostStateConfirmationAndReportsIncompleteProgress() = runTest {
+        val calls = mutableListOf<TaygedoLikeStep>()
+        val result = runTaygedoLikeTask { request ->
+            calls += request.step
+            when (request.step) {
+                TaygedoLikeStep.PRE_TASK_STATE -> likeResult(likeState(0, 5))
+                TaygedoLikeStep.RECOMMENDATIONS -> likeResult(
+                    JSONObject("""{"list":[{"postId":"p1","selfOperation":{"liked":false}}]}""")
+                )
+                TaygedoLikeStep.LIKE -> likeResult(JSONObject(), raw = JSONObject("""{"code":0,"data":{}}"""))
+                TaygedoLikeStep.POST_TASK_STATE -> likeResult(likeState(1, 5))
+                TaygedoLikeStep.POST_DETAIL -> error("must not read detail for explicit state")
+            }
+        }
+
+        assertEquals(TaygedoLikeOutcome.STOPPED_POST_STATE_INCOMPLETE, result.outcome)
+        assertEquals(
+            listOf(
+                TaygedoLikeStep.PRE_TASK_STATE,
+                TaygedoLikeStep.RECOMMENDATIONS,
+                TaygedoLikeStep.LIKE,
+                TaygedoLikeStep.POST_TASK_STATE
+            ),
+            calls
+        )
+        assertTrue(result.toOutcome() is CheckInOutcome.PermanentFailure)
+    }
+
+    @Test
     fun shareWithNoRemainingSkipsRecommendationAndMutation() = runTest {
         val calls = mutableListOf<TaygedoShareStep>()
         val result = runTaygedoShareTask { request ->
@@ -523,6 +875,40 @@ class ProvidersTest {
     private fun shareState(complete: Int, limit: Int) = JSONObject().apply {
         put("task_list1", JSONArray().put(JSONObject().apply {
             put("taskKey", "share")
+            put("completeTimes", complete)
+            put("limitTimes", limit)
+        }))
+    }
+
+    private fun likeResult(
+        data: Any?,
+        code: Int = 0,
+        raw: JSONObject = JSONObject().put("code", code)
+    ) = TaygedoClient.ApiResult(
+        code = code,
+        data = data,
+        message = "",
+        raw = raw
+    )
+
+    private fun likeState(complete: Int, limit: Int) = JSONObject().apply {
+        put("task_list1", JSONArray().put(JSONObject().apply {
+            put("taskKey", "like_post_c")
+            put("completeTimes", complete)
+            put("limitTimes", limit)
+        }))
+    }
+
+    private fun browseResult(data: Any?, code: Int = 0) = TaygedoClient.ApiResult(
+        code = code,
+        data = data,
+        message = "",
+        raw = JSONObject()
+    )
+
+    private fun browseState(complete: Int, limit: Int) = JSONObject().apply {
+        put("task_list1", JSONArray().put(JSONObject().apply {
+            put("taskKey", "browse_post_c")
             put("completeTimes", complete)
             put("limitTimes", limit)
         }))

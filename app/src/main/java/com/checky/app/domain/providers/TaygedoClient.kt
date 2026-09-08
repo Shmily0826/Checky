@@ -146,6 +146,21 @@ class TaygedoClient(
         TaygedoCoinStateResult.Unknown
     }
 
+    /** Read the live-verified BBS sign-in task state without mutating account state. */
+    internal suspend fun getCommunityBbsSignState(): CommunitySignState = try {
+        request(
+            TaygedoCommunityProvider.META,
+            "/apihub/api/getUserTasks",
+            query = mapOf("gid" to "1"),
+            authV2 = true,
+            useDs = true
+        ).toCommunityTaskSignState()
+    } catch (e: AuthException) {
+        throw e
+    } catch (_: Exception) {
+        CommunitySignState.UNKNOWN
+    }
+
     /**
      * Perform exactly one authenticated GET. In particular, this path never
      * calls refreshToken and never persists credentials, even on 401/-401.

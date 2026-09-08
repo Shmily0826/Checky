@@ -17,10 +17,8 @@ import com.checky.app.domain.model.RiskLevel
 import com.checky.app.domain.model.SupportStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
-import kotlin.math.min
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -172,12 +170,38 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
     }
 
     private suspend fun checkInCommunity(): CheckInOutcome {
+        val browse = runTaygedoBrowseTask { request ->
+            client.request(
+                meta,
+                request.path,
+                query = request.query,
+                useDs = request.useDs,
+                authV2 = request.authV2
+            )
+        }
+        if (!browse.outcome.mayContinue) return browse.toOutcome()
+
+        val like = runTaygedoLikeTask { request ->
+            client.request(
+                meta,
+                request.path,
+                request.method,
+                query = request.query,
+                form = request.form,
+                useDs = request.useDs,
+                authV2 = request.authV2,
+                jsonBody = request.jsonBody
+            )
+        }
+        if (!like.outcome.mayContinue) return like.toOutcome()
+
         // The current community flow has two deterministic sign-in entries:
         // the app-level daily sign-in (communityId=1) and the BBS/section
         // sign-in (communityId=2). Treat an upstream "already signed" reply
         // as positive so a repeat run is idempotent.
         val signIns = runCommunitySignInSequence(
             readState = ::readCommunitySignState,
+            readIndependentBbsState = client::getCommunityBbsSignState,
             signIn = { communityId ->
                 // Live-verified contract (2026-08-30): plain Authorization +
                 // form body + ds signature. AuthorizationV2 + JSON body made
@@ -190,20 +214,37 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
                 ).toCommunitySignResponse()
             }
         )
-        val appSignin = signIns[0]
-        if (!appSignin.classification.mayContinue) {
+        val appSignin = signIns.getOrNull(0) ?: return CheckInOutcome.PermanentFailure(
+            "异环 APP 签到状态无法确认，未执行签到。",
+            "TAYGEDO_COMMUNITY_APP_STATE_UNKNOWN"
+        )
+        if (!appSignin.classification.mayContinue &&
+            appSignin.classification != CommunitySignDisposition.PREFLIGHT_UNKNOWN
+        ) {
             return appSignin.classification.toOutcome("异环 APP 签到失败。", appSignin.response.message)
         }
-        val bbsSignin = signIns[1]
+        val bbsSignin = signIns.getOrNull(1) ?: return CheckInOutcome.PermanentFailure(
+            "异环版区签到状态无法确认，未执行后续操作。",
+            "TAYGEDO_COMMUNITY_BBS_STATE_UNKNOWN"
+        )
         if (!bbsSignin.classification.mayContinue) {
             return bbsSignin.classification.toOutcome("异环社区版区签到失败。", bbsSignin.response.message)
+        }
+        if (appSignin.classification == CommunitySignDisposition.PREFLIGHT_UNKNOWN) {
+            val bbsMessage = if (bbsSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED) {
+                "异环版区签到已完成"
+            } else {
+                "异环版区签到成功"
+            }
+            val partial = CheckInOutcome.PermanentFailure(
+                "$bbsMessage，但 APP 签到状态无法确认，已跳过 APP 签到。",
+                "TAYGEDO_COMMUNITY_PARTIAL"
+            )
+            return partial.copy(userMessage = "${browse.toMessage()}；${partial.userMessage}")
         }
 
         val exp = appSignin.response.exp
         val coin = appSignin.response.goldCoin
-        val taskState = readCommunityTaskState()
-        val browsed = taskState?.let { performBrowseTasks(it.browseRemaining) } ?: 0
-        val refreshedTaskState = if (browsed > 0) readCommunityTaskState() else taskState
         val appLabel = if (appSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED) {
             "APP 今日已签到"
         } else {
@@ -217,8 +258,8 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
         val message = buildString {
             append("塔吉多社区：$appLabel，$bbsLabel。")
             if (exp > 0 || coin > 0) append("经验 +$exp，金币 +$coin。")
-            if (browsed > 0) append("自动浏览 $browsed 篇帖子。")
-            if (refreshedTaskState != null) append(" ").append(refreshedTaskState.toMessage())
+            append(" ").append(browse.toMessage()).append("。")
+            append(" ").append(like.toMessage()).append("。")
         }
         val already = appSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED &&
             bbsSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED
@@ -234,27 +275,6 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
     }
 
     /** Read task counters without performing like/share interactions. */
-    private suspend fun readCommunityTaskState(): CommunityTaskState? {
-        return try {
-            val result = client.request(
-                meta,
-                "/apihub/api/getUserTasks",
-                query = mapOf("communityId" to "2", "gid" to "2"),
-                authV2 = true,
-                useDs = true
-            )
-            if (result.code != 0) {
-                null
-            } else {
-                parseCommunityTaskState((result.data as? JSONObject)?.optJSONArray("task_list3"))
-            }
-        } catch (e: TaygedoClient.AuthException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     /**
      * Read-only preflight: ask the official `getSignState` endpoint whether a
      * given community has already been signed today.
@@ -279,48 +299,10 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
     }
 
     /** Complete only the read-only browse task from the official task flow. */
-    private suspend fun performBrowseTasks(remaining: Int): Int {
-        if (remaining <= 0) return 0
-        return try {
-            val listResult = client.request(
-                meta,
-                "/bbs/api/getRecommendPostList",
-                query = mapOf("communityId" to "2", "count" to "20", "page" to "1"),
-                useDs = true
-            )
-            if (listResult.code != 0) return 0
-            val data = listResult.data
-            val posts = when (data) {
-                is JSONArray -> data
-                is JSONObject -> data.optJSONArray("list") ?: data.optJSONArray("posts")
-                else -> null
-            } ?: return 0
-            var completed = 0
-            for (index in 0 until min(remaining, posts.length())) {
-                val post = posts.optJSONObject(index) ?: continue
-                val postId = post.optString("postId").ifBlank { post.optString("id") }
-                if (postId.isBlank()) continue
-                val detail = client.request(
-                    meta,
-                    "/bbs/api/getPostFull",
-                    query = mapOf("postId" to postId),
-                    useDs = true
-                )
-                if (detail.code == 0) completed++
-                if (index + 1 < min(remaining, posts.length())) delay(350)
-            }
-            completed
-        } catch (e: TaygedoClient.AuthException) {
-            throw e
-        } catch (_: Exception) {
-            0
-        }
-    }
-
     companion object {
         val META = ProviderMeta(
             id = "taygedo_community", displayName = "塔吉多社区签到",
-            description = "完成塔吉多 APP 与异环版区每日签到，并读取浏览、点赞、分享任务状态；不自动点赞、不分享。",
+            description = "完成塔吉多 APP 与异环版区每日签到，并自动浏览与点赞任务；不自动分享。",
             category = "社区", iconKey = "star", accentColor = 0xFFEE7B45,
             isEnabledByDefault = false, connectionType = ConnectionType.HTTP_SESSION,
             riskLevel = RiskLevel.HIGH, credentialType = CredentialType.SESSION_TOKEN,
@@ -328,6 +310,84 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
             businessZone = ZoneId.of("Asia/Shanghai")
         )
     }
+}
+
+internal enum class TaygedoBrowseStep {
+    PRE_TASK_STATE,
+    RECOMMEND_POSTS,
+    POST_DETAIL,
+    POST_TASK_STATE
+}
+
+internal data class TaygedoBrowseRequest(
+    val step: TaygedoBrowseStep,
+    val path: String,
+    val query: Map<String, String>,
+    val useDs: Boolean,
+    val authV2: Boolean,
+    val method: String = "GET"
+)
+
+internal fun taygedoBrowseRequest(step: TaygedoBrowseStep, postId: String = "") = when (step) {
+    TaygedoBrowseStep.PRE_TASK_STATE,
+    TaygedoBrowseStep.POST_TASK_STATE -> TaygedoBrowseRequest(
+        step,
+        "/apihub/api/getUserTasks",
+        mapOf("gid" to "1"),
+        useDs = true,
+        authV2 = false
+    )
+    TaygedoBrowseStep.RECOMMEND_POSTS -> TaygedoBrowseRequest(
+        step,
+        "/bbs/api/getRecommendPostList",
+        mapOf("communityId" to "2", "count" to "20", "page" to "1"),
+        useDs = true,
+        authV2 = false
+    )
+    TaygedoBrowseStep.POST_DETAIL -> TaygedoBrowseRequest(
+        step,
+        "/bbs/api/getPostFull",
+        mapOf("postId" to postId),
+        useDs = true,
+        authV2 = false
+    )
+}
+
+internal data class TaygedoBrowseTaskState(
+    val complete: Int,
+    val limit: Int
+) {
+    val remaining: Int get() = (limit - complete).coerceAtLeast(0)
+}
+
+internal fun parseTaygedoBrowseTaskState(
+    result: TaygedoClient.ApiResult
+): TaygedoBrowseTaskState? {
+    if (!result.isKnownTaygedoReadSuccess()) return null
+    val data = result.data as? JSONObject ?: return null
+    val taskList = data.opt("task_list1") as? JSONArray ?: return null
+    var browse: TaygedoBrowseTaskState? = null
+
+    for (index in 0 until taskList.length()) {
+        val task = taskList.optJSONObject(index) ?: continue
+        val taskKeyValue = task.opt("taskKey")
+        val codeValue = task.opt("code")
+        val taskKey = (task.opt("taskKey") as? String)?.trim()
+        val code = (task.opt("code") as? String)?.trim()
+        val taskClaimsBrowse = taskKey == "browse_post_c"
+        val codeClaimsBrowse = code == "browse_post_c"
+        if (!taskClaimsBrowse && !codeClaimsBrowse) continue
+        val otherValue = if (taskClaimsBrowse) codeValue else taskKeyValue
+        val other = if (otherValue == null) null else otherValue as? String
+        if (otherValue != null && other == null) return null
+        if (!other.isNullOrBlank() && other != "browse_post_c") return null
+        if (browse != null) return null
+        val complete = taygedoNonNegativeInt(task.opt("completeTimes")) ?: return null
+        val limit = taygedoNonNegativeInt(task.opt("limitTimes")) ?: return null
+        if (limit == 0 || complete > limit) return null
+        browse = TaygedoBrowseTaskState(complete, limit)
+    }
+    return browse
 }
 
 private fun taygedoNonNegativeInt(value: Any?): Int? {
@@ -381,6 +441,9 @@ private fun taygedoPostId(value: Any?): String? {
     return text.takeIf { it.isNotBlank() && it.length <= 128 && it.none(Char::isISOControl) }
 }
 
+private fun isKnownTaygedoBrowseDetail(result: TaygedoClient.ApiResult): Boolean =
+    result.isKnownTaygedoReadSuccess()
+
 private fun TaygedoClient.ApiResult.isKnownTaygedoReadSuccess(): Boolean {
     if (httpStatus !in 200..299 || code != 0) return false
     val text = listOf(message, raw.optString("message"), raw.optString("msg"))
@@ -390,6 +453,436 @@ private fun TaygedoClient.ApiResult.isKnownTaygedoReadSuccess(): Boolean {
         "captcha", "verification", "verify", "risk", "recaptcha", "challenge",
         "风控", "验证", "验证码"
     ).none(text::contains)
+}
+
+internal enum class TaygedoBrowseOutcome {
+    ALREADY_COMPLETED,
+    COMPLETED,
+    STOPPED_PRE_STATE_UNKNOWN,
+    STOPPED_RECOMMEND_UNKNOWN,
+    STOPPED_INSUFFICIENT_POSTS,
+    STOPPED_DETAIL_FAILURE,
+    STOPPED_POST_STATE_UNKNOWN,
+    STOPPED_POST_STATE_INCOMPLETE
+}
+
+internal data class TaygedoBrowseRun(
+    val before: TaygedoBrowseTaskState?,
+    val after: TaygedoBrowseTaskState?,
+    val detailPostIds: List<String>,
+    val outcome: TaygedoBrowseOutcome
+) {
+    fun toMessage(): String = when (outcome) {
+        TaygedoBrowseOutcome.ALREADY_COMPLETED -> "浏览任务今日已完成"
+        TaygedoBrowseOutcome.COMPLETED -> "自动浏览 ${detailPostIds.size} 篇帖子"
+        else -> "浏览任务状态未确认"
+    }
+
+    fun toOutcome(): CheckInOutcome = when (outcome) {
+        TaygedoBrowseOutcome.STOPPED_POST_STATE_INCOMPLETE -> CheckInOutcome.PermanentFailure(
+            "塔吉多浏览任务仅确认了部分完成，已停止后续操作。",
+            "TAYGEDO_COMMUNITY_BROWSE_INCOMPLETE"
+        )
+        TaygedoBrowseOutcome.ALREADY_COMPLETED,
+        TaygedoBrowseOutcome.COMPLETED -> error("Positive browse result cannot be converted to failure")
+        else -> CheckInOutcome.PermanentFailure(
+            "塔吉多浏览任务状态或结果无法确认，已停止后续操作。",
+            "TAYGEDO_COMMUNITY_BROWSE_UNKNOWN"
+        )
+    }
+}
+
+internal val TaygedoBrowseOutcome.mayContinue: Boolean
+    get() = this == TaygedoBrowseOutcome.ALREADY_COMPLETED ||
+        this == TaygedoBrowseOutcome.COMPLETED
+
+internal suspend fun runTaygedoBrowseTask(
+    read: suspend (TaygedoBrowseRequest) -> TaygedoClient.ApiResult
+): TaygedoBrowseRun {
+    suspend fun readOrNull(request: TaygedoBrowseRequest): TaygedoClient.ApiResult? = try {
+        read(request)
+    } catch (error: TaygedoClient.AuthException) {
+        throw error
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        null
+    }
+
+    val before = readOrNull(taygedoBrowseRequest(TaygedoBrowseStep.PRE_TASK_STATE))
+        ?.let(::parseTaygedoBrowseTaskState)
+        ?: return TaygedoBrowseRun(
+            null,
+            null,
+            emptyList(),
+            TaygedoBrowseOutcome.STOPPED_PRE_STATE_UNKNOWN
+        )
+    if (before.remaining == 0) {
+        return TaygedoBrowseRun(
+            before,
+            null,
+            emptyList(),
+            TaygedoBrowseOutcome.ALREADY_COMPLETED
+        )
+    }
+
+    val postIds = readOrNull(taygedoBrowseRequest(TaygedoBrowseStep.RECOMMEND_POSTS))
+        ?.let(::parseTaygedoBrowsePostIds)
+        ?: return TaygedoBrowseRun(
+            before,
+            null,
+            emptyList(),
+            TaygedoBrowseOutcome.STOPPED_RECOMMEND_UNKNOWN
+        )
+    val boundedPostIds = postIds.take(before.remaining)
+    if (boundedPostIds.isEmpty()) {
+        return TaygedoBrowseRun(
+            before,
+            null,
+            emptyList(),
+            TaygedoBrowseOutcome.STOPPED_INSUFFICIENT_POSTS
+        )
+    }
+
+    val detailPostIds = mutableListOf<String>()
+    for (postId in boundedPostIds) {
+        detailPostIds += postId
+        val detail = readOrNull(taygedoBrowseRequest(TaygedoBrowseStep.POST_DETAIL, postId))
+        if (detail == null || !isKnownTaygedoBrowseDetail(detail)) {
+            return TaygedoBrowseRun(
+                before,
+                null,
+                detailPostIds,
+                TaygedoBrowseOutcome.STOPPED_DETAIL_FAILURE
+            )
+        }
+    }
+
+    val after = readOrNull(taygedoBrowseRequest(TaygedoBrowseStep.POST_TASK_STATE))
+        ?.let(::parseTaygedoBrowseTaskState)
+        ?: return TaygedoBrowseRun(
+            before,
+            null,
+            detailPostIds,
+            TaygedoBrowseOutcome.STOPPED_POST_STATE_UNKNOWN
+        )
+    if (after.limit != before.limit || after.complete < before.complete) {
+        return TaygedoBrowseRun(
+            before,
+            after,
+            detailPostIds,
+            TaygedoBrowseOutcome.STOPPED_POST_STATE_UNKNOWN
+        )
+    }
+    return TaygedoBrowseRun(
+        before,
+        after,
+        detailPostIds,
+        if (after.remaining == 0) {
+            TaygedoBrowseOutcome.COMPLETED
+        } else {
+            TaygedoBrowseOutcome.STOPPED_POST_STATE_INCOMPLETE
+        }
+    )
+}
+
+internal enum class TaygedoLikeStep {
+    PRE_TASK_STATE,
+    RECOMMENDATIONS,
+    POST_DETAIL,
+    LIKE,
+    POST_TASK_STATE
+}
+
+internal data class TaygedoLikeRequest(
+    val step: TaygedoLikeStep,
+    val method: String,
+    val path: String,
+    val query: Map<String, String> = emptyMap(),
+    val form: Map<String, String> = emptyMap(),
+    val useDs: Boolean,
+    val authV2: Boolean,
+    val jsonBody: Boolean = false
+)
+
+internal fun taygedoLikeRequest(step: TaygedoLikeStep, postId: String = "") = when (step) {
+    TaygedoLikeStep.PRE_TASK_STATE,
+    TaygedoLikeStep.POST_TASK_STATE -> TaygedoLikeRequest(
+        step,
+        "GET",
+        "/apihub/api/getUserTasks",
+        mapOf("gid" to "1"),
+        useDs = true,
+        authV2 = false
+    )
+    TaygedoLikeStep.RECOMMENDATIONS -> TaygedoLikeRequest(
+        step,
+        "GET",
+        "/bbs/api/getRecommendPostList",
+        mapOf("communityId" to "2", "count" to "20", "page" to "1"),
+        useDs = true,
+        authV2 = false
+    )
+    TaygedoLikeStep.POST_DETAIL -> TaygedoLikeRequest(
+        step,
+        "GET",
+        "/bbs/api/getPostFull",
+        query = mapOf("postId" to postId),
+        useDs = true,
+        authV2 = false
+    )
+    TaygedoLikeStep.LIKE -> TaygedoLikeRequest(
+        step,
+        "POST",
+        "/bbs/api/post/like",
+        form = mapOf("postId" to postId),
+        useDs = true,
+        authV2 = false,
+        jsonBody = true
+    )
+}
+
+internal data class TaygedoLikeTaskState(
+    val complete: Int,
+    val limit: Int
+) {
+    val remaining: Int get() = (limit - complete).coerceAtLeast(0)
+}
+
+internal data class TaygedoLikeCandidate(val postId: String, val liked: Boolean?)
+
+internal enum class TaygedoLikeOutcome {
+    ALREADY_COMPLETED,
+    COMPLETED,
+    STOPPED_PRE_STATE_UNKNOWN,
+    STOPPED_RECOMMEND_UNKNOWN,
+    STOPPED_INCOMPLETE,
+    STOPPED_MUTATION_FAILURE,
+    STOPPED_MUTATION_UNCERTAIN,
+    STOPPED_POST_STATE_UNKNOWN,
+    STOPPED_POST_STATE_INCOMPLETE
+}
+
+internal data class TaygedoLikeRun(
+    val before: TaygedoLikeTaskState?,
+    val after: TaygedoLikeTaskState?,
+    val likedPostIds: List<String>,
+    val outcome: TaygedoLikeOutcome
+) {
+    fun toMessage(): String = when (outcome) {
+        TaygedoLikeOutcome.ALREADY_COMPLETED -> "点赞任务今日已完成"
+        TaygedoLikeOutcome.COMPLETED -> "自动点赞 ${likedPostIds.size} 篇帖子"
+        else -> "点赞任务未完成"
+    }
+
+    fun toOutcome(): CheckInOutcome = when (outcome) {
+        TaygedoLikeOutcome.ALREADY_COMPLETED,
+        TaygedoLikeOutcome.COMPLETED -> error("Positive like result cannot be converted to failure")
+        else -> CheckInOutcome.PermanentFailure(
+            "塔吉多点赞任务状态或结果无法确认，已停止后续操作。",
+            "TAYGEDO_COMMUNITY_LIKE_UNKNOWN"
+        )
+    }
+}
+
+internal val TaygedoLikeOutcome.mayContinue: Boolean
+    get() = this == TaygedoLikeOutcome.ALREADY_COMPLETED ||
+        this == TaygedoLikeOutcome.COMPLETED
+
+internal fun parseTaygedoLikeTaskState(
+    result: TaygedoClient.ApiResult
+): TaygedoLikeTaskState? {
+    if (!result.isKnownTaygedoReadSuccess()) return null
+    val data = result.data as? JSONObject ?: return null
+    val taskList = data.opt("task_list1") as? JSONArray ?: return null
+    var like: TaygedoLikeTaskState? = null
+    for (index in 0 until taskList.length()) {
+        val task = taskList.optJSONObject(index) ?: continue
+        val taskKeyValue = task.opt("taskKey")
+        val codeValue = task.opt("code")
+        val taskKey = (taskKeyValue as? String)?.trim()
+        val code = (codeValue as? String)?.trim()
+        val taskCode = taskKey?.takeIf { it.isNotBlank() } ?: code
+        if (taskCode != "like_post_c") continue
+        if ((taskKeyValue != null && taskKey == null) ||
+            (codeValue != null && code == null)
+        ) return null
+        if (like != null) return null
+        val complete = taygedoNonNegativeInt(task.opt("completeTimes")) ?: return null
+        val limit = taygedoNonNegativeInt(task.opt("limitTimes")) ?: return null
+        if (limit == 0 || complete > limit) return null
+        like = TaygedoLikeTaskState(complete, limit)
+    }
+    return like
+}
+
+private fun parseTaygedoLikeCandidates(
+    result: TaygedoClient.ApiResult
+): List<TaygedoLikeCandidate>? {
+    if (!result.isKnownTaygedoReadSuccess()) return null
+    val posts = when (val data = result.data) {
+        is JSONArray -> data
+        is JSONObject -> {
+            val containers = listOf("list", "posts").filter(data::has)
+            if (containers.size != 1) return null
+            data.optJSONArray(containers.single()) ?: return null
+        }
+        else -> return null
+    }
+    val candidates = mutableListOf<TaygedoLikeCandidate>()
+    for (index in 0 until posts.length()) {
+        val post = posts.optJSONObject(index) ?: return null
+        val postId = taygedoLikePostId(post) ?: return null
+        candidates += TaygedoLikeCandidate(postId, taygedoExplicitLiked(post))
+    }
+    return candidates
+}
+
+private fun parseTaygedoLikeDetail(
+    result: TaygedoClient.ApiResult,
+    postId: String
+): TaygedoLikeCandidate? {
+    if (!result.isKnownTaygedoReadSuccess()) return null
+    val data = result.data as? JSONObject ?: return null
+    val post = when {
+        data.has("selfOperation") -> data
+        data.opt("post") is JSONObject -> data.optJSONObject("post")
+        data.opt("postInfo") is JSONObject -> data.optJSONObject("postInfo")
+        else -> null
+    } ?: return null
+    return TaygedoLikeCandidate(postId, taygedoExplicitLiked(post))
+}
+
+private fun taygedoLikePostId(post: JSONObject): String? {
+    val values = listOf("postId", "id").filter(post::has).map { key ->
+        (post.opt(key) as? String)?.trim()
+    }
+    if (values.any { it == null || it.isEmpty() || it.length > 128 }) return null
+    return values.filterNotNull().distinct().singleOrNull()
+}
+
+private fun taygedoExplicitLiked(post: JSONObject): Boolean? =
+    (post.opt("selfOperation") as? JSONObject)?.opt("liked") as? Boolean
+
+private fun isExplicitTaygedoLikeSuccess(result: TaygedoClient.ApiResult): Boolean =
+    result.isKnownTaygedoReadSuccess() && result.raw.has("code") &&
+        result.raw.has("data") && result.data is JSONObject
+
+internal suspend fun runTaygedoLikeTask(
+    read: suspend (TaygedoLikeRequest) -> TaygedoClient.ApiResult
+): TaygedoLikeRun {
+    suspend fun readOrNull(request: TaygedoLikeRequest): TaygedoClient.ApiResult? = try {
+        read(request)
+    } catch (error: TaygedoClient.AuthException) {
+        throw error
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        null
+    }
+
+    val before = readOrNull(taygedoLikeRequest(TaygedoLikeStep.PRE_TASK_STATE))
+        ?.let(::parseTaygedoLikeTaskState)
+        ?: return TaygedoLikeRun(
+            null,
+            null,
+            emptyList(),
+            TaygedoLikeOutcome.STOPPED_PRE_STATE_UNKNOWN
+        )
+    if (before.remaining == 0) {
+        return TaygedoLikeRun(
+            before,
+            null,
+            emptyList(),
+            TaygedoLikeOutcome.ALREADY_COMPLETED
+        )
+    }
+
+    val candidates = readOrNull(taygedoLikeRequest(TaygedoLikeStep.RECOMMENDATIONS))
+        ?.let(::parseTaygedoLikeCandidates)
+        ?: return TaygedoLikeRun(
+            before,
+            null,
+            emptyList(),
+            TaygedoLikeOutcome.STOPPED_RECOMMEND_UNKNOWN
+        )
+    val targetCount = before.remaining.coerceAtMost(5)
+    val seen = mutableSetOf<String>()
+    val eligible = mutableListOf<String>()
+    for (candidate in candidates) {
+        if (!seen.add(candidate.postId)) continue
+        val unliked = when (candidate.liked) {
+            true -> false
+            false -> true
+            null -> readOrNull(taygedoLikeRequest(TaygedoLikeStep.POST_DETAIL, candidate.postId))
+                ?.let { parseTaygedoLikeDetail(it, candidate.postId)?.liked == false }
+                ?: false
+        }
+        if (unliked) eligible += candidate.postId
+        if (eligible.size == targetCount) break
+    }
+    if (eligible.isEmpty()) {
+        return TaygedoLikeRun(
+            before,
+            null,
+            emptyList(),
+            TaygedoLikeOutcome.STOPPED_INCOMPLETE
+        )
+    }
+
+    val likedPostIds = mutableListOf<String>()
+    for (postId in eligible.take(targetCount)) {
+        val response = try {
+            read(taygedoLikeRequest(TaygedoLikeStep.LIKE, postId))
+        } catch (error: TaygedoClient.AuthException) {
+            throw error
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return TaygedoLikeRun(
+                before,
+                null,
+                likedPostIds,
+                TaygedoLikeOutcome.STOPPED_MUTATION_UNCERTAIN
+            )
+        }
+        if (!isExplicitTaygedoLikeSuccess(response)) {
+            return TaygedoLikeRun(
+                before,
+                null,
+                likedPostIds,
+                TaygedoLikeOutcome.STOPPED_MUTATION_FAILURE
+            )
+        }
+        likedPostIds += postId
+    }
+
+    val after = readOrNull(taygedoLikeRequest(TaygedoLikeStep.POST_TASK_STATE))
+        ?.let(::parseTaygedoLikeTaskState)
+        ?: return TaygedoLikeRun(
+            before,
+            null,
+            likedPostIds,
+            TaygedoLikeOutcome.STOPPED_POST_STATE_UNKNOWN
+        )
+    if (after.limit != before.limit || after.complete < before.complete) {
+        return TaygedoLikeRun(
+            before,
+            after,
+            likedPostIds,
+            TaygedoLikeOutcome.STOPPED_POST_STATE_UNKNOWN
+        )
+    }
+    return TaygedoLikeRun(
+        before,
+        after,
+        likedPostIds,
+        if (after.remaining == 0) {
+            TaygedoLikeOutcome.COMPLETED
+        } else {
+            TaygedoLikeOutcome.STOPPED_POST_STATE_INCOMPLETE
+        }
+    )
 }
 
 internal enum class TaygedoShareStep {
@@ -644,7 +1137,6 @@ internal suspend fun runTaygedoShareTask(
  * performs any of those interactions. Returns null when the array is missing
  * or unusable so callers fail closed.
  */
-
 internal fun parseCommunityTaskState(taskList: JSONArray?): CommunityTaskState? {
     if (taskList == null) return null
     fun remaining(code: String): Int? {
@@ -750,6 +1242,29 @@ internal fun TaygedoClient.ApiResult.toCommunitySignState(): CommunitySignState 
     return states.single()
 }
 
+/** Parse gid=1/task_list1/signin_c, the independent BBS sign-in preflight. */
+internal fun TaygedoClient.ApiResult.toCommunityTaskSignState(): CommunitySignState {
+    if (code != 0) return CommunitySignState.UNKNOWN
+    val data = data as? JSONObject ?: return CommunitySignState.UNKNOWN
+    val tasks = data.opt("task_list1") as? JSONArray ?: return CommunitySignState.UNKNOWN
+    val signIns = (0 until tasks.length()).mapNotNull { tasks.optJSONObject(it) }
+        .filter { it.optString("taskKey") == "signin_c" }
+    if (signIns.size != 1) return CommunitySignState.UNKNOWN
+
+    fun nonNegativeInt(name: String): Int? {
+        val value = signIns.single().opt(name) as? Number ?: return null
+        val number = value.toDouble()
+        if (!number.isFinite() || number % 1.0 != 0.0 || number < 0 || number > Int.MAX_VALUE) return null
+        return number.toInt()
+    }
+
+    val completeTimes = nonNegativeInt("completeTimes") ?: return CommunitySignState.UNKNOWN
+    val limitTimes = nonNegativeInt("limitTimes") ?: return CommunitySignState.UNKNOWN
+    if (limitTimes == 0) return CommunitySignState.UNKNOWN
+    return if (completeTimes >= limitTimes) CommunitySignState.SIGNED
+    else CommunitySignState.UNSIGNED
+}
+
 internal data class CommunitySignResponse(
     val code: Int,
     val message: String,
@@ -798,11 +1313,15 @@ private fun isAlreadySignedMessage(message: String): Boolean {
 
 internal suspend fun runCommunitySignInSequence(
     readState: suspend (communityId: String) -> CommunitySignState,
+    readIndependentBbsState: (suspend () -> CommunitySignState)? = null,
     signIn: suspend (communityId: String) -> CommunitySignResponse
 ): List<CommunitySignCall> {
     val calls = mutableListOf<CommunitySignCall>()
     for (communityId in listOf("1", "2")) {
-        val response = when (readState(communityId)) {
+        val state = if (communityId == "2" && readIndependentBbsState != null) {
+            readIndependentBbsState()
+        } else readState(communityId)
+        val response = when (state) {
             CommunitySignState.SIGNED -> CommunitySignResponse(
                 code = 0,
                 message = "今日已签到",
@@ -818,12 +1337,15 @@ internal suspend fun runCommunitySignInSequence(
         }
         val classification = classifyCommunitySignResponse(response)
         calls += CommunitySignCall(communityId, response, classification)
-        if (!classification.mayContinue) break
+        if (!classification.mayContinue &&
+            !(communityId == "1" && classification == CommunitySignDisposition.PREFLIGHT_UNKNOWN &&
+                readIndependentBbsState != null)
+        ) break
     }
     return calls
 }
 
-private fun TaygedoClient.ApiResult.toCommunitySignResponse(): CommunitySignResponse {
+internal fun TaygedoClient.ApiResult.toCommunitySignResponse(): CommunitySignResponse {
     val data = data as? JSONObject
     return CommunitySignResponse(
         code = code,
