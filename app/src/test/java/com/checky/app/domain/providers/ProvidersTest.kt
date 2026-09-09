@@ -177,7 +177,7 @@ class ProvidersTest {
     fun unknownCommunityPreflightDoesNotInvokeAnySignInPost() = runTest {
         var mutationCalls = 0
         val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNKNOWN },
+            readBbsState = { CommunitySignState.UNKNOWN },
             signIn = {
                 mutationCalls++
                 CommunitySignResponse(0, "", hasExpectedData = true)
@@ -196,7 +196,7 @@ class ProvidersTest {
     fun signedCommunityPreflightSkipsSignInPost() = runTest {
         var mutationCalls = 0
         val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.SIGNED },
+            readBbsState = { CommunitySignState.SIGNED },
             signIn = {
                 mutationCalls++
                 CommunitySignResponse(0, "", hasExpectedData = true)
@@ -204,46 +204,42 @@ class ProvidersTest {
         )
 
         assertEquals(0, mutationCalls)
-        assertEquals(2, calls.size)
-        assertTrue(calls.all { it.classification == CommunitySignDisposition.ALREADY_COMPLETED })
+        assertEquals(1, calls.size)
+        assertEquals("2", calls.single().communityId)
+        assertEquals(CommunitySignDisposition.ALREADY_COMPLETED, calls.single().classification)
     }
 
     @Test
     fun unsignedCommunityPreflightAllowsOnlyThatSignInPost() = runTest {
         val mutationCalls = mutableListOf<String>()
         val calls = runCommunitySignInSequence(
-            readState = { communityId ->
-                if (communityId == "1") CommunitySignState.UNSIGNED else CommunitySignState.SIGNED
-            },
+            readBbsState = { CommunitySignState.UNSIGNED },
             signIn = { communityId ->
                 mutationCalls += communityId
                 CommunitySignResponse(0, "", hasExpectedData = true)
             }
         )
 
-        assertEquals(listOf("1"), mutationCalls)
-        assertEquals(2, calls.size)
-        assertEquals(CommunitySignDisposition.SUCCESS, calls.first().classification)
-        assertEquals(CommunitySignDisposition.ALREADY_COMPLETED, calls.last().classification)
+        assertEquals(listOf("2"), mutationCalls)
+        assertEquals(1, calls.size)
+        assertEquals(CommunitySignDisposition.SUCCESS, calls.single().classification)
     }
 
     @Test
-    fun unknownSecondCommunityPreflightStopsAfterFirstSuccessfulSignIn() = runTest {
+    fun unknownBbsPreflightDoesNotPost() = runTest {
         val mutationCalls = mutableListOf<String>()
         val calls = runCommunitySignInSequence(
-            readState = { communityId ->
-                if (communityId == "1") CommunitySignState.UNSIGNED else CommunitySignState.UNKNOWN
-            },
+            readBbsState = { CommunitySignState.UNKNOWN },
             signIn = { communityId ->
                 mutationCalls += communityId
                 CommunitySignResponse(0, "", hasExpectedData = true)
             }
         )
 
-        assertEquals(listOf("1"), mutationCalls)
-        assertEquals(2, calls.size)
-        assertEquals(CommunitySignDisposition.SUCCESS, calls.first().classification)
-        assertEquals(CommunitySignDisposition.PREFLIGHT_UNKNOWN, calls.last().classification)
+        assertTrue(mutationCalls.isEmpty())
+        assertEquals(1, calls.size)
+        assertEquals("2", calls.single().communityId)
+        assertEquals(CommunitySignDisposition.PREFLIGHT_UNKNOWN, calls.single().classification)
     }
 
     // ===== getSignState read-only parser (fail-closed) =====
@@ -309,93 +305,93 @@ class ProvidersTest {
     }
 
     @Test
-    fun communitySuccessfulFirstSignCallsSecondSign() = runTest {
+    fun communitySuccessfulBbsSignCallsOnlyBbsSign() = runTest {
         val called = mutableListOf<String>()
         val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNSIGNED },
+            readBbsState = { CommunitySignState.UNSIGNED },
             signIn = { communityId ->
                 called += communityId
                 CommunitySignResponse(0, "", hasExpectedData = true, exp = 1)
             }
         )
 
-        assertEquals(listOf("1", "2"), called)
-        assertEquals(2, calls.size)
+        assertEquals(listOf("2"), called)
+        assertEquals(1, calls.size)
     }
 
     @Test
-    fun communityAlreadyCompletedFirstSignCallsSecondSign() = runTest {
+    fun communityAlreadyCompletedBbsSignDoesNotRetry() = runTest {
         val called = mutableListOf<String>()
         val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNSIGNED },
+            readBbsState = { CommunitySignState.UNSIGNED },
             signIn = { communityId ->
                 called += communityId
                 CommunitySignResponse(1008, "已签到", hasExpectedData = false)
             }
         )
 
-        assertEquals(listOf("1", "2"), called)
-        assertEquals(2, calls.size)
-        assertEquals(CommunitySignDisposition.ALREADY_COMPLETED, calls.first().classification)
+        assertEquals(listOf("2"), called)
+        assertEquals(1, calls.size)
+        assertEquals(CommunitySignDisposition.ALREADY_COMPLETED, calls.single().classification)
     }
 
     @Test
-    fun communityMalformedFirstSignDoesNotCallSecondSign() = runTest {
+    fun communityMalformedBbsSignDoesNotRetry() = runTest {
         val called = mutableListOf<String>()
         val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNSIGNED },
+            readBbsState = { CommunitySignState.UNSIGNED },
             signIn = { communityId ->
                 called += communityId
                 CommunitySignResponse(0, "", hasExpectedData = false)
             }
         )
 
-        assertEquals(listOf("1"), called)
+        assertEquals(listOf("2"), called)
         assertEquals(CommunitySignDisposition.MALFORMED, calls.single().classification)
     }
 
     @Test
-    fun communityUnknownSuccessSchemaDoesNotCallSecondSign() = runTest {
+    fun communityUnknownSuccessSchemaDoesNotRetry() = runTest {
         val called = mutableListOf<String>()
         val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNSIGNED },
+            readBbsState = { CommunitySignState.UNSIGNED },
             signIn = { communityId ->
                 called += communityId
                 CommunitySignResponse(0, "", hasExpectedData = false, exp = 1)
             }
         )
 
-        assertEquals(listOf("1"), called)
+        assertEquals(listOf("2"), called)
         assertEquals(CommunitySignDisposition.MALFORMED, calls.single().classification)
     }
 
     @Test
-    fun communityVerificationFirstSignDoesNotCallSecondSign() = runTest {
+    fun communityVerificationBbsSignDoesNotRetry() = runTest {
         val called = mutableListOf<String>()
         val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNSIGNED },
+            readBbsState = { CommunitySignState.UNSIGNED },
             signIn = { communityId ->
                 called += communityId
                 CommunitySignResponse(403, "需要风控验证", hasExpectedData = false)
             }
         )
 
-        assertEquals(listOf("1"), called)
+        assertEquals(listOf("2"), called)
         assertEquals(CommunitySignDisposition.VERIFICATION_REQUIRED, calls.single().classification)
     }
 
     @Test
-    fun communityAuthExpiredFirstSignDoesNotCallSecondSign() = runTest {
+    fun communityAuthExpiredBbsSignDoesNotRetry() = runTest {
         val called = mutableListOf<String>()
         val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNSIGNED },
+            readBbsState = { CommunitySignState.UNSIGNED },
             signIn = { communityId ->
                 called += communityId
                 CommunitySignResponse(401, "", hasExpectedData = false)
             }
         )
 
-        assertEquals(listOf("1"), called)
+        assertEquals(listOf("2"), called)
         assertEquals(CommunitySignDisposition.AUTH_EXPIRED, calls.single().classification)
     }
 
@@ -430,39 +426,7 @@ class ProvidersTest {
     }
 
     @Test
-    fun independentBbsPreflightRunsAfterUnknownId1WithoutPostingId1() = runTest {
-        val mutationCalls = mutableListOf<String>()
-        val calls = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNKNOWN },
-            readIndependentBbsState = { CommunitySignState.UNSIGNED },
-            signIn = { communityId ->
-                mutationCalls += communityId
-                CommunitySignResponse(0, "", hasExpectedData = true)
-            }
-        )
-        assertEquals(listOf("2"), mutationCalls)
-        assertEquals(CommunitySignDisposition.PREFLIGHT_UNKNOWN, calls.first().classification)
-        assertEquals(CommunitySignDisposition.SUCCESS, calls.last().classification)
-    }
-
-    @Test
-    fun independentBbsCompleteOrUnknownDoesNotPostId2() = runTest {
-        listOf(CommunitySignState.SIGNED, CommunitySignState.UNKNOWN).forEach { bbsState ->
-            val mutationCalls = mutableListOf<String>()
-            runCommunitySignInSequence(
-                readState = { CommunitySignState.UNKNOWN },
-                readIndependentBbsState = { bbsState },
-                signIn = { communityId ->
-                    mutationCalls += communityId
-                    CommunitySignResponse(0, "", hasExpectedData = true)
-                }
-            )
-            assertTrue(mutationCalls.isEmpty())
-        }
-    }
-
-    @Test
-    fun browseRunsIndependentlyWhenId1SignStateIsUnknown() = runTest {
+    fun browseRunsIndependentlyWhenBbsSignStateIsSigned() = runTest {
         val browseCalls = mutableListOf<TaygedoBrowseRequest>()
         val browse = runTaygedoBrowseTask { request ->
             browseCalls += request
@@ -477,8 +441,7 @@ class ProvidersTest {
         }
         val signPosts = mutableListOf<String>()
         val signIns = runCommunitySignInSequence(
-            readState = { CommunitySignState.UNKNOWN },
-            readIndependentBbsState = { CommunitySignState.SIGNED },
+            readBbsState = { CommunitySignState.SIGNED },
             signIn = { communityId ->
                 signPosts += communityId
                 CommunitySignResponse(0, "", hasExpectedData = true)
@@ -488,7 +451,7 @@ class ProvidersTest {
         assertEquals(TaygedoBrowseOutcome.COMPLETED, browse.outcome)
         assertTrue(browseCalls.any { it.step == TaygedoBrowseStep.POST_DETAIL })
         assertTrue(signPosts.isEmpty())
-        assertEquals(CommunitySignDisposition.PREFLIGHT_UNKNOWN, signIns.first().classification)
+        assertEquals(CommunitySignDisposition.ALREADY_COMPLETED, signIns.single().classification)
     }
 
     @Test

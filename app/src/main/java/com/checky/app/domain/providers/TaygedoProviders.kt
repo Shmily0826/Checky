@@ -195,13 +195,24 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
         }
         if (!like.outcome.mayContinue) return like.toOutcome()
 
-        // The current community flow has two deterministic sign-in entries:
-        // the app-level daily sign-in (communityId=1) and the BBS/section
-        // sign-in (communityId=2). Treat an upstream "already signed" reply
-        // as positive so a repeat run is idempotent.
-        val signIns = runCommunitySignInSequence(
-            readState = ::readCommunitySignState,
-            readIndependentBbsState = client::getCommunityBbsSignState,
+        val share = runTaygedoShareTask { request ->
+            client.request(
+                meta,
+                request.path,
+                request.method,
+                query = request.query,
+                form = request.form,
+                useDs = request.useDs,
+                authV2 = request.authV2,
+                jsonBody = request.jsonBody
+            )
+        }
+        if (!share.outcome.mayContinue) return share.toOutcome()
+
+        // The automatic community flow has one deterministic BBS sign-in entry (communityId=2).
+        // Treat an upstream "already signed" reply as positive so a repeat run is idempotent.
+        val bbsSignin = runCommunitySignInSequence(
+            readBbsState = client::getCommunityBbsSignState,
             signIn = { communityId ->
                 // Live-verified contract (2026-08-30): plain Authorization +
                 // form body + ds signature. AuthorizationV2 + JSON body made
@@ -213,55 +224,28 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
                     useDs = true
                 ).toCommunitySignResponse()
             }
-        )
-        val appSignin = signIns.getOrNull(0) ?: return CheckInOutcome.PermanentFailure(
-            "异环 APP 签到状态无法确认，未执行签到。",
-            "TAYGEDO_COMMUNITY_APP_STATE_UNKNOWN"
-        )
-        if (!appSignin.classification.mayContinue &&
-            appSignin.classification != CommunitySignDisposition.PREFLIGHT_UNKNOWN
-        ) {
-            return appSignin.classification.toOutcome("异环 APP 签到失败。", appSignin.response.message)
-        }
-        val bbsSignin = signIns.getOrNull(1) ?: return CheckInOutcome.PermanentFailure(
-            "异环版区签到状态无法确认，未执行后续操作。",
+        ).singleOrNull() ?: return CheckInOutcome.PermanentFailure(
+            "异环版区签到状态无法确认，未执行签到。",
             "TAYGEDO_COMMUNITY_BBS_STATE_UNKNOWN"
         )
         if (!bbsSignin.classification.mayContinue) {
             return bbsSignin.classification.toOutcome("异环社区版区签到失败。", bbsSignin.response.message)
         }
-        if (appSignin.classification == CommunitySignDisposition.PREFLIGHT_UNKNOWN) {
-            val bbsMessage = if (bbsSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED) {
-                "异环版区签到已完成"
-            } else {
-                "异环版区签到成功"
-            }
-            val partial = CheckInOutcome.PermanentFailure(
-                "$bbsMessage，但 APP 签到状态无法确认，已跳过 APP 签到。",
-                "TAYGEDO_COMMUNITY_PARTIAL"
-            )
-            return partial.copy(userMessage = "${browse.toMessage()}；${partial.userMessage}")
-        }
 
-        val exp = appSignin.response.exp
-        val coin = appSignin.response.goldCoin
-        val appLabel = if (appSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED) {
-            "APP 今日已签到"
-        } else {
-            "APP 签到成功"
-        }
         val bbsLabel = if (bbsSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED) {
             "版区今日已签到"
         } else {
             "版区签到成功"
         }
         val message = buildString {
-            append("塔吉多社区：$appLabel，$bbsLabel。")
-            if (exp > 0 || coin > 0) append("经验 +$exp，金币 +$coin。")
+            append("塔吉多社区：$bbsLabel。")
             append(" ").append(browse.toMessage()).append("。")
             append(" ").append(like.toMessage()).append("。")
+            append(" ").append(share.toMessage()).append("。")
         }
-        val already = appSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED &&
+        val already = browse.outcome == TaygedoBrowseOutcome.ALREADY_COMPLETED &&
+            like.outcome == TaygedoLikeOutcome.ALREADY_COMPLETED &&
+            share.outcome == TaygedoShareOutcome.ALREADY_COMPLETED &&
             bbsSignin.classification == CommunitySignDisposition.ALREADY_COMPLETED
         return if (already) {
             CheckInOutcome.AlreadyCompleted(message, "TAYGEDO_COMMUNITY_ALREADY")
@@ -269,7 +253,7 @@ class TaygedoCommunityProvider(client: TaygedoClient) : TaygedoProvider(client) 
             CheckInOutcome.Success(
                 message,
                 "TAYGEDO_COMMUNITY_SUCCESS",
-                Reward(RewardType.EXPERIENCE, exp)
+                Reward.empty()
             )
         }
     }
@@ -1216,8 +1200,12 @@ internal enum class CommunitySignDisposition {
 internal enum class CommunitySignState { SIGNED, UNSIGNED, UNKNOWN }
 
 internal fun TaygedoClient.ApiResult.toCommunitySignState(): CommunitySignState {
-    if (code != 0) return CommunitySignState.UNKNOWN
-    val data = data as? JSONObject ?: return CommunitySignState.UNKNOWN
+    if (!isKnownTaygedoReadSuccess()) return CommunitySignState.UNKNOWN
+    val dataValue = data
+    if (dataValue is Boolean) {
+        return if (dataValue) CommunitySignState.SIGNED else CommunitySignState.UNSIGNED
+    }
+    val data = dataValue as? JSONObject ?: return CommunitySignState.UNKNOWN
     val fields = listOf("isSign", "signed", "todaySign", "signState", "status", "sign")
         .filter(data::has)
     if (fields.isEmpty()) return CommunitySignState.UNKNOWN
@@ -1311,15 +1299,12 @@ private fun isAlreadySignedMessage(message: String): Boolean {
 }
 
 internal suspend fun runCommunitySignInSequence(
-    readState: suspend (communityId: String) -> CommunitySignState,
-    readIndependentBbsState: (suspend () -> CommunitySignState)? = null,
+    readBbsState: suspend () -> CommunitySignState,
     signIn: suspend (communityId: String) -> CommunitySignResponse
 ): List<CommunitySignCall> {
     val calls = mutableListOf<CommunitySignCall>()
-    for (communityId in listOf("1", "2")) {
-        val state = if (communityId == "2" && readIndependentBbsState != null) {
-            readIndependentBbsState()
-        } else readState(communityId)
+    for (communityId in listOf("2")) {
+        val state = readBbsState()
         val response = when (state) {
             CommunitySignState.SIGNED -> CommunitySignResponse(
                 code = 0,
@@ -1336,10 +1321,7 @@ internal suspend fun runCommunitySignInSequence(
         }
         val classification = classifyCommunitySignResponse(response)
         calls += CommunitySignCall(communityId, response, classification)
-        if (!classification.mayContinue &&
-            !(communityId == "1" && classification == CommunitySignDisposition.PREFLIGHT_UNKNOWN &&
-                readIndependentBbsState != null)
-        ) break
+        if (!classification.mayContinue) break
     }
     return calls
 }
