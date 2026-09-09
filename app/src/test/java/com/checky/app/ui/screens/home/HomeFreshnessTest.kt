@@ -114,6 +114,14 @@ class HomeFreshnessTest {
         assertTrue(projectHomeStatus(ServiceSnapshot("p", "p", true, CheckInStatus.SUCCESS, null, "", current), meta, now).hasCurrentDayResult)
     }
 
+    @Test
+    fun connectedPendingCardGetsCheckInActionButPositiveCardDoesNot() {
+        assertTrue(isOrdinaryPendingCard(CheckInStatus.PENDING, connected = true, needsVerification = false))
+        listOf(CheckInStatus.SUCCESS, CheckInStatus.ALREADY_CHECKED_IN).forEach { status ->
+            assertFalse(isOrdinaryPendingCard(status, connected = true, needsVerification = false))
+        }
+    }
+
     private fun service(status: CheckInStatus, date: LocalDate) = ServiceSnapshot(
         serviceId = "service",
         displayName = "service",

@@ -137,6 +137,36 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun retryClaimsRunningBeforeSuspendedProviderAndIgnoresImmediateDuplicate() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = SequenceCheckInProvider(
+            testProviderMeta("slow"),
+            com.checky.app.domain.model.CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
+        )
+        val repo = FakeCheckInRepository(listOf(service(provider.meta.id)))
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo),
+            credentialStore = FakeCredentialStore(),
+            providers = listOf(provider),
+            metas = listOf(provider.meta)
+        )
+        backgroundScope.launch { vm.services.collect {} }
+        advanceUntilIdle()
+
+        vm.retry(provider.meta.id)
+        val running = vm.progress.value as CheckInAllProgress.Running
+        assertEquals(CheckInStatus.RUNNING, running.states.getValue(provider.meta.id).status)
+
+        vm.retry(provider.meta.id)
+        advanceUntilIdle()
+
+        assertEquals(1, provider.attempts)
+        assertTrue(vm.progress.value is CheckInAllProgress.Finished)
+    }
+
+    @Test
     fun cancelCheckInAllClearsState() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val providers = listOf(

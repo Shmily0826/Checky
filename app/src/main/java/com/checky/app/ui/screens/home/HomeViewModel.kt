@@ -16,6 +16,7 @@ import com.checky.app.domain.NoOpAuthHealthStore
 import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.ProviderMeta
+import com.checky.app.domain.model.ServiceCheckInState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,14 +105,37 @@ class HomeViewModel @Inject constructor(
     fun retry(serviceId: String) {
         if (_progress.value is CheckInAllProgress.Running) return
         val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return
-        runningJob = viewModelScope.launch {
-            if (services.value.firstOrNull { it.serviceId == serviceId }?.isEnabled != true) return@launch
-            LegacyAuthHealthMigration.seedIfNeeded(
-                providers, services.value, credentialStore, authHealthStore
+        _runStartedAt.value = Instant.now()
+        _progress.value = CheckInAllProgress.Running(
+            mapOf(
+                serviceId to ServiceCheckInState(
+                    meta = provider.meta,
+                    status = com.checky.app.domain.model.CheckInStatus.RUNNING,
+                    progress = 0f,
+                    message = "签到中…",
+                    reward = null,
+                    timestamp = null
+                )
             )
-            if (!isConnected(serviceId)) return@launch
-            _runStartedAt.value = Instant.now()
-            checkInAllUseCase(listOf(provider), parallel = false).collect { _progress.value = it }
+        )
+        runningJob = viewModelScope.launch {
+            var emitted = false
+            try {
+                if (services.value.firstOrNull { it.serviceId == serviceId }?.isEnabled != true) return@launch
+                LegacyAuthHealthMigration.seedIfNeeded(
+                    providers, services.value, credentialStore, authHealthStore
+                )
+                if (!isConnected(serviceId)) return@launch
+                checkInAllUseCase(listOf(provider), parallel = false).collect {
+                    emitted = true
+                    _progress.value = it
+                }
+            } finally {
+                if (!emitted) {
+                    _progress.value = null
+                    _runStartedAt.value = null
+                }
+            }
         }
     }
 

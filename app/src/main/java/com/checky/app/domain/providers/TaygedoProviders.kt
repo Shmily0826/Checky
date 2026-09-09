@@ -765,8 +765,7 @@ private fun taygedoExplicitLiked(post: JSONObject): Boolean? =
     (post.opt("selfOperation") as? JSONObject)?.opt("liked") as? Boolean
 
 private fun isExplicitTaygedoLikeSuccess(result: TaygedoClient.ApiResult): Boolean =
-    result.isKnownTaygedoReadSuccess() && result.raw.has("code") &&
-        result.raw.has("data") && result.data is JSONObject
+    result.isKnownTaygedoReadSuccess() && result.raw.has("code")
 
 internal suspend fun runTaygedoLikeTask(
     read: suspend (TaygedoLikeRequest) -> TaygedoClient.ApiResult

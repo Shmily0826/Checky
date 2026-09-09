@@ -33,6 +33,7 @@
     <string name="action_connect">Connect</string>
     <string name="action_reconnect">Reconnect</string>
     <string name="action_retry">Retry</string>
+    <string name="action_check_in">Check in</string>
     <string name="connect_needs_verification">Needs verification</string>
     <string name="connect_auth_expired_short">Login expired</string>
     <string name="home_check_in_all">Check in all</string>

@@ -679,7 +679,7 @@ class ProvidersTest {
                 TaygedoLikeStep.POST_DETAIL -> likeResult(
                     JSONObject("""{"postId":"unknown","selfOperation":{}}""")
                 )
-                TaygedoLikeStep.LIKE -> likeResult(JSONObject(), raw = JSONObject("""{"code":0,"data":{}}"""))
+                TaygedoLikeStep.LIKE -> likeResult(null, raw = JSONObject("""{"code":0}"""))
                 TaygedoLikeStep.POST_TASK_STATE -> likeResult(likeState(5, 5))
             }
         }

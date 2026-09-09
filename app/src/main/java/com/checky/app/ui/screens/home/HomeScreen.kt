@@ -144,6 +144,12 @@ private data class CardInput(
     val onAction: (() -> Unit)?
 )
 
+internal fun isOrdinaryPendingCard(
+    status: CheckInStatus,
+    connected: Boolean,
+    needsVerification: Boolean
+): Boolean = connected && !needsVerification && status == CheckInStatus.PENDING
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeContent(
@@ -209,6 +215,7 @@ private fun HomeContent(
                 !connected -> stringResource(R.string.action_connect)
                 status == CheckInStatus.LOGIN_EXPIRED -> stringResource(R.string.action_reconnect)
                 status == CheckInStatus.FAILED -> stringResource(R.string.action_retry)
+                isOrdinaryPendingCard(status, connected, needsVerification) -> stringResource(R.string.action_check_in)
                 else -> null
             },
             onAction = when {
@@ -216,6 +223,7 @@ private fun HomeContent(
                 !connected -> ({ onReconnect(s.serviceId) })
                 status == CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(s.serviceId) })
                 status == CheckInStatus.FAILED -> ({ onRetry(s.serviceId) })
+                isOrdinaryPendingCard(status, connected, needsVerification) -> ({ onRetry(s.serviceId) })
                 else -> null
             }
         )
