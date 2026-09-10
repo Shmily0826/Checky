@@ -205,7 +205,6 @@ class ConnectProviderViewModel @Inject constructor(
     /** Explicit foreground evidence path for structurally saved credentials. */
     fun verifySavedCredential() {
         val target = provider ?: return
-        if (reconnectPending) return
         if ((_authHealth.value != AuthHealth.UNVERIFIED &&
                 _authHealth.value != AuthHealth.EXPIRED) || _verifying.value) return
         viewModelScope.launch {
@@ -214,9 +213,7 @@ class ConnectProviderViewModel @Inject constructor(
             try {
                 when (val result = (target as? SavedCredentialRevalidator)?.revalidateSavedCredential()) {
                     SavedCredentialValidation.Valid -> {
-                        authHealthStore.set(target.credentialOwnerId, AuthHealth.VALID)
-                        _authHealth.value = AuthHealth.VALID
-                        _connected.value = true
+                        markProviderConfirmedValid()
                     }
                     SavedCredentialValidation.Expired -> {
                         authHealthStore.set(target.credentialOwnerId, AuthHealth.EXPIRED)

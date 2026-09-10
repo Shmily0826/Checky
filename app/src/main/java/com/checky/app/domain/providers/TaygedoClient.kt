@@ -160,18 +160,71 @@ class TaygedoClient(
                 useDs = false,
                 extraHeaders = mapOf("uid" to session.uid)
             )
-            when {
-                response.code == 401 || response.code == -401 -> AuthRevalidation.EXPIRED
-                response.httpStatus !in 200..299 || response.code != 0 -> AuthRevalidation.UNKNOWN
-                response.raw.opt("code") !is Number ||
-                    response.raw.opt("data") == null ||
-                    response.raw.opt("msg") !is String ||
-                    response.raw.opt("ok") !is Boolean ||
-                    !response.raw.optBoolean("ok") -> AuthRevalidation.UNKNOWN
-                else -> AuthRevalidation.ACCEPTED
+            if (response.code == 401 || response.code == -401) {
+                val refreshed = refreshSession(session) ?: return AuthRevalidation.EXPIRED
+                revalidateWithAccessToken(refreshed)
+            } else {
+                revalidateResult(response)
             }
         } catch (_: Exception) {
             AuthRevalidation.UNKNOWN
+        }
+    }
+
+    private suspend fun revalidateWithAccessToken(session: Session): AuthRevalidation = try {
+        revalidateResult(
+            bbs(
+                meta = TaygedoCommunityProvider.META,
+                path = "/apihub/api/getUserCoinTaskState",
+                method = "GET",
+                auth = session.accessToken,
+                useDs = false,
+                extraHeaders = mapOf("uid" to session.uid)
+            )
+        )
+    } catch (_: Exception) {
+        AuthRevalidation.UNKNOWN
+    }
+
+    private fun revalidateResult(response: ApiResult): AuthRevalidation = when {
+        response.code == 401 || response.code == -401 -> AuthRevalidation.EXPIRED
+        response.httpStatus !in 200..299 || response.code != 0 -> AuthRevalidation.UNKNOWN
+        response.raw.opt("code") !is Number ||
+            response.raw.opt("data") == null ||
+            response.raw.opt("msg") !is String ||
+            response.raw.opt("ok") !is Boolean ||
+            !response.raw.optBoolean("ok") -> AuthRevalidation.UNKNOWN
+        else -> AuthRevalidation.ACCEPTED
+    }
+
+    /** Refresh once; only a fully parsed rotated session is persisted. */
+    private suspend fun refreshSession(current: Session): Session? {
+        return try {
+            val response = bbs(
+                meta = TaygedoCommunityProvider.META,
+                path = "/usercenter/api/refreshToken",
+                method = "POST",
+                auth = current.refreshToken,
+                useDs = true,
+                appVersion = USER_CENTER_APP_VERSION,
+                postWithoutBusinessBody = true,
+                extraHeaders = mapOf("uid" to current.uid, "debug-uid" to "3")
+            )
+            if (response.httpStatus !in 200..299 || response.code != 0) return null
+            val data = response.raw.optJSONObject("data") ?: return null
+            val accessToken = data.optString("accessToken")
+            val refreshToken = data.optString("refreshToken")
+            if (accessToken.isBlank() || refreshToken.isBlank()) return null
+            val refreshed = Session(
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                uid = data.optString("uid").ifBlank { current.uid },
+                deviceId = current.deviceId
+            )
+            credentials.save(SESSION_KEY, encode(refreshed))
+            refreshed
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -228,7 +281,9 @@ class TaygedoClient(
         useDs: Boolean,
         authV2: Boolean = false,
         jsonBody: Boolean = false,
-        extraHeaders: Map<String, String> = emptyMap()
+        extraHeaders: Map<String, String> = emptyMap(),
+        appVersion: String = APP_VERSION,
+        postWithoutBusinessBody: Boolean = false
     ): ApiResult {
         val url = HttpUrl.Builder().scheme("https").host(BBS_HOST)
             .addPathSegments(path.removePrefix("/"))
@@ -237,14 +292,16 @@ class TaygedoClient(
         val builder = Request.Builder().url(url)
         if (authV2) builder.header("AuthorizationV2", auth) else builder.header("Authorization", auth)
         builder.header("deviceid", deviceId)
-            .header("appversion", APP_VERSION)
+            .header("appversion", appVersion)
             .header("platform", "android")
             .header("User-Agent", "okhttp/4.12.0")
             .header("Accept", "application/json, text/plain, */*")
-        if (useDs) builder.header("ds", ds())
+        if (useDs) builder.header("ds", ds(appVersion))
         extraHeaders.forEach(builder::header)
         if (method == "POST") {
-            val body = if (jsonBody) {
+            val body = if (postWithoutBusinessBody) {
+                FormBody.Builder().build()
+            } else if (jsonBody) {
                 val json = JSONObject().apply { form.forEach { (k, v) -> put(k, v) } }
                 json.toString().toRequestBody(JSON_MEDIA_TYPE)
             } else {
@@ -296,11 +353,11 @@ class TaygedoClient(
         return Base64.encodeToString(cipher.doFinal(value.toByteArray()), Base64.NO_WRAP)
     }
 
-    private fun ds(): String {
+    private fun ds(appVersion: String): String {
         val ts = (System.currentTimeMillis() / 1000).toString()
         val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         val random = buildString { repeat(8) { append(alphabet[SecureRandom().nextInt(alphabet.length)]) } }
-        return "$ts,$random,${md5(ts + random + APP_VERSION + DS_SALT)}"
+        return "$ts,$random,${md5(ts + random + appVersion + DS_SALT)}"
     }
 
     private fun md5(value: String) = MessageDigest.getInstance("MD5")
@@ -322,6 +379,7 @@ class TaygedoClient(
         private const val BBS_HOST = "bbs-api.tajiduo.com"
         private const val LAOHU_HOST = "user.laohu.com"
         private const val APP_VERSION = "1.2.6"
+        private const val USER_CENTER_APP_VERSION = "1.2.5"
         private const val DS_SALT = "pUds3dfMkl"
         private const val LAOHU_APP_KEY = "89155cc4e8634ec5b1b6364013b23e3e"
         private val WEB_HEADERS = mapOf(

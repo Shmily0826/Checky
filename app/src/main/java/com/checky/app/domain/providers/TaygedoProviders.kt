@@ -2,6 +2,8 @@ package com.checky.app.domain.providers
 
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.AuthHealth
+import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.SmsLoginProvider
 import com.checky.app.domain.SmsLoginResult
@@ -46,12 +48,22 @@ abstract class TaygedoProvider(
 
     override suspend fun isSmsConnected(): Boolean = client.hasSession()
 
-    override suspend fun revalidateSavedCredential(): SavedCredentialValidation =
+    override suspend fun revalidateSavedCredential(): SavedCredentialValidation = withContext(Dispatchers.IO) {
         when (client.revalidateSavedCredentialAuth()) {
             TaygedoClient.AuthRevalidation.ACCEPTED -> SavedCredentialValidation.Valid
             TaygedoClient.AuthRevalidation.EXPIRED -> SavedCredentialValidation.Expired
             TaygedoClient.AuthRevalidation.UNKNOWN ->
                 SavedCredentialValidation.Unverified("塔吉多只读连接检查无法确认。")
+        }
+    }
+
+    internal suspend fun recoverExpiredSession(authHealthStore: AuthHealthStore): Boolean =
+        when (revalidateSavedCredential()) {
+            SavedCredentialValidation.Valid -> {
+                authHealthStore.set(credentialOwnerId, AuthHealth.VALID)
+                true
+            }
+            else -> false
         }
 
     override suspend fun validateCredentials(secret: String): CredentialValidation =

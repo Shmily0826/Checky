@@ -14,6 +14,7 @@ import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.LegacyAuthHealthMigration
 import com.checky.app.domain.NoOpAuthHealthStore
 import com.checky.app.domain.ProviderConnectionGate
+import com.checky.app.domain.providers.TaygedoProvider
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.ServiceCheckInState
@@ -167,11 +168,25 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun enabledProviders(): List<CheckInProvider> {
         val enabled = services.value.filter { it.isEnabled }.map { it.serviceId }.toSet()
-        return providers.filter { it.meta.id in enabled && isConnected(it.meta.id) }
+        val attemptedRecoveryOwners = mutableSetOf<String>()
+        return providers.filter {
+            it.meta.id in enabled && isConnected(it.meta.id, attemptedRecoveryOwners)
+        }
     }
 
-    private suspend fun isConnected(serviceId: String): Boolean {
-        return authHealth(serviceId) == AuthHealth.VALID
+    private suspend fun isConnected(
+        serviceId: String,
+        attemptedRecoveryOwners: MutableSet<String> = mutableSetOf()
+    ): Boolean {
+        val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return false
+        return when (ProviderConnectionGate.health(provider, credentialStore, authHealthStore)) {
+            AuthHealth.VALID -> true
+            AuthHealth.EXPIRED ->
+                provider is TaygedoProvider &&
+                    attemptedRecoveryOwners.add(provider.credentialOwnerId) &&
+                    provider.recoverExpiredSession(authHealthStore)
+            else -> false
+        }
     }
 
     private suspend fun authHealth(serviceId: String): AuthHealth? {

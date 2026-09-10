@@ -21,6 +21,7 @@ import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.LegacyAuthHealthMigration
 import com.checky.app.domain.ProviderConnectionGate
+import com.checky.app.domain.providers.TaygedoProvider
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.CheckInSummary
 import com.checky.app.domain.model.expiredServiceNames
@@ -283,8 +284,22 @@ internal suspend fun selectExecutableProviders(
     providers: List<CheckInProvider>,
     credentials: CredentialStore,
     authHealthStore: AuthHealthStore = com.checky.app.domain.NoOpAuthHealthStore
-): List<CheckInProvider> = providers.filter {
-    it.meta.id in enabledIds && ProviderConnectionGate.isConnected(it, credentials, authHealthStore)
+): List<CheckInProvider> {
+    val attemptedRecoveryOwners = mutableSetOf<String>()
+    return providers.filter {
+    if (it.meta.id !in enabledIds) {
+        false
+    } else {
+        when (ProviderConnectionGate.health(it, credentials, authHealthStore)) {
+            com.checky.app.domain.AuthHealth.VALID -> true
+            com.checky.app.domain.AuthHealth.EXPIRED ->
+                it is TaygedoProvider &&
+                    attemptedRecoveryOwners.add(it.credentialOwnerId) &&
+                    it.recoverExpiredSession(authHealthStore)
+            else -> false
+        }
+    }
+    }
 }
 
 internal sealed interface AutoCheckInExecutionResult {

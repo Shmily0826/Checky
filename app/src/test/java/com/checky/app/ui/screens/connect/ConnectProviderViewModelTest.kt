@@ -84,6 +84,24 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
+    fun reconnectEntryCheckConnectionRevalidatesAndRestoresValid() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore().also { it.save("fake-read-only", "existing") }
+        val health = FakeAuthHealthStore().also { it.set("fake-read-only", AuthHealth.VALID) }
+        val provider = FakeReadOnlyProvider(SavedCredentialValidation.Valid)
+        val vm = vmWith(credentials, provider, health, reconnect = true)
+        advanceUntilIdle()
+
+        vm.verifySavedCredential()
+        advanceUntilIdle()
+
+        assertEquals(1, provider.revalidationCalls)
+        assertTrue(vm.connected.value)
+        assertEquals(AuthHealth.VALID, vm.authHealth.value)
+        assertEquals(AuthHealth.VALID, health.get("fake-read-only"))
+    }
+
+    @Test
     fun refreshConnectionFailsClosedWhenStoredHealthBecomesInvalidOrUnknown() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val credentials = RecordingCredentialStore().also { it.save("fake-session", "existing") }
@@ -739,7 +757,11 @@ private class ScriptedProvider(
 private class FakeReadOnlyProvider(
     private val validationResult: SavedCredentialValidation
 ) : BaseFakeProvider(testMeta("fake-read-only")), SavedCredentialRevalidator {
-    override suspend fun revalidateSavedCredential(): SavedCredentialValidation = validationResult
+    var revalidationCalls = 0
+    override suspend fun revalidateSavedCredential(): SavedCredentialValidation {
+        revalidationCalls++
+        return validationResult
+    }
 }
 
 private class FakeQrProvider(
