@@ -246,10 +246,10 @@
     <string name="notification_result_big_attention">%1$d need attention</string>
     <string name="notification_result_points">Total: %1$d points</string>
     <string name="notification_result_xp">%1$d XP</string>
-    <string name="provider_miyoushe_genshin_name">MiYouShe Genshin check-in (experimental)</string>
+    <string name="provider_miyoushe_genshin_name">Genshin game check-in</string>
     <string name="provider_miyoushe_genshin_description">Unofficial interface for your own account; scan a MiYouShe web login QR code. Check-in only—no likes, comments, or redemptions.</string>
     <string name="provider_miyoushe_genshin_category">Gaming community</string>
-    <string name="provider_miyoushe_zzz_name">MiYouShe ZZZ check-in (experimental)</string>
+    <string name="provider_miyoushe_zzz_name">ZZZ game check-in</string>
     <string name="provider_miyoushe_zzz_description">Unofficial CN ZZZ interface for your own account; check-in only.</string>
     <string name="provider_miyoushe_zzz_category">Gaming community</string>
     <string name="provider_miyoushe_community_name">MiYouShe community check-in</string>

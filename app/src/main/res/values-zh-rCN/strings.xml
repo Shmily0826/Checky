@@ -245,10 +245,10 @@
     <string name="notification_result_big_attention">需关注 %1$d 项</string>
     <string name="notification_result_points">共获得 %1$d 积分</string>
     <string name="notification_result_xp">%1$d 经验</string>
-    <string name="provider_miyoushe_genshin_name">米游社签到（原神实验版）</string>
+    <string name="provider_miyoushe_genshin_name">原神游戏签到</string>
     <string name="provider_miyoushe_genshin_description">非官方接口，仅限本人账号测试；使用米游社网页登录扫码，只执行签到，不执行点赞、评论或兑换。</string>
     <string name="provider_miyoushe_genshin_category">游戏社区</string>
-    <string name="provider_miyoushe_zzz_name">米游社签到（绝区零实验版）</string>
+    <string name="provider_miyoushe_zzz_name">绝区零游戏签到</string>
     <string name="provider_miyoushe_zzz_description">非官方国服绝区零接口，仅限本人账号；只执行签到。</string>
     <string name="provider_miyoushe_zzz_category">游戏社区</string>
     <string name="provider_miyoushe_community_name">米游社讨论区签到</string>
