@@ -649,8 +649,7 @@ internal fun taygedoLikeRequest(step: TaygedoLikeStep, postId: String = "") = wh
         "/bbs/api/post/like",
         form = mapOf("postId" to postId),
         useDs = true,
-        authV2 = false,
-        jsonBody = true
+        authV2 = false
     )
 }
 
@@ -767,10 +766,16 @@ private fun parseTaygedoLikeDetail(
 
 private fun taygedoLikePostId(post: JSONObject): String? {
     val values = listOf("postId", "id").filter(post::has).map { key ->
-        (post.opt(key) as? String)?.trim()
+        taygedoLikeIdString(post.opt(key))
     }
-    if (values.any { it == null || it.isEmpty() || it.length > 128 }) return null
+    if (values.any { it == null }) return null
     return values.filterNotNull().distinct().singleOrNull()
+}
+
+private fun taygedoLikeIdString(value: Any?): String? = when (value) {
+    is String -> value.trim().takeIf { it.isNotEmpty() && it.length <= 128 }
+    is Int, is Long -> value.toString()
+    else -> null
 }
 
 private fun taygedoExplicitLiked(post: JSONObject): Boolean? =

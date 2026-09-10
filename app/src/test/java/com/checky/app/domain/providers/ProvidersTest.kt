@@ -651,8 +651,31 @@ class ProvidersTest {
         assertEquals(listOf("p1", "p2"), result.likedPostIds)
         assertEquals(2, calls.count { it.step == TaygedoLikeStep.LIKE })
         assertTrue(calls.filter { it.step == TaygedoLikeStep.LIKE }.all {
-            it.method == "POST" && it.jsonBody && !it.authV2 && it.useDs
+            it.method == "POST" && !it.jsonBody && !it.authV2 && it.useDs
         })
+    }
+
+    @Test
+    fun likeAcceptsIntegralJsonNumberPostIdAndCanonicalizesForMutation() = runTest {
+        val likeForms = mutableListOf<Map<String, String>>()
+        val result = runTaygedoLikeTask { request ->
+            when (request.step) {
+                TaygedoLikeStep.PRE_TASK_STATE -> likeResult(likeState(0, 1))
+                TaygedoLikeStep.RECOMMENDATIONS -> likeResult(
+                    JSONObject("""{"list":[{"postId":123456,"selfOperation":{"liked":false}}]}""")
+                )
+                TaygedoLikeStep.LIKE -> {
+                    likeForms += request.form
+                    likeResult(null, raw = JSONObject("""{"code":0}"""))
+                }
+                TaygedoLikeStep.POST_TASK_STATE -> likeResult(likeState(1, 1))
+                TaygedoLikeStep.POST_DETAIL -> error("must not read detail for explicit state")
+            }
+        }
+
+        assertEquals(TaygedoLikeOutcome.COMPLETED, result.outcome)
+        assertEquals(listOf("123456"), result.likedPostIds)
+        assertEquals(listOf(mapOf("postId" to "123456")), likeForms)
     }
 
     @Test

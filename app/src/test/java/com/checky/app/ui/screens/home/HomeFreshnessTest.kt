@@ -41,6 +41,36 @@ class HomeFreshnessTest {
     }
 
     @Test
+    fun connectedSameDayLoginExpiredProjectsToPendingWithoutCurrentResult() {
+        val projection = projectHomeStatusForConnection(
+            service(CheckInStatus.LOGIN_EXPIRED, today), today, zone, connected = true
+        )
+
+        assertEquals(CheckInStatus.PENDING, projection.status)
+        assertFalse(projection.hasCurrentDayResult)
+    }
+
+    @Test
+    fun disconnectedSameDayLoginExpiredRemainsExpired() {
+        val projection = projectHomeStatusForConnection(
+            service(CheckInStatus.LOGIN_EXPIRED, today), today, zone, connected = false
+        )
+
+        assertEquals(CheckInStatus.LOGIN_EXPIRED, projection.status)
+        assertTrue(projection.hasCurrentDayResult)
+    }
+
+    @Test
+    fun connectedSameDaySuccessRemainsSuccess() {
+        val projection = projectHomeStatusForConnection(
+            service(CheckInStatus.SUCCESS, today), today, zone, connected = true
+        )
+
+        assertEquals(CheckInStatus.SUCCESS, projection.status)
+        assertTrue(projection.hasCurrentDayResult)
+    }
+
+    @Test
     fun runningWithoutTerminalTimestampIsCurrentOnlyForItsRunDate() {
         val running = com.checky.app.domain.model.ServiceCheckInState(
             meta = com.checky.app.domain.model.ProviderMeta(

@@ -27,6 +27,32 @@ internal fun projectHomeStatus(
     now: Instant
 ): HomeStatusProjection = projectHomeStatus(service, now.atZone(meta.businessZone).toLocalDate(), meta.businessZone)
 
+internal fun projectHomeStatusForConnection(
+    service: ServiceSnapshot,
+    today: LocalDate,
+    zone: ZoneId,
+    connected: Boolean
+): HomeStatusProjection {
+    val projection = projectHomeStatus(service, today, zone)
+    return if (connected && projection.hasCurrentDayResult && projection.status == CheckInStatus.LOGIN_EXPIRED) {
+        HomeStatusProjection(CheckInStatus.PENDING, hasCurrentDayResult = false)
+    } else {
+        projection
+    }
+}
+
+internal fun projectHomeStatusForConnection(
+    service: ServiceSnapshot,
+    meta: com.checky.app.domain.model.ProviderMeta,
+    now: Instant,
+    connected: Boolean
+): HomeStatusProjection = projectHomeStatusForConnection(
+    service,
+    now.atZone(meta.businessZone).toLocalDate(),
+    meta.businessZone,
+    connected
+)
+
 internal fun isTimestampOnBusinessDate(timestamp: Long?, now: Instant, zone: ZoneId): Boolean =
     timestamp != null && Instant.ofEpochMilli(timestamp).atZone(zone).toLocalDate() == now.atZone(zone).toLocalDate()
 

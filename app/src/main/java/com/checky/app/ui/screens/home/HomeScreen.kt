@@ -182,7 +182,7 @@ private fun HomeContent(
         val needsVerification = hasAuthHealth && authHealth == AuthHealth.UNVERIFIED
         val liveState = live?.get(s.serviceId)
             ?.takeIf { isLiveStateForBusinessDate(it, now, runStartedAt) }
-        val persisted = projectHomeStatus(s, meta, now)
+        val persisted = projectHomeStatusForConnection(s, meta, now, connected)
         val status = when {
             needsVerification -> CheckInStatus.USER_ACTION_REQUIRED
             !connected -> CheckInStatus.LOGIN_EXPIRED
@@ -238,22 +238,24 @@ private fun HomeContent(
     } else {
         services.count {
             it.serviceId in executableIds &&
-                projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isTerminal
+                projectHomeStatusForConnection(it, metaById[it.serviceId]!!, now, true).status.isTerminal
         }
     }
     val completed = currentServices.count {
-        projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isPositive
+        projectHomeStatusForConnection(it, metaById[it.serviceId]!!, now, true).status.isPositive
     }
     val remaining = services.size - completed
     val attention = services.count {
-        connectionById[it.serviceId] != true ||
-            (projectHomeStatus(it, metaById[it.serviceId]!!, now).hasCurrentDayResult && it.lastStatus!!.requiresUserAction)
+        val connected = connectionById[it.serviceId] == true
+        !connected ||
+            (projectHomeStatusForConnection(it, metaById[it.serviceId]!!, now, connected).hasCurrentDayResult &&
+                it.lastStatus!!.requiresUserAction)
     }
-    val points = currentServices.filter { projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isPositive }
+    val points = currentServices.filter { projectHomeStatusForConnection(it, metaById[it.serviceId]!!, now, true).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.POINTS) r.amount else 0 }
-    val xp = currentServices.filter { projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isPositive }
+    val xp = currentServices.filter { projectHomeStatusForConnection(it, metaById[it.serviceId]!!, now, true).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.EXPERIENCE) r.amount else 0 }
-    val days = currentServices.filter { projectHomeStatus(it, metaById[it.serviceId]!!, now).status.isPositive }
+    val days = currentServices.filter { projectHomeStatusForConnection(it, metaById[it.serviceId]!!, now, true).status.isPositive }
         .sumOf { val r = it.lastReward; if (r != null && r.type == RewardType.MEMBERSHIP_DAY) r.amount else 0 }
 
     Scaffold(
