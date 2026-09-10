@@ -56,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.checky.app.R
@@ -69,6 +70,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import com.checky.app.domain.model.CredentialType
 import com.checky.app.domain.AuthHealth
@@ -103,12 +107,24 @@ private fun qrStatusLabel(status: QrUiStatus?): String = when (status) {
     } ?: stringResource(R.string.connect_qr_confirmed)
 }
 
+internal fun zzzRegionDisplayValue(region: String, isEditing: Boolean, localizedOfficialServer: String): String =
+    if (!isEditing && region == "prod_gf_cn") localizedOfficialServer else region
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConnectProviderScreen(
     navController: NavHostController,
     viewModel: ConnectProviderViewModel = hiltViewModel()
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshConnection()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Avoid screenshots of the credential entry screen.
     val view = LocalView.current
     DisposableEffect(Unit) {
@@ -140,6 +156,17 @@ fun ConnectProviderScreen(
     val smsSent by viewModel.smsSent.collectAsStateWithLifecycle()
     val smsBusy by viewModel.smsBusy.collectAsStateWithLifecycle()
     val isMiyousheCommunity = meta?.id == "miyoushe_community_signin"
+    val isMiyousheZzz = meta?.id == "miyoushe_zzz_experimental"
+    var zzzRegionEditing by remember { mutableStateOf(false) }
+    val displayedGameRegion = if (isMiyousheZzz) {
+        zzzRegionDisplayValue(
+            gameRegion,
+            zzzRegionEditing,
+            stringResource(R.string.connect_official_server)
+        )
+    } else {
+        gameRegion
+    }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showLeaveSmsConfirmation by remember { mutableStateOf(false) }
 
@@ -218,13 +245,22 @@ fun ConnectProviderScreen(
                         val gameRolesBusy by viewModel.gameRolesBusy.collectAsStateWithLifecycle()
                         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(stringResource(R.string.connect_genshin_account), style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    stringResource(if (isMiyousheZzz) R.string.connect_zzz_account else R.string.connect_genshin_account),
+                                    style = MaterialTheme.typography.titleSmall
+                                )
                                 when {
                                     gameRolesBusy -> {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                             Spacer(Modifier.size(8.dp))
-                                            Text(stringResource(R.string.connect_fetching_roles), style = MaterialTheme.typography.bodySmall)
+                                            Text(
+                                                stringResource(
+                                                    if (isMiyousheZzz) R.string.connect_fetching_zzz_roles
+                                                    else R.string.connect_fetching_roles
+                                                ),
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
                                         }
                                     }
                                     gameRoles.size > 1 -> {
@@ -259,7 +295,10 @@ fun ConnectProviderScreen(
                                     }
                                     !gameAccountSaved -> {
                                         Text(
-                                            stringResource(R.string.connect_choose_role),
+                                            stringResource(
+                                                if (isMiyousheZzz) R.string.connect_choose_zzz_role
+                                                else R.string.connect_choose_role
+                                            ),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -273,10 +312,22 @@ fun ConnectProviderScreen(
                                 OutlinedTextField(
                                     value = gameUid,
                                     onValueChange = viewModel::updateGameUid,
-                                    label = { Text(stringResource(R.string.connect_genshin_uid)) },
+                                    label = { Text(stringResource(if (isMiyousheZzz) R.string.connect_zzz_uid else R.string.connect_genshin_uid)) },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth()
                                 )
+                                if (isMiyousheZzz) {
+                                    OutlinedTextField(
+                                        value = displayedGameRegion,
+                                        onValueChange = viewModel::updateGameRegion,
+                                        label = { Text(stringResource(R.string.connect_zzz_region)) },
+                                        singleLine = true,
+                                        enabled = !savingGameAccount,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .onFocusChanged { zzzRegionEditing = it.isFocused }
+                                    )
+                                } else {
                                 Text(
                                     stringResource(R.string.connect_region_default),
                                     style = MaterialTheme.typography.bodySmall,
@@ -296,6 +347,7 @@ fun ConnectProviderScreen(
                                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                                     ) { Text(stringResource(R.string.connect_b_server)) }
                                 }
+                                }
                                 Button(
                                     onClick = viewModel::saveGameAccount,
                                     enabled = !savingGameAccount && gameUid.isNotBlank(),
@@ -304,8 +356,24 @@ fun ConnectProviderScreen(
                                     if (savingGameAccount) {
                                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                     } else {
-                                        Text(stringResource(if (gameAccountSaved) R.string.connect_account_saved else R.string.connect_save_account))
+                                        Text(
+                                            stringResource(
+                                                when {
+                                                    isMiyousheZzz && gameAccountSaved -> R.string.connect_zzz_account_saved
+                                                    isMiyousheZzz -> R.string.connect_save_zzz_account
+                                                    gameAccountSaved -> R.string.connect_account_saved
+                                                    else -> R.string.connect_save_account
+                                                }
+                                            )
+                                        )
                                     }
+                                }
+                                error?.let {
+                                    Text(
+                                        connectErrorLabel(it),
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
                                 }
                                 }
                             }
@@ -342,7 +410,8 @@ fun ConnectProviderScreen(
                         )
                         else -> Unit
                     }
-                    if (authHealth == AuthHealth.UNVERIFIED && viewModel.supportsReadOnlyRevalidation) {
+                    if ((authHealth == AuthHealth.UNVERIFIED || authHealth == AuthHealth.EXPIRED) &&
+                        viewModel.supportsReadOnlyRevalidation) {
                         OutlinedButton(
                             onClick = viewModel::verifySavedCredential,
                             enabled = !verifying,

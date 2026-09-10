@@ -29,6 +29,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -146,6 +147,43 @@ class ProviderDetailsViewModelTest {
         vm.refreshConnection()
         assertEquals(true, vm.isConnected.first { it })
         assertEquals(ConnectionAction.MANAGE_CONNECTION, connectionAction(vm.isConnected.value))
+    }
+
+    @Test
+    fun storedValidHealthWinsOverExpiredSnapshotWithoutDeletingCredential() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = SequenceCheckInProvider(
+            meta = TaygedoNteProvider.META,
+            CheckInOutcome.Success("historical", "SUCCESS", Reward.empty())
+        )
+        val repo = DetailsFakeRepository().also {
+            it.services.value = listOf(
+                snapshot("taygedo_nte", enabled = true).copy(lastStatus = CheckInStatus.LOGIN_EXPIRED)
+            )
+        }
+        val credentials = FakeCredentialStore().also {
+            it.save(provider.meta.id, "synthetic-test-secret")
+        }
+        val health = FakeAuthHealthStore().also {
+            it.set(provider.credentialOwnerId, AuthHealth.VALID)
+        }
+        val vm = ProviderDetailsViewModel(
+            repository = repo,
+            credentialStore = credentials,
+            providers = listOf(provider),
+            metas = listOf(TaygedoNteProvider.META),
+            savedStateHandle = SavedStateHandle(mapOf("serviceId" to "taygedo_nte")),
+            authHealthStore = health
+        )
+
+        val detailsHealth = async { vm.authHealth.first { it == AuthHealth.VALID } }
+        val connected = async { vm.isConnected.first { it } }
+        advanceUntilIdle()
+
+        assertEquals(AuthHealth.VALID, detailsHealth.await())
+        assertTrue(connected.await())
+        assertEquals(AuthHealth.VALID, health.get(provider.credentialOwnerId))
+        assertEquals("synthetic-test-secret", credentials.get(provider.meta.id))
     }
 
     private fun snapshot(id: String, enabled: Boolean) = ServiceSnapshot(

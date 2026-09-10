@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 import kotlin.jvm.JvmSuppressWildcards
 
@@ -45,7 +46,8 @@ class ConnectProviderViewModel @Inject constructor(
 ) : ViewModel() {
 
     val serviceId: String = savedStateHandle.get<String>("serviceId") ?: ""
-
+    private val reconnectEntry = savedStateHandle.get<Boolean>("reconnect") == true
+    private var reconnectPending = reconnectEntry
     val provider: CheckInProvider? = providers.firstOrNull { it.meta.id == serviceId }
     val meta: ProviderMeta? = provider?.meta
     val qrProvider: QrLoginProvider? = provider as? QrLoginProvider
@@ -64,7 +66,9 @@ class ConnectProviderViewModel @Inject constructor(
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
-    private val _authHealth = MutableStateFlow<AuthHealth?>(null)
+    private val _authHealth = MutableStateFlow<AuthHealth?>(
+        if (reconnectEntry && provider != null) AuthHealth.UNVERIFIED else null
+    )
     val authHealth: StateFlow<AuthHealth?> = _authHealth.asStateFlow()
 
     private val _verifying = MutableStateFlow(false)
@@ -99,7 +103,9 @@ class ConnectProviderViewModel @Inject constructor(
     private val _gameUid = MutableStateFlow("")
     val gameUid: StateFlow<String> = _gameUid.asStateFlow()
 
-    private val _gameRegion = MutableStateFlow("cn_gf01")
+    private val _gameRegion = MutableStateFlow(
+        if (meta?.id == "miyoushe_zzz_experimental") "" else "cn_gf01"
+    )
     val gameRegion: StateFlow<String> = _gameRegion.asStateFlow()
 
     private val _savingGameAccount = MutableStateFlow(false)
@@ -118,10 +124,14 @@ class ConnectProviderViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _authHealth.value = provider?.let {
-                ProviderConnectionGate.health(it, credentialStore, authHealthStore)
+            if (reconnectEntry) {
+                enterReconnectState()
+            } else {
+                _authHealth.value = provider?.let {
+                    ProviderConnectionGate.health(it, credentialStore, authHealthStore)
+                }
+                _connected.value = _authHealth.value == AuthHealth.VALID
             }
-            _connected.value = _authHealth.value == AuthHealth.VALID
             gameAccountProvider?.gameAccountConfig()?.let { config ->
                 _gameUid.value = config.uid
                 _gameRegion.value = config.region
@@ -143,10 +153,24 @@ class ConnectProviderViewModel @Inject constructor(
     fun updatePhone(value: String) { _phone.value = value.filter(Char::isDigit).take(11); _error.value = null }
     fun updateSmsCode(value: String) { _smsCode.value = value.filter(Char::isDigit).take(8); _error.value = null }
 
+    fun refreshConnection() {
+        val target = provider ?: return
+        viewModelScope.launch {
+            if (reconnectPending) {
+                enterReconnectState()
+            } else {
+                val health = ProviderConnectionGate.health(target, credentialStore, authHealthStore)
+                _authHealth.value = health
+                _connected.value = health == AuthHealth.VALID
+            }
+        }
+    }
+
     fun sendSmsCode() {
         val target = smsProvider ?: return
         viewModelScope.launch {
             _smsBusy.value = true
+            beginSmsReconnect()
             when (val result = target.sendSmsCode(_phone.value)) {
                 is SmsLoginResult.CodeSent -> { _smsSent.value = true; _error.value = null }
                 is SmsLoginResult.Failed -> _error.value = ConnectError.Provider(result.message)
@@ -160,6 +184,7 @@ class ConnectProviderViewModel @Inject constructor(
         val target = smsProvider ?: return
         viewModelScope.launch {
             _smsBusy.value = true
+            beginSmsReconnect()
             when (val result = target.confirmSmsCode(_phone.value, _smsCode.value)) {
                     is SmsLoginResult.Connected -> {
                     markProviderConfirmedValid()
@@ -180,7 +205,9 @@ class ConnectProviderViewModel @Inject constructor(
     /** Explicit foreground evidence path for structurally saved credentials. */
     fun verifySavedCredential() {
         val target = provider ?: return
-        if (_authHealth.value != AuthHealth.UNVERIFIED || _verifying.value) return
+        if (reconnectPending) return
+        if ((_authHealth.value != AuthHealth.UNVERIFIED &&
+                _authHealth.value != AuthHealth.EXPIRED) || _verifying.value) return
         viewModelScope.launch {
             _verifying.value = true
             _error.value = null
@@ -333,6 +360,10 @@ class ConnectProviderViewModel @Inject constructor(
                     roles.isEmpty() ->
                         _error.value = ConnectError.App(ConnectAppError.GAME_ROLES_UNAVAILABLE)
                 }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                _gameRoles.value = emptyList()
+                _error.value = ConnectError.App(ConnectAppError.GAME_ROLES_UNAVAILABLE)
             } finally {
                 _gameRolesBusy.value = false
             }
@@ -397,9 +428,24 @@ class ConnectProviderViewModel @Inject constructor(
 
     private suspend fun markProviderConfirmedValid() {
         val target = provider ?: return
+        reconnectPending = false
         authHealthStore.set(target.credentialOwnerId, AuthHealth.VALID)
         _authHealth.value = AuthHealth.VALID
         _connected.value = true
+    }
+
+    private suspend fun enterReconnectState() {
+        val target = provider ?: return
+        authHealthStore.set(target.credentialOwnerId, AuthHealth.UNVERIFIED)
+        _authHealth.value = AuthHealth.UNVERIFIED
+        _connected.value = false
+    }
+
+    private suspend fun beginSmsReconnect() {
+        val target = provider ?: return
+        _authHealth.value = AuthHealth.UNVERIFIED
+        _connected.value = false
+        authHealthStore.set(target.credentialOwnerId, AuthHealth.UNVERIFIED)
     }
 
     override fun onCleared() {

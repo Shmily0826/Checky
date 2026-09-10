@@ -5,6 +5,8 @@ import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.SmsLoginProvider
 import com.checky.app.domain.SmsLoginResult
+import com.checky.app.domain.SavedCredentialRevalidator
+import com.checky.app.domain.SavedCredentialValidation
 import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.ConnectionType
@@ -38,11 +40,19 @@ private fun nteRewardForSignedDays(rewards: JSONArray?, signedDays: Int): JSONOb
 
 abstract class TaygedoProvider(
     protected val client: TaygedoClient
-) : CheckInProvider, SmsLoginProvider {
+) : CheckInProvider, SmsLoginProvider, SavedCredentialRevalidator {
     override val requiresCredentials = true
     override val credentialOwnerId: String = TaygedoClient.SESSION_KEY
 
     override suspend fun isSmsConnected(): Boolean = client.hasSession()
+
+    override suspend fun revalidateSavedCredential(): SavedCredentialValidation =
+        when (client.revalidateSavedCredentialAuth()) {
+            TaygedoClient.AuthRevalidation.ACCEPTED -> SavedCredentialValidation.Valid
+            TaygedoClient.AuthRevalidation.EXPIRED -> SavedCredentialValidation.Expired
+            TaygedoClient.AuthRevalidation.UNKNOWN ->
+                SavedCredentialValidation.Unverified("塔吉多只读连接检查无法确认。")
+        }
 
     override suspend fun validateCredentials(secret: String): CredentialValidation =
         CredentialValidation.Invalid("请使用手机号和短信验证码连接塔吉多。")
@@ -132,6 +142,12 @@ class TaygedoNteProvider(client: TaygedoClient) : TaygedoProvider(client) {
                 "塔吉多返回了无法确认的异环签到结果，已停止后续操作。",
                 "TAYGEDO_NTE_BAD_RESULT"
             )
+        if (!isNteSignStateConfirmed(newState)) {
+            return CheckInOutcome.PermanentFailure(
+                "塔吉多返回了未确认签到成功的结果，已停止后续操作。",
+                "TAYGEDO_NTE_BAD_RESULT"
+            )
+        }
         val rewards = client.request(
             meta, "/apihub/awapi/sign/rewards",
             query = mapOf("gameId" to "1289", "roleId" to roleId), webHeaders = true
@@ -1387,6 +1403,8 @@ internal fun parseNteSignStateFields(
 } else {
     NteSignState(todaySigned, days, day)
 }
+
+internal fun isNteSignStateConfirmed(state: NteSignState): Boolean = state.todaySigned
 
 private fun failure(result: TaygedoClient.ApiResult, fallback: String): CheckInOutcome {
     val message = result.message.ifBlank { fallback }

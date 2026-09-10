@@ -69,6 +69,43 @@ class ConnectProviderViewModelTest {
         assertFalse(vm.connected.value)
     }
 
+    @Test
+    fun reconnectEntryDowngradesPriorValidStateWithoutDeletingCredential() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore().also { it.save("fake-sms", "existing") }
+        val health = FakeAuthHealthStore().also { it.set("fake-sms", AuthHealth.VALID) }
+        val vm = vmWith(credentials, FakeSmsProvider(), health, reconnect = true)
+        advanceUntilIdle()
+
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertEquals(AuthHealth.UNVERIFIED, health.get("fake-sms"))
+        assertEquals("existing", credentials.get("fake-sms"))
+    }
+
+    @Test
+    fun refreshConnectionFailsClosedWhenStoredHealthBecomesInvalidOrUnknown() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore().also { it.save("fake-session", "existing") }
+        val health = FakeAuthHealthStore().also { it.set("fake-session", AuthHealth.VALID) }
+        val vm = vmWith(credentials, ScriptedProvider(), health)
+        advanceUntilIdle()
+        assertTrue(vm.connected.value)
+
+        health.set("fake-session", AuthHealth.EXPIRED)
+        vm.refreshConnection()
+        advanceUntilIdle()
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.EXPIRED, vm.authHealth.value)
+
+        health.set("fake-session", AuthHealth.UNVERIFIED)
+        vm.refreshConnection()
+        advanceUntilIdle()
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertEquals("existing", credentials.get("fake-session"))
+    }
+
     // --- Manual secret form ---
 
     @Test
@@ -142,6 +179,29 @@ class ConnectProviderViewModelTest {
 
             assertEquals(expectedHealth, vm.authHealth.value)
             assertEquals(expectedHealth == AuthHealth.VALID, vm.connected.value)
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun expiredHealthCanBeRevalidatedWithoutPromotingUnknown() = runTest {
+        listOf(
+            SavedCredentialValidation.Valid to AuthHealth.VALID,
+            SavedCredentialValidation.Unverified("unknown") to AuthHealth.EXPIRED
+        ).forEach { (validation, expectedHealth) ->
+            Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+            val credentials = RecordingCredentialStore().also { it.save("fake-read-only", "existing") }
+            val health = FakeAuthHealthStore().also { it.set("fake-read-only", AuthHealth.EXPIRED) }
+            val vm = vmWith(credentials, FakeReadOnlyProvider(validation), health)
+            advanceUntilIdle()
+            assertFalse(vm.connected.value)
+
+            vm.verifySavedCredential()
+            advanceUntilIdle()
+
+            assertEquals(expectedHealth, vm.authHealth.value)
+            assertEquals(expectedHealth == AuthHealth.VALID, vm.connected.value)
+            assertEquals(expectedHealth, health.get("fake-read-only"))
             Dispatchers.resetMain()
         }
     }
@@ -380,17 +440,59 @@ class ConnectProviderViewModelTest {
     @Test
     fun smsConfirmConnectedMarksConnectedAndSaved() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore().also { it.save("fake-sms", "existing") }
+        val health = FakeAuthHealthStore().also { it.set("fake-sms", AuthHealth.VALID) }
         val vm = vmWith(
-            RecordingCredentialStore(),
-            FakeSmsProvider(confirmResult = SmsLoginResult.Connected("138****8000"))
+            credentials,
+            FakeSmsProvider(confirmResult = SmsLoginResult.Connected("138****8000")),
+            health,
+            reconnect = true
         )
+        advanceUntilIdle()
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+
         vm.confirmSmsCode()
         advanceUntilIdle()
 
         assertTrue(vm.connected.value)
+        assertEquals(AuthHealth.VALID, vm.authHealth.value)
+        assertEquals(AuthHealth.VALID, health.get("fake-sms"))
+        assertEquals("existing", credentials.get("fake-sms"))
         assertTrue(vm.saved.value)
         assertEquals("", vm.smsCode.value)
         assertNull(vm.error.value)
+    }
+
+    @Test
+    fun failedSmsReconnectDowngradesPriorValidStateBeforeAndAfterAttempt() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore().also { it.save("fake-sms", "existing") }
+        val health = FakeAuthHealthStore().also { it.set("fake-sms", AuthHealth.VALID) }
+        val vm = vmWith(
+            credentials,
+            FakeSmsProvider(confirmResult = SmsLoginResult.Failed("invalid code")),
+            health
+        )
+        advanceUntilIdle()
+        assertTrue(vm.connected.value)
+
+        vm.updatePhone("13800138000")
+        vm.sendSmsCode()
+        advanceUntilIdle()
+        assertTrue(vm.smsSent.value)
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertEquals(AuthHealth.UNVERIFIED, health.get("fake-sms"))
+
+        vm.updateSmsCode("1234")
+        vm.confirmSmsCode()
+        advanceUntilIdle()
+
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertEquals(AuthHealth.UNVERIFIED, health.get("fake-sms"))
+        assertEquals("existing", credentials.get("fake-sms"))
     }
 
     // --- Game account binding ---
@@ -476,6 +578,64 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
+    fun zzzStartsWithBlankRegion() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = vmWith(
+            RecordingCredentialStore(),
+            FakeGameAccountProvider(providerId = "miyoushe_zzz_experimental")
+        )
+        advanceUntilIdle()
+
+        assertEquals("", vm.gameRegion.value)
+    }
+
+    @Test
+    fun zzzRegionDisplayLocalizesOfficialServerWithoutChangingRawRegion() = runTest {
+        assertEquals("官服", zzzRegionDisplayValue("prod_gf_cn", false, "官服"))
+        assertEquals("prod_gf_cn", zzzRegionDisplayValue("prod_gf_cn", true, "官服"))
+        assertEquals("custom_region", zzzRegionDisplayValue("custom_region", false, "官服"))
+
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore().also {
+            it.save("miyoushe_zzz_experimental", "session-cookie")
+        }
+        val health = FakeAuthHealthStore().also {
+            it.set("miyoushe_zzz_experimental", AuthHealth.VALID)
+        }
+        var savedRegion = ""
+        val vm = vmWith(
+            credentials,
+            FakeGameAccountProvider(
+                providerId = "miyoushe_zzz_experimental",
+                roles = listOf(GameRole(GameAccountConfig("12345678", "prod_gf_cn"), "role")),
+                saveResult = { _, region -> savedRegion = region; CredentialValidation.Valid }
+            ),
+            health
+        )
+        advanceUntilIdle()
+
+        assertEquals("prod_gf_cn", vm.gameRegion.value)
+        assertEquals("prod_gf_cn", savedRegion)
+    }
+
+    @Test
+    fun roleFetchFailureSurfacesAsUnavailableInsteadOfEmptySuccess() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore().also { it.save("fake-game", "session-cookie") }
+        val health = FakeAuthHealthStore().also { it.set("fake-game", AuthHealth.VALID) }
+        val vm = vmWith(
+            credentials,
+            FakeGameAccountProvider(fetchFailure = IllegalStateException("role response failed")),
+            health
+        )
+        advanceUntilIdle()
+
+        assertEquals(ConnectError.App(ConnectAppError.GAME_ROLES_UNAVAILABLE), vm.error.value)
+        assertEquals(emptyList<GameRole>(), vm.gameRoles.value)
+        assertFalse(vm.gameAccountSaved.value)
+    }
+
+    @Test
     fun gameAccountSaveValidMarksSaved() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = vmWith(RecordingCredentialStore(), FakeGameAccountProvider())
@@ -523,11 +683,14 @@ class ConnectProviderViewModelTest {
     private fun vmWith(
         credentials: RecordingCredentialStore,
         provider: CheckInProvider,
-        authHealthStore: FakeAuthHealthStore = FakeAuthHealthStore()
+        authHealthStore: FakeAuthHealthStore = FakeAuthHealthStore(),
+        reconnect: Boolean = false
     ): ConnectProviderViewModel = ConnectProviderViewModel(
         credentialStore = credentials,
         providers = listOf(provider),
-        savedStateHandle = SavedStateHandle(mapOf("serviceId" to provider.meta.id)),
+        savedStateHandle = SavedStateHandle(
+            mapOf("serviceId" to provider.meta.id, "reconnect" to reconnect)
+        ),
         authHealthStore = authHealthStore
     )
 }
@@ -598,12 +761,14 @@ private class FakeSmsProvider(
 }
 
 private class FakeGameAccountProvider(
+    providerId: String = "fake-game",
     private val existing: GameAccountConfig? = null,
     private val roles: List<GameRole> = emptyList(),
+    private val fetchFailure: Throwable? = null,
     private val saveResult: (String, String) -> CredentialValidation = { _, _ -> CredentialValidation.Valid }
-) : BaseFakeProvider(testMeta("fake-game")), GameAccountConfigProvider {
+) : BaseFakeProvider(testMeta(providerId)), GameAccountConfigProvider {
     override suspend fun gameAccountConfig(): GameAccountConfig? = existing
-    override suspend fun fetchGameRoles(): List<GameRole> = roles
+    override suspend fun fetchGameRoles(): List<GameRole> = fetchFailure?.let { throw it } ?: roles
     override suspend fun saveGameAccountConfig(uid: String, region: String): CredentialValidation =
         saveResult(uid, region)
 }

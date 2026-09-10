@@ -114,8 +114,11 @@ fun CheckyNavHost(
             ProviderDetailsScreen(navController = navController)
         }
         composable(
-            route = "connect/{serviceId}",
-            arguments = listOf(navArgument("serviceId") { type = NavType.StringType })
+            route = "connect/{serviceId}?reconnect={reconnect}",
+            arguments = listOf(
+                navArgument("serviceId") { type = NavType.StringType },
+                navArgument("reconnect") { type = NavType.BoolType; defaultValue = false }
+            )
         ) {
             ConnectProviderScreen(navController = navController)
         }

@@ -109,6 +109,13 @@ class ProviderParsingTest {
         assertNull(parseNteSignStateFields(false, 1, null))
     }
 
+    @Test
+    fun unsignedPostSignStateIsNotConfirmed() {
+        val state = NteSignState(todaySigned = false, days = 3, day = 4)
+
+        assertFalse(isNteSignStateConfirmed(state))
+    }
+
     // --- Taygedo failure mapping ---
 
     @Test

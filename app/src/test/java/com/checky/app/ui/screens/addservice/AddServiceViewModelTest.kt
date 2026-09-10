@@ -8,6 +8,7 @@ import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
 import com.checky.app.domain.providers.MiyousheCommunityProvider
 import com.checky.app.domain.providers.MiyousheProvider
+import com.checky.app.domain.providers.MiyousheZzzProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
@@ -67,6 +68,7 @@ class AddServiceViewModelTest {
             listOf(
                 "miyoushe_genshin_experimental",
                 "miyoushe_community_signin",
+                "miyoushe_zzz_experimental",
                 "taygedo_nte",
                 "taygedo_community"
             ),
@@ -87,6 +89,7 @@ class AddServiceViewModelTest {
     private fun catalog() = listOf(
         MiyousheProvider.META,
         MiyousheCommunityProvider.META,
+        MiyousheZzzProvider.META,
         TaygedoNteProvider.META,
         TaygedoCommunityProvider.META
     )

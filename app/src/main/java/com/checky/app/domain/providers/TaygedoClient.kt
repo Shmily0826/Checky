@@ -25,6 +25,8 @@ class TaygedoClient(
     private val credentials: CredentialStore,
     private val http: OkHttpClient
 ) {
+    internal enum class AuthRevalidation { ACCEPTED, EXPIRED, UNKNOWN }
+
     data class Session(
         val accessToken: String,
         val refreshToken: String,
@@ -146,6 +148,33 @@ class TaygedoClient(
         TaygedoCoinStateResult.Unknown
     }
 
+    /** Authenticate once without interpreting the endpoint's business payload. */
+    internal suspend fun revalidateSavedCredentialAuth(): AuthRevalidation {
+        val session = load() ?: return AuthRevalidation.UNKNOWN
+        return try {
+            val response = bbs(
+                meta = TaygedoCommunityProvider.META,
+                path = "/apihub/api/getUserCoinTaskState",
+                method = "GET",
+                auth = session.accessToken,
+                useDs = false,
+                extraHeaders = mapOf("uid" to session.uid)
+            )
+            when {
+                response.code == 401 || response.code == -401 -> AuthRevalidation.EXPIRED
+                response.httpStatus !in 200..299 || response.code != 0 -> AuthRevalidation.UNKNOWN
+                response.raw.opt("code") !is Number ||
+                    response.raw.opt("data") == null ||
+                    response.raw.opt("msg") !is String ||
+                    response.raw.opt("ok") !is Boolean ||
+                    !response.raw.optBoolean("ok") -> AuthRevalidation.UNKNOWN
+                else -> AuthRevalidation.ACCEPTED
+            }
+        } catch (_: Exception) {
+            AuthRevalidation.UNKNOWN
+        }
+    }
+
     /** Read the live-verified BBS sign-in task state without mutating account state. */
     internal suspend fun getCommunityBbsSignState(): CommunitySignState = try {
         request(
@@ -160,6 +189,16 @@ class TaygedoClient(
     } catch (_: Exception) {
         CommunitySignState.UNKNOWN
     }
+
+    /** Debug-only caller: exactly one BBS sign-in POST, with no refresh or retry. */
+    internal suspend fun signCommunityBbsOnce(): CommunitySignResponse =
+        request(
+            TaygedoCommunityProvider.META,
+            "/apihub/api/signin",
+            "POST",
+            form = mapOf("communityId" to "2"),
+            useDs = true
+        ).toCommunitySignResponse()
 
     /**
      * Perform exactly one authenticated GET. In particular, this path never

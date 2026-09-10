@@ -126,7 +126,9 @@ fun HomeScreen(
         onCancel = viewModel::cancelCheckInAll,
         onDismissSummary = viewModel::dismissSummary,
         onOpenService = { id -> navController.navigate("provider_details/$id") },
-        onReconnect = { id -> navController.navigate("connect/$id") },
+        onReconnect = { id, reconnect ->
+            navController.navigate("connect/$id${if (reconnect) "?reconnect=true" else ""}")
+        },
         onRetry = viewModel::retry,
         onAddService = { navController.navigate("add_service") }
     )
@@ -164,7 +166,7 @@ private fun HomeContent(
     onCancel: () -> Unit,
     onDismissSummary: () -> Unit,
     onOpenService: (String) -> Unit,
-    onReconnect: (String) -> Unit,
+    onReconnect: (String, Boolean) -> Unit,
     onRetry: (String) -> Unit,
     onAddService: () -> Unit,
     connectionById: Map<String, Boolean> = emptyMap(),
@@ -219,9 +221,9 @@ private fun HomeContent(
                 else -> null
             },
             onAction = when {
-                needsVerification -> ({ onReconnect(s.serviceId) })
-                !connected -> ({ onReconnect(s.serviceId) })
-                status == CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(s.serviceId) })
+                needsVerification -> ({ onReconnect(s.serviceId, false) })
+                !connected -> ({ onReconnect(s.serviceId, false) })
+                status == CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(s.serviceId, true) })
                 status == CheckInStatus.FAILED -> ({ onRetry(s.serviceId) })
                 isOrdinaryPendingCard(status, connected, needsVerification) -> ({ onRetry(s.serviceId) })
                 else -> null
@@ -495,7 +497,7 @@ private fun HomePreview() {
             onCancel = {},
             onDismissSummary = {},
             onOpenService = {},
-            onReconnect = {},
+            onReconnect = { _, _ -> },
             onRetry = {},
             onAddService = {},
             connectionById = previewSnapshots().associate { it.serviceId to true }
@@ -519,7 +521,7 @@ private fun HomeRunningPreview() {
             onCancel = {},
             onDismissSummary = {},
             onOpenService = {},
-            onReconnect = {},
+            onReconnect = { _, _ -> },
             onRetry = {},
             onAddService = {},
             connectionById = previewSnapshots().associate { it.serviceId to true }

@@ -17,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
 class TaygedoAuthExpiryTest {
@@ -92,6 +93,41 @@ class TaygedoAuthExpiryTest {
         }
     }
 
+    @Test
+    fun authRevalidationUsesOnlyAcceptedEnvelopeAndNeverCoinFields() = runTest {
+        val accepted = clientReturning(
+            200,
+            """{"code":0,"data":{"todayGet":1,"todayTotal":5,"total":9},"msg":"ok","ok":true}""",
+            mutableListOf()
+        )
+        assertEquals(
+            TaygedoClient.AuthRevalidation.ACCEPTED,
+            accepted.revalidateSavedCredentialAuth()
+        )
+
+        listOf(
+            401 to "",
+            200 to "{\"code\":-401}",
+            503 to "",
+            200 to "not-json",
+            200 to "{\"code\":1,\"data\":{},\"msg\":\"error\",\"ok\":false}"
+        ).forEach { (responseCode, body) ->
+            val client = clientReturning(responseCode, body, mutableListOf())
+            val expected = if (responseCode == 401 || body.contains("-401")) {
+                TaygedoClient.AuthRevalidation.EXPIRED
+            } else {
+                TaygedoClient.AuthRevalidation.UNKNOWN
+            }
+            assertEquals(expected, client.revalidateSavedCredentialAuth())
+        }
+
+        val transportFailure = clientWithInterceptor { throw IOException("synthetic") }
+        assertEquals(
+            TaygedoClient.AuthRevalidation.UNKNOWN,
+            transportFailure.revalidateSavedCredentialAuth()
+        )
+    }
+
     private suspend fun providerReturning(
         responseCode: Int,
         body: String,
@@ -125,5 +161,19 @@ class TaygedoAuthExpiryTest {
             OkHttpClient.Builder().addInterceptor(interceptor).build()
         )
         return client
+    }
+
+    private suspend fun clientWithInterceptor(interceptor: Interceptor): TaygedoClient {
+        val credentials = FakeCredentialStore().also {
+            it.save(
+                TaygedoClient.SESSION_KEY,
+                "{\"accessToken\":\"synthetic-access\",\"refreshToken\":\"synthetic-refresh\",\"uid\":\"1\",\"deviceId\":\"synthetic-device\"}"
+            )
+        }
+        return TaygedoClient(
+            ApplicationProvider.getApplicationContext(),
+            credentials,
+            OkHttpClient.Builder().addInterceptor(interceptor).build()
+        )
     }
 }

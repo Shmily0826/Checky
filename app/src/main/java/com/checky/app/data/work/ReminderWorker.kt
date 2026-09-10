@@ -18,9 +18,20 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.checky.app.MainActivity
 import com.checky.app.R
+import com.checky.app.data.model.ServiceSnapshot
+import com.checky.app.data.repository.CheckInRepository
+import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.model.CheckInSummary
+import com.checky.app.ui.screens.home.projectHomeStatus
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.flow.first
+import java.time.Instant
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import kotlin.jvm.JvmSuppressWildcards
 
 /**
  * Optional daily reminder. This worker only posts a notification — it never
@@ -32,7 +43,14 @@ class ReminderWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        NotificationHelper.showDailyReminder(applicationContext)
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext,
+            ReminderEntryPoint::class.java
+        )
+        val services = entryPoint.repository().observeServices().first()
+        if (shouldShowDailyReminder(services, entryPoint.providers(), Instant.now())) {
+            NotificationHelper.showDailyReminder(applicationContext)
+        }
         return Result.success()
     }
 
@@ -69,6 +87,31 @@ class ReminderWorker(
             return delay
         }
     }
+}
+
+internal fun shouldShowDailyReminder(
+    services: List<ServiceSnapshot>,
+    providers: List<CheckInProvider>,
+    now: Instant
+): Boolean {
+    val providersById = providers.associateBy { it.meta.id }
+    return services
+        .asSequence()
+        .filter { it.isEnabled }
+        .mapNotNull { service -> providersById[service.serviceId]?.let { service to it.meta } }
+        .any { (service, meta) ->
+            projectHomeStatus(service, meta, now).status !in setOf(
+                com.checky.app.domain.model.CheckInStatus.SUCCESS,
+                com.checky.app.domain.model.CheckInStatus.ALREADY_CHECKED_IN
+            )
+        }
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface ReminderEntryPoint {
+    fun repository(): CheckInRepository
+    fun providers(): @JvmSuppressWildcards List<CheckInProvider>
 }
 
 object NotificationHelper {
@@ -146,7 +189,7 @@ object NotificationHelper {
     }
 
     /** Surfaces the result of an auto check-in run (success + failure summary). */
-    fun showCheckInResult(context: Context, summary: CheckInSummary) {
+    fun showCheckInResult(context: Context, summary: CheckInSummary, reconnectRequired: Int = 0) {
         val canNotify = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
@@ -158,17 +201,27 @@ object NotificationHelper {
         } else {
             context.getString(R.string.notification_result_title_attention, needsAttention)
         }
-        val content = buildString {
-            append(context.getString(R.string.notification_result_success, summary.succeeded))
-            if (summary.alreadyCheckedIn > 0) append(" · ").append(context.getString(R.string.notification_result_already, summary.alreadyCheckedIn))
-            if (summary.failed > 0) append(" · ").append(context.getString(R.string.notification_result_failed, summary.failed))
-            if (summary.attention > 0) append(" · ").append(context.getString(R.string.notification_result_reconnect, summary.attention))
-        }
+        val content = formatCheckInResultSummary(
+            summary = summary,
+            reconnectRequired = reconnectRequired,
+            successLabel = { context.getString(R.string.notification_result_success, it) },
+            alreadyLabel = { context.getString(R.string.notification_result_already, it) },
+            failedLabel = { context.getString(R.string.notification_result_failed, it) },
+            reconnectLabel = { context.getString(R.string.notification_result_reconnect, it) },
+            attentionLabel = { context.getString(R.string.notification_result_attention, it) }
+        )
         val bigText = buildString {
-            append(context.getString(R.string.notification_result_big_success, summary.succeeded))
-            if (summary.alreadyCheckedIn > 0) append(" · ").append(context.getString(R.string.notification_result_big_already, summary.alreadyCheckedIn))
-            if (summary.failed > 0) append(" · ").append(context.getString(R.string.notification_result_big_failed, summary.failed))
-            if (summary.attention > 0) append(" · ").append(context.getString(R.string.notification_result_big_reconnect, summary.attention))
+            append(
+                formatCheckInResultSummary(
+                    summary = summary,
+                    reconnectRequired = reconnectRequired,
+                    successLabel = { context.getString(R.string.notification_result_big_success, it) },
+                    alreadyLabel = { context.getString(R.string.notification_result_big_already, it) },
+                    failedLabel = { context.getString(R.string.notification_result_big_failed, it) },
+                    reconnectLabel = { context.getString(R.string.notification_result_big_reconnect, it) },
+                    attentionLabel = { context.getString(R.string.notification_result_big_attention, it) }
+                )
+            )
             if (summary.totalPoints > 0) append("。 ").append(context.getString(R.string.notification_result_points, summary.totalPoints))
             if (summary.totalXp > 0) append("、").append(context.getString(R.string.notification_result_xp, summary.totalXp))
         }
@@ -192,4 +245,24 @@ object NotificationHelper {
             .build()
         NotificationManagerCompat.from(context).notify(RESULT_NOTIFICATION_ID, notification)
     }
+}
+
+internal fun formatCheckInResultSummary(
+    summary: CheckInSummary,
+    reconnectRequired: Int,
+    successLabel: (Int) -> String,
+    alreadyLabel: (Int) -> String,
+    failedLabel: (Int) -> String,
+    reconnectLabel: (Int) -> String,
+    attentionLabel: (Int) -> String
+): String {
+    val reconnect = reconnectRequired.coerceIn(0, summary.attention)
+    val attention = summary.attention - reconnect
+    return buildList {
+        add(successLabel(summary.succeeded))
+        if (summary.alreadyCheckedIn > 0) add(alreadyLabel(summary.alreadyCheckedIn))
+        if (summary.failed > 0) add(failedLabel(summary.failed))
+        if (reconnect > 0) add(reconnectLabel(reconnect))
+        if (attention > 0) add(attentionLabel(attention))
+    }.joinToString(" · ")
 }

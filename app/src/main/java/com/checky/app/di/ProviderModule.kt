@@ -6,6 +6,7 @@ import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.providers.MiyousheProvider
 import com.checky.app.domain.providers.MiyousheCommunityProvider
+import com.checky.app.domain.providers.MiyousheZzzProvider
 import com.checky.app.domain.providers.TaygedoClient
 import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
@@ -41,6 +42,7 @@ object ProviderModule {
         return listOf(
             miyoushe,
             MiyousheCommunityProvider(context, credentialStore, httpClient),
+            MiyousheZzzProvider(context, credentialStore, httpClient),
             TaygedoNteProvider(taygedo),
             TaygedoCommunityProvider(taygedo)
         )

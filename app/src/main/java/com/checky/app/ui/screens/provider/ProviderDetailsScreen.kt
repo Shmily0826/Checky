@@ -80,7 +80,9 @@ fun ProviderDetailsScreen(
         authHealth = authHealth,
         isConnected = isConnected,
         onToggle = viewModel::setEnabled,
-        onManageConnection = { navController.navigate("connect/$it") }
+        onManageConnection = { id ->
+            navController.navigate("connect/$id${if (authHealth == AuthHealth.EXPIRED) "?reconnect=true" else ""}")
+        }
     )
 }
 

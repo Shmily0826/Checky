@@ -78,7 +78,11 @@ class AutoCheckInWorker(
                     execution.expiredServiceNames
                 )
                 if (entryPoint.preferences().preferences.first().checkInResultNotify) {
-                    NotificationHelper.showCheckInResult(applicationContext, execution.summary)
+                    NotificationHelper.showCheckInResult(
+                        applicationContext,
+                        execution.summary,
+                        reconnectRequired = execution.expiredServiceNames.size
+                    )
                 }
             }
             if (dailyScheduled) rescheduleIfEnabled(entryPoint)
