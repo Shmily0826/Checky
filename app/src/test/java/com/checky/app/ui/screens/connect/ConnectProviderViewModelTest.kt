@@ -379,6 +379,28 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
+    fun autoStartDefersToReadOnlyRevalidationForUnverifiedSavedCredential() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore().also {
+            it.save("fake-qr-read-only", "existing")
+        }
+        val health = FakeAuthHealthStore().also {
+            it.set("fake-qr-read-only", AuthHealth.UNVERIFIED)
+        }
+        val provider = FakeQrReadOnlyProvider()
+        val vm = vmWith(credentials, provider, health)
+        advanceUntilIdle()
+
+        vm.maybeStartQrLoginAutomatically()
+        advanceUntilIdle()
+
+        assertTrue(vm.supportsReadOnlyRevalidation)
+        assertEquals(0, provider.createCalls)
+        assertNull(vm.qrSession.value)
+        assertFalse(vm.connected.value)
+    }
+
+    @Test
     fun cancelQrLoginResetsTransientState() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = vmWith(
@@ -771,6 +793,24 @@ private class FakeQrProvider(
     override suspend fun createQrLoginSession() = QrLoginSession("qr-payload", "session-1")
     override suspend fun pollQrLogin(session: QrLoginSession): QrLoginPollResult =
         polls[pollIndex.coerceAtMost(polls.size - 1)].also { pollIndex++ }
+}
+
+private class FakeQrReadOnlyProvider :
+    BaseFakeProvider(testMeta("fake-qr-read-only")),
+    QrLoginProvider,
+    SavedCredentialRevalidator {
+    var createCalls = 0
+
+    override suspend fun createQrLoginSession(): QrLoginSession {
+        createCalls++
+        return QrLoginSession("qr-payload", "session-1")
+    }
+
+    override suspend fun pollQrLogin(session: QrLoginSession): QrLoginPollResult =
+        QrLoginPollResult.Waiting
+
+    override suspend fun revalidateSavedCredential(): SavedCredentialValidation =
+        SavedCredentialValidation.Valid
 }
 
 private class FakeSmsProvider(

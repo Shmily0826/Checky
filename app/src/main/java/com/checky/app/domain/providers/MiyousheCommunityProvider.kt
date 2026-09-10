@@ -9,6 +9,8 @@ import com.checky.app.domain.CredentialValidation
 import com.checky.app.domain.QrLoginPollResult
 import com.checky.app.domain.QrLoginProvider
 import com.checky.app.domain.QrLoginSession
+import com.checky.app.domain.SavedCredentialRevalidator
+import com.checky.app.domain.SavedCredentialValidation
 import com.checky.app.domain.model.CheckInOutcome
 import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.ConnectionType
@@ -41,7 +43,7 @@ class MiyousheCommunityProvider(
     private val context: Context,
     private val credentialStore: CredentialStore,
     private val httpClient: OkHttpClient
-) : CheckInProvider, QrLoginProvider {
+) : CheckInProvider, QrLoginProvider, SavedCredentialRevalidator {
 
     override val meta: ProviderMeta = META
     override val requiresCredentials: Boolean = true
@@ -67,6 +69,41 @@ class MiyousheCommunityProvider(
         // This provider owns a separate app-authorized community session. Removing
         // it must not affect the independent Genshin game-sign-in session.
         credentialStore.delete(meta.id)
+    }
+
+    override suspend fun revalidateSavedCredential(): SavedCredentialValidation = withContext(Dispatchers.IO) {
+        val saved = credentialStore.get(meta.id)
+        val cookie = saved?.let(::decodeCookie)
+        if (cookie.isNullOrBlank()) return@withContext SavedCredentialValidation.Expired
+
+        when (readOnlyPreflight(cookie)) {
+            MiyousheCommunityPreflight.AlreadyCompleted,
+            MiyousheCommunityPreflight.Incomplete -> SavedCredentialValidation.Valid
+            MiyousheCommunityPreflight.VerificationRequired ->
+                SavedCredentialValidation.Unverified("米游社要求官方验证。")
+            MiyousheCommunityPreflight.Unknown ->
+                SavedCredentialValidation.Unverified("米游社社区状态暂时无法确认。")
+            MiyousheCommunityPreflight.AuthExpired -> when (val renewed = renewCommunityCookie(cookie)) {
+                MiyousheCommunityRenewal.MissingRoot -> SavedCredentialValidation.Expired
+                MiyousheCommunityRenewal.Failed ->
+                    SavedCredentialValidation.Unverified("米游社社区凭证续期未完成。")
+                is MiyousheCommunityRenewal.Complete -> when (readOnlyPreflight(renewed.cookie)) {
+                    MiyousheCommunityPreflight.AlreadyCompleted,
+                    MiyousheCommunityPreflight.Incomplete -> {
+                        if (persistRenewedCookie(renewed.cookie)) {
+                            SavedCredentialValidation.Valid
+                        } else {
+                            SavedCredentialValidation.Unverified("米游社社区凭证续期后保存失败。")
+                        }
+                    }
+                    MiyousheCommunityPreflight.AuthExpired -> SavedCredentialValidation.Expired
+                    MiyousheCommunityPreflight.VerificationRequired ->
+                        SavedCredentialValidation.Unverified("米游社要求官方验证。")
+                    MiyousheCommunityPreflight.Unknown ->
+                        SavedCredentialValidation.Unverified("米游社社区状态暂时无法确认。")
+                }
+            }
+        }
     }
 
     /**
@@ -157,8 +194,130 @@ class MiyousheCommunityProvider(
         }
 
         emit(CheckInEvent.Progress(0.45f, "提交米游社讨论区签到…"))
-        val outcome = withContext(Dispatchers.IO) { runCheckIn(cookie) }
+        val outcome = withContext(Dispatchers.IO) { runCheckInWithRecovery(cookie) }
         emit(CheckInEvent.Done(result(outcome)))
+    }
+
+    private suspend fun runCheckInWithRecovery(cookie: String): CheckInOutcome {
+        return when (readOnlyPreflight(cookie)) {
+            MiyousheCommunityPreflight.AlreadyCompleted ->
+                CheckInOutcome.AlreadyCompleted(
+                    "米游社讨论区今天已经签到。",
+                    "MIYOUSHE_COMMUNITY_ALREADY"
+                )
+            MiyousheCommunityPreflight.Incomplete -> runCheckIn(cookie)
+            MiyousheCommunityPreflight.VerificationRequired ->
+                CheckInOutcome.ActionRequired(
+                    "米游社要求官方验证，请在官方 App 处理后再试。",
+                    "MIYOUSHE_COMMUNITY_VERIFICATION"
+                )
+            MiyousheCommunityPreflight.AuthExpired -> when (val renewed = renewCommunityCookie(cookie)) {
+                MiyousheCommunityRenewal.MissingRoot -> CheckInOutcome.AuthenticationExpired(
+                    "米游社会话已失效，请重新扫码连接。",
+                    "MIYOUSHE_COMMUNITY_AUTH_EXPIRED"
+                )
+                MiyousheCommunityRenewal.Failed -> CheckInOutcome.TemporaryFailure(
+                    "米游社社区凭证续期未完成，请稍后重试。",
+                    "MIYOUSHE_COMMUNITY_RENEWAL_FAILED"
+                )
+                is MiyousheCommunityRenewal.Complete -> when (readOnlyPreflight(renewed.cookie)) {
+                    MiyousheCommunityPreflight.AlreadyCompleted -> saveRenewedCookieOrFail(renewed.cookie) {
+                        CheckInOutcome.AlreadyCompleted(
+                            "米游社讨论区今天已经签到。",
+                            "MIYOUSHE_COMMUNITY_ALREADY"
+                        )
+                    }
+                    MiyousheCommunityPreflight.Incomplete -> saveRenewedCookieOrFail(renewed.cookie) {
+                        runCheckIn(renewed.cookie)
+                    }
+                    MiyousheCommunityPreflight.VerificationRequired ->
+                        CheckInOutcome.ActionRequired(
+                            "米游社要求官方验证，请在官方 App 处理后再试。",
+                            "MIYOUSHE_COMMUNITY_VERIFICATION"
+                        )
+                    MiyousheCommunityPreflight.AuthExpired -> CheckInOutcome.AuthenticationExpired(
+                        "米游社会话已失效，请重新扫码连接。",
+                        "MIYOUSHE_COMMUNITY_AUTH_EXPIRED"
+                    )
+                    MiyousheCommunityPreflight.Unknown -> communityPreflightUnknown()
+                }
+            }
+            MiyousheCommunityPreflight.Unknown -> communityPreflightUnknown()
+        }
+    }
+
+    private suspend fun saveRenewedCookieOrFail(
+        cookie: String,
+        next: () -> CheckInOutcome
+    ): CheckInOutcome {
+        return try {
+            if (!persistRenewedCookie(cookie)) {
+                CheckInOutcome.TemporaryFailure(
+                    "米游社社区凭证续期后保存失败，请稍后重试。",
+                    "MIYOUSHE_COMMUNITY_RENEWAL_SAVE_FAILED"
+                )
+            } else {
+                next()
+            }
+        } catch (_: Exception) {
+            CheckInOutcome.TemporaryFailure(
+                "米游社社区凭证续期后保存失败，请稍后重试。",
+                "MIYOUSHE_COMMUNITY_RENEWAL_SAVE_FAILED"
+            )
+        }
+    }
+
+    private suspend fun persistRenewedCookie(cookie: String): Boolean {
+        return try {
+            credentialStore.save(meta.id, cookie)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun communityPreflightUnknown() = CheckInOutcome.TemporaryFailure(
+        "米游社社区状态暂时无法确认，请稍后重试。",
+        "MIYOUSHE_COMMUNITY_PREFLIGHT_UNKNOWN"
+    )
+
+    private fun readOnlyPreflight(cookie: String): MiyousheCommunityPreflight {
+        val url = okhttp3.HttpUrl.Builder()
+            .scheme("https")
+            .host(API_HOST)
+            .addPathSegments("apihub/wapi/getUserMissionsState")
+            .addQueryParameter("point_sn", "myb")
+            .build()
+        val request = communityRequestBuilder(url, cookie)
+            .header("DS", generateDataDs(""))
+            .get()
+            .build()
+        val result = runCatching {
+            check(META.allowedHosts.contains(url.host)) { "Provider host is not allowlisted" }
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) MiyousheCommunityPreflight.Unknown
+                else classifyMiyousheCommunityPreflight(response.body?.string().orEmpty())
+            }
+        }.getOrDefault(MiyousheCommunityPreflight.Unknown)
+        return result
+    }
+
+    private fun renewCommunityCookie(cookie: String): MiyousheCommunityRenewal {
+        val values = cookiePairs(cookie)
+        val stoken = values["stoken"].orEmpty().ifBlank { values["stoken_v2"].orEmpty() }
+        val mid = values["mid"].orEmpty()
+        val bbsUid = values["stuid"].orEmpty()
+            .ifBlank { values["account_id"].orEmpty() }
+            .ifBlank { values["account_id_v2"].orEmpty() }
+        if (stoken.isBlank() || mid.isBlank() || bbsUid.isBlank()) {
+            return MiyousheCommunityRenewal.MissingRoot
+        }
+        return when (val built = buildCommunityCookie(stoken, mid, bbsUid)) {
+            is MiyousheCommunityCookieBuildResult.Complete ->
+                MiyousheCommunityRenewal.Complete(built.cookie)
+            MiyousheCommunityCookieBuildResult.EnrichmentIncomplete ->
+                MiyousheCommunityRenewal.Failed
+        }
     }
 
     private fun runCheckIn(cookie: String): CheckInOutcome = try {
@@ -176,8 +335,24 @@ class MiyousheCommunityProvider(
             .host(API_HOST)
             .addPathSegments("apihub/app/api/signIn")
             .build()
+        val request = communityRequestBuilder(url, cookie)
+            .header("DS", generateDataDs(body))
+            .header("Content-Type", "application/json; charset=UTF-8")
+            .post(body.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        check(META.allowedHosts.contains(url.host)) { "Provider host is not allowlisted" }
+        return httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("HTTP_${response.code}")
+            response.body?.string().orEmpty()
+        }
+    }
+
+    private fun communityRequestBuilder(
+        url: okhttp3.HttpUrl,
+        cookie: String
+    ): Request.Builder {
         val deviceId = deviceId()
-        val request = Request.Builder()
+        return Request.Builder()
             .url(url)
             .header("Cookie", cookie)
             .header("User-Agent", COMMUNITY_USER_AGENT)
@@ -191,18 +366,9 @@ class MiyousheCommunityProvider(
             .header("x-rpc-verify_key", PASSPORT_APP_ID)
             .header("x-rpc-csm_source", "discussion")
             .header("x-rpc-h265_supported", "1")
-            .header("DS", generateDataDs(body))
             .header("Referer", "https://app.mihoyo.com")
-            .header("Content-Type", "application/json; charset=UTF-8")
             .header("Connection", "Keep-Alive")
             .header("Accept-Encoding", "gzip")
-            .post(body.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        check(META.allowedHosts.contains(url.host)) { "Provider host is not allowlisted" }
-        return httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IllegalStateException("HTTP_${response.code}")
-            response.body?.string().orEmpty()
-        }
     }
 
     private fun postQrApi(host: String, path: String, body: String, deviceId: String): String {
@@ -318,6 +484,14 @@ class MiyousheCommunityProvider(
         .filter { it.isNotBlank() }
         .toSet()
 
+    private fun cookiePairs(cookie: String): Map<String, String> = cookie.split(';')
+        .mapNotNull { item ->
+            val name = item.substringBefore('=').trim()
+            val value = item.substringAfter('=', "").trim()
+            if (name.isBlank() || value.isBlank()) null else name to value
+        }
+        .toMap()
+
     private fun mergeCookies(cookie: String, extra: List<String>): String {
         val merged = linkedMapOf<String, String>()
         cookie.split(';').forEach { item ->
@@ -374,6 +548,53 @@ class MiyousheCommunityProvider(
             allowedHosts = setOf(API_HOST, PASSPORT_HOST),
             businessZone = ZoneId.of("Asia/Shanghai")
         )
+    }
+}
+
+private enum class MiyousheCommunityPreflight {
+    AlreadyCompleted,
+    Incomplete,
+    AuthExpired,
+    VerificationRequired,
+    Unknown
+}
+
+private sealed interface MiyousheCommunityRenewal {
+    data class Complete(val cookie: String) : MiyousheCommunityRenewal
+    data object MissingRoot : MiyousheCommunityRenewal
+    data object Failed : MiyousheCommunityRenewal
+}
+
+private fun classifyMiyousheCommunityPreflight(body: String): MiyousheCommunityPreflight {
+    val json = runCatching { JSONObject(body) }.getOrNull()
+        ?: return MiyousheCommunityPreflight.Unknown
+    val retcode = json.optionalInteger("retcode")
+        ?: return MiyousheCommunityPreflight.Unknown
+    val message = json.optString("message")
+    if (retcode == -100 || retcode == -101 || retcode == -10001) {
+        return MiyousheCommunityPreflight.AuthExpired
+    }
+    if (retcode == 1034 || message.contains("captcha", ignoreCase = true) ||
+        message.contains("verification", ignoreCase = true) ||
+        message.contains("geetest", ignoreCase = true) ||
+        message.contains("risk", ignoreCase = true)
+    ) {
+        return MiyousheCommunityPreflight.VerificationRequired
+    }
+    if (retcode != 0) return MiyousheCommunityPreflight.Unknown
+
+    val states = json.optJSONObject("data")?.optJSONArray("states")
+        ?: return MiyousheCommunityPreflight.Unknown
+    val matching = (0 until states.length()).mapNotNull { index ->
+        states.optJSONObject(index)?.takeIf { it.optString("mission_key") == "continuous_sign" }
+    }
+    if (matching.size > 1) return MiyousheCommunityPreflight.Unknown
+    if (matching.isEmpty()) return MiyousheCommunityPreflight.Incomplete
+    return when (val happenedTimes = matching.single().optionalInteger("happened_times")) {
+        null -> MiyousheCommunityPreflight.Unknown
+        0 -> MiyousheCommunityPreflight.Incomplete
+        in 1..Int.MAX_VALUE -> MiyousheCommunityPreflight.AlreadyCompleted
+        else -> MiyousheCommunityPreflight.Unknown
     }
 }
 
@@ -484,11 +705,7 @@ private fun JSONObject.optionalInteger(name: String): Int? {
     }
 }
 
-/**
- * The community mutation has no verified read-only status endpoint. A
- * transport failure or malformed response therefore leaves the mutation
- * outcome unknown and must be terminal so the shared retry cannot POST again.
- */
+/** A transport failure or malformed mutation response leaves its outcome unknown. */
 internal fun miyousheCommunityUncertainMutationOutcome(): CheckInOutcome =
     CheckInOutcome.PermanentFailure(
         "米游社签到请求可能已发送，但结果无法确认，已停止自动重试。",

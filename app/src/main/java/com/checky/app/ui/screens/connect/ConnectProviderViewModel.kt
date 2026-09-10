@@ -267,6 +267,9 @@ class ConnectProviderViewModel @Inject constructor(
      * already active.
      */
     fun maybeStartQrLoginAutomatically() {
+        if (supportsReadOnlyRevalidation &&
+            (_authHealth.value == AuthHealth.UNVERIFIED || _authHealth.value == AuthHealth.EXPIRED)
+        ) return
         if (
             qrProvider != null &&
             !_connected.value &&
