@@ -261,6 +261,11 @@
     <string name="provider_taygedo_community_name">Taygedo community check-in</string>
     <string name="provider_taygedo_community_description">Completes daily Taygedo app and Neverness to Everness community check-ins and reads task status; no automatic likes or shares.</string>
     <string name="provider_taygedo_community_category">Community</string>
+    <string name="provider_taptap_name">TapTap game check-in</string>
+    <string name="provider_taptap_description">Opens the known TapTap game-sign event and clicks only its check-in button. Enable Checky in Android Settings &gt; Accessibility first.</string>
+    <string name="provider_taptap_category">Gaming</string>
+    <string name="accessibility_service_label">Checky TapTap check-in</string>
+    <string name="accessibility_service_description">Used only during a Checky-started TapTap check-in run. It reads the TapTap game-sign page and performs at most one check-in click.</string>
     <string name="settings_auto_diagnostics">Auto check-in diagnostics</string>
     <string name="settings_auto_diagnostics_next_planned">Next planned</string>
     <string name="settings_auto_diagnostics_disabled">Disabled</string>

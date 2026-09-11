@@ -17,6 +17,7 @@ fun localizedProviderName(meta: ProviderMeta): String = when (meta.id) {
     "miyoushe_zzz_experimental" -> stringResource(R.string.provider_miyoushe_zzz_name)
     "taygedo_nte" -> stringResource(R.string.provider_taygedo_nte_name)
     "taygedo_community" -> stringResource(R.string.provider_taygedo_community_name)
+    "taptap_game_sign" -> stringResource(R.string.provider_taptap_name)
     else -> meta.displayName
 }
 
@@ -27,6 +28,7 @@ fun localizedProviderDescription(meta: ProviderMeta): String = when (meta.id) {
     "miyoushe_zzz_experimental" -> stringResource(R.string.provider_miyoushe_zzz_description)
     "taygedo_nte" -> stringResource(R.string.provider_taygedo_nte_description)
     "taygedo_community" -> stringResource(R.string.provider_taygedo_community_description)
+    "taptap_game_sign" -> stringResource(R.string.provider_taptap_description)
     else -> meta.description
 }
 
@@ -37,5 +39,6 @@ fun localizedProviderCategory(meta: ProviderMeta): String = when (meta.id) {
     "miyoushe_zzz_experimental" -> stringResource(R.string.provider_miyoushe_zzz_category)
     "taygedo_nte" -> stringResource(R.string.provider_taygedo_nte_category)
     "taygedo_community" -> stringResource(R.string.provider_taygedo_community_category)
+    "taptap_game_sign" -> stringResource(R.string.provider_taptap_category)
     else -> meta.category
 }

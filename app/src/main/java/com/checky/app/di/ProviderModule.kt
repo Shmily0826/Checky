@@ -10,6 +10,7 @@ import com.checky.app.domain.providers.MiyousheZzzProvider
 import com.checky.app.domain.providers.TaygedoClient
 import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
+import com.checky.app.domain.providers.TapTapProvider
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -44,7 +45,8 @@ object ProviderModule {
             MiyousheCommunityProvider(context, credentialStore, httpClient),
             MiyousheZzzProvider(context, credentialStore, httpClient),
             TaygedoNteProvider(taygedo),
-            TaygedoCommunityProvider(taygedo)
+            TaygedoCommunityProvider(taygedo),
+            TapTapProvider(context)
         )
     }
 }

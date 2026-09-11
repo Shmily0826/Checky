@@ -26,16 +26,24 @@ apps and services into one friendly dashboard, then triggers them with one tap.
 
 ## Current status
 
-- **Four implemented production providers**: Miyoushe Genshin sign-in,
-  Miyoushe community sign-in, Taygedo NTE game sign-in, and Taygedo community
-  sign-in (APP + section). Historical live verification of these four flows was
-  recorded on 2026-08-30 using the owner's accounts; it is date- and
-  account-scoped evidence, not a current availability guarantee. They use
-  non-official HTTP surfaces, may stop working after platform changes, and
-  perform no likes, comments, shares, redemptions, CAPTCHA handling, or
-  risk-control workarounds.
+- **Five implemented production providers**: Miyoushe Genshin sign-in,
+  Miyoushe community sign-in, Taygedo NTE game sign-in, Taygedo community
+  sign-in (APP + section), and a bounded TapTap game-sign provider. Historical
+  live verification of the four HTTP providers was recorded on 2026-08-30 using
+  the owner's accounts; it is date- and account-scoped evidence, not a current
+  availability guarantee. They use non-official HTTP surfaces, may stop
+  working after platform changes, and perform no likes, comments, shares,
+  redemptions, CAPTCHA handling, or risk-control workarounds.
 - No cloud account, no sync, no remote credential storage, no analytics.
-- High-risk providers (UI automation) are out of scope entirely.
+- TapTap is the sole narrow UI-assisted exception: during a pending Checky
+  TapTap run, a user-enabled AccessibilityService observes only `com.taptap`,
+  recognizes the expected game-sign page, waits for recognized settling states,
+  and permits at most one check-in click. Auth, verification, ambiguous, and
+  malformed states fail closed; arbitrary-app automation is out of scope.
+- TapTap currently targets one fixed, verified game-sign event URL. Its physical
+  AlreadyCompleted path is verified; the real Ready -> click -> Success path is
+  not yet live-verified. A different or new event URL requires a provider update
+  or separate discovery work.
 - Credentials use the **Keystore-backed encrypted** implementation. The
   in-memory mock store remains available for JVM tests only.
 - Optional daily **reminder** via WorkManager, plus an explicitly opt-in
@@ -84,7 +92,7 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 |---|---|
 | **Onboarding** | Explains local-first privacy, that not every service is supported, to connect only your own accounts, and that services may break after platform changes. |
 | **Home dashboard** | Date, done/remaining/attention counts, reward summary, big "Check in all" button (with progress + Cancel), per-service cards with live status/reward/retry/reconnect. |
-| **Add services** | Catalog of the four real providers with connection type, risk level and credential type; every experimental provider is explicitly marked high risk. |
+| **Add services** | Catalog of the five real providers with connection type, risk level and credential type; every experimental provider is explicitly marked high risk. |
 | **Connect provider** | Explains what data is required and where it is stored; hidden-by-default secret field, validation before save, per-provider delete, FLAG_SECURE. |
 | **History** | Date, provider, status, reward, duration, safe diagnostic code; clear-history action. |
 | **Settings** | Theme, daily reminder (time picker), run mode (parallel ≤3 / sequential), background-reliability health card, clear history, **delete all credentials**, privacy & security explanation. |
@@ -95,12 +103,12 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 - Credentials: provider-scoped or explicitly shared provider-family storage through `CredentialStore`; the production implementation is **Android Keystore AES-256/GCM**; never logged, never backed up (`allowBackup=false`). Miyoushe Genshin and Miyoushe community sessions are separate; both Taygedo providers share `taygedo.shared.session`.
 - Network: **HTTPS only**, per-provider **host allowlist**, and a **redacting interceptor** (Authorization, Cookie, tokens, API keys…); body logging is disabled in release. The experimental providers use direct OkHttp calls and remain subject to upstream API changes.
 - Provider state is fail-closed: malformed, unknown, ambiguous, expired, or verification-required results stop the relevant mutation flow and surface reconnect/action-needed guidance.
-- No AccessibilityService, no cross-app control, no root, no CAPTCHA/anti-bot bypass, no automated financial actions — **explicitly out of scope**.
+- No arbitrary AccessibilityService or silent cross-app control: the sole narrow exception is the user-enabled, pending-run TapTap game-sign service restricted to `com.taptap` and the expected page/state markers. Root, CAPTCHA/anti-bot bypass, verification bypass, and automated financial actions remain **explicitly out of scope**.
 - Credential screens use FLAG_SECURE; no analytics or crash reporting.
 
 ## What is intentionally not supported
 
-- UI-automation providers and any form of silent cross-app control.
+- Arbitrary UI-automation providers and any form of silent cross-app control; TapTap is limited to the bounded exception described above.
 - Any check-in that is not a deterministic action from the foreground flow or the user's explicit opt-in background schedule.
 - Purchases, redemptions, lotteries, posting, messaging, or financial actions.
 - Bypassing platform verification, CAPTCHA, or anti-abuse systems.

@@ -260,6 +260,11 @@
     <string name="provider_taygedo_community_name">塔吉多社区签到</string>
     <string name="provider_taygedo_community_description">完成塔吉多 App 与异环版区每日签到，并读取任务状态；不自动点赞、不分享。</string>
     <string name="provider_taygedo_community_category">社区</string>
+    <string name="provider_taptap_name">TapTap 游戏签到</string>
+    <string name="provider_taptap_description">打开已知 TapTap 游戏签到活动，只点击签到按钮。使用前请先在 Android 设置 &gt; 无障碍中启用 Checky。</string>
+    <string name="provider_taptap_category">游戏</string>
+    <string name="accessibility_service_label">Checky TapTap 签到</string>
+    <string name="accessibility_service_description">仅在 Checky 发起 TapTap 签到时使用：读取 TapTap 游戏签到页面，并最多执行一次签到点击。</string>
     <string name="connect_error_verification_failed">凭据未能通过验证，请重试或重新连接。</string>
     <string name="settings_auto_diagnostics">自动签到诊断</string>
     <string name="settings_auto_diagnostics_next_planned">下一次计划</string>

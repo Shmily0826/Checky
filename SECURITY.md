@@ -13,7 +13,7 @@ trusts, what it protects, and what it deliberately refuses to do.
 | Android Keystore | ✅ Yes | Encryption keys never leave secure hardware / the Keystore. |
 | Third-party services you connect | ⚠️ Conditional | Only through the provider's declared API hosts, HTTPS only, only on explicit user action. |
 | The cloud | ❌ No | No cloud account, no remote storage, no sync, no backend. |
-| Other apps on the device | ❌ No | Checky never reads another app's credentials, never uses AccessibilityService, never controls other apps. |
+| Other apps on the device | ⚠️ Narrow exception | Checky never reads another app's credentials. A user-enabled AccessibilityService may observe only `com.taptap` during a pending TapTap game-sign run and may perform at most one allowlisted check-in click on the expected page. |
 | Advertisers / analytics | ❌ No | No analytics, no crash reporting, no ads, no trackers. |
 
 The user is always in control: foreground check-ins are deterministic actions
@@ -61,7 +61,7 @@ manually. This check does not authenticate, contact, or mutate a Provider.
 
 - ❌ Bypass CAPTCHA, anti-bot systems, device verification, or platform security.
 - ❌ Automate purchases, redemptions, lotteries, posting, messaging, or financial actions.
-- ❌ Use AccessibilityService or silently open/control other applications.
+- ❌ Use AccessibilityService or silently open/control arbitrary other applications. The sole narrow exception is the user-enabled TapTap game-sign service, restricted to `com.taptap`, the expected page/state markers, one pending run, and at most one check-in click.
 - ❌ Read credentials belonging to other installed apps.
 - ❌ Use root or debugger hooks.
 - ❌ Store or transmit any credential off-device.
@@ -80,11 +80,13 @@ manually. This check does not authenticate, contact, or mutate a Provider.
 
 The production catalog contains four non-official, high-risk HTTP-session
 providers: Miyoushe Genshin sign-in, Miyoushe community sign-in, Taygedo NTE
-game sign-in, and Taygedo community sign-in. Dated live verification for these
-four providers, plus associated login/session and fail-closed checks, is
-recorded in `TEST_REPORT.md`; it is evidence for that tested scope and date,
-not a guarantee of continued upstream availability. The latest emulator
-acceptance did not perform live Provider authentication or mutation.
+game sign-in, and Taygedo community sign-in, plus one bounded TapTap
+UI-assisted game-sign provider. Dated live verification for the four HTTP
+providers, plus associated login/session and fail-closed checks, is recorded in
+`TEST_REPORT.md`; it is evidence for that tested scope and date, not a
+guarantee of continued upstream availability. The TapTap physical
+AlreadyCompleted path is verified for its fixed event; the real Ready -> click
+-> Success path is not yet live-verified.
 
 All providers store credentials locally and do not implement likes, comments,
 shares, follows, posts, redemptions, CAPTCHA handling, or risk-control
