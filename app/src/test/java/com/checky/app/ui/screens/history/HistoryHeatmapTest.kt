@@ -17,7 +17,12 @@ class HistoryHeatmapTest {
     private fun timestamp(date: LocalDate, hour: Int = 12) =
         date.atStartOfDay(zone).plusHours(hour.toLong()).toInstant().toEpochMilli()
 
-    private fun record(date: LocalDate, status: CheckInStatus, serviceId: String = "svc") =
+    private fun record(
+        date: LocalDate,
+        status: CheckInStatus,
+        serviceId: String = "svc",
+        hour: Int = 12
+    ) =
         CheckInRecord(
             id = "$serviceId-${date}-${status.name}",
             serviceId = serviceId,
@@ -27,7 +32,7 @@ class HistoryHeatmapTest {
             message = "",
             diagnosticCode = "",
             durationMs = 0L,
-            timestamp = timestamp(date)
+            timestamp = timestamp(date, hour)
         )
 
     @Test
@@ -64,6 +69,32 @@ class HistoryHeatmapTest {
             val cell = HistoryHeatmap.computeCells(records, today = today, days = 1).single()
             assertEquals("status $status must mark the day bad", DayQuality.BAD, cell.quality)
         }
+    }
+
+    @Test
+    fun laterSuccessForSameServiceMakesDayGood() {
+        val records = listOf(
+            record(today, CheckInStatus.FAILED, hour = 9),
+            record(today, CheckInStatus.SUCCESS, hour = 10)
+        )
+
+        val cell = HistoryHeatmap.computeCells(records, today = today, days = 1).single()
+
+        assertEquals(DayQuality.GOOD, cell.quality)
+        assertEquals(2, cell.recordCount)
+    }
+
+    @Test
+    fun latestFailureForAnotherServiceKeepsDayBad() {
+        val records = listOf(
+            record(today, CheckInStatus.FAILED, hour = 9),
+            record(today, CheckInStatus.SUCCESS, hour = 10),
+            record(today, CheckInStatus.FAILED, serviceId = "other", hour = 11)
+        )
+
+        val cell = HistoryHeatmap.computeCells(records, today = today, days = 1).single()
+
+        assertEquals(DayQuality.BAD, cell.quality)
     }
 
     @Test

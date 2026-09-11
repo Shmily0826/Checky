@@ -30,9 +30,15 @@ object HistoryHeatmap {
         return (0 until days).map { offset ->
             val date = startDate.plusDays(offset.toLong())
             val dayRecords = byDate[date].orEmpty()
+            val latestByService = dayRecords
+                .groupBy { it.serviceId }
+                .values
+                .map { serviceRecords -> serviceRecords.maxBy { it.timestamp } }
             val quality = when {
-                dayRecords.isEmpty() -> DayQuality.EMPTY
-                dayRecords.any { it.status != CheckInStatus.SUCCESS && it.status != CheckInStatus.ALREADY_CHECKED_IN } ->
+                latestByService.isEmpty() -> DayQuality.EMPTY
+                latestByService.any {
+                    it.status != CheckInStatus.SUCCESS && it.status != CheckInStatus.ALREADY_CHECKED_IN
+                } ->
                     DayQuality.BAD
                 else -> DayQuality.GOOD
             }
