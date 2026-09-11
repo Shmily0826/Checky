@@ -1,5 +1,6 @@
 package com.checky.app.data.work
 
+import androidx.test.core.app.ApplicationProvider
 import com.checky.app.domain.FakeCredentialStore
 import com.checky.app.domain.FakeAuthHealthStore
 import com.checky.app.domain.AuthHealth
@@ -15,19 +16,30 @@ import com.checky.app.data.preferences.AutoCheckInDiagnostics
 import com.checky.app.data.preferences.AutoCheckInDiagnosticsStore
 import com.checky.app.domain.testProviderMeta
 import com.checky.app.data.preferences.UserPreferences
+import com.checky.app.domain.providers.TaygedoClient
+import com.checky.app.domain.providers.TaygedoCommunityProvider
+import com.checky.app.domain.providers.TaygedoNteProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.fail
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import androidx.work.Data
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
 import java.time.ZoneId
 
+@RunWith(RobolectricTestRunner::class)
 class AutoCheckInWorkerTest {
     @Test
     fun onlySchedulerInputEnablesDailySelfReschedule() {
@@ -128,6 +140,91 @@ class AutoCheckInWorkerTest {
             listOf("auth"),
             selectExecutableProviders(setOf("auth"), providers, credentials, health).map { it.meta.id }
         )
+    }
+
+    @Test
+    fun taygedoValidRevalidatesBeforeSelection() = runTest {
+        val fixture = taygedoSelectionFixture()
+        fixture.health.set(TaygedoClient.SESSION_KEY, AuthHealth.VALID)
+
+        assertEquals(
+            listOf(fixture.nte),
+            selectExecutableProviders(
+                setOf(fixture.nte.meta.id),
+                listOf(fixture.nte),
+                fixture.credentials,
+                fixture.health
+            )
+        )
+        assertEquals(1, fixture.requests.size)
+    }
+
+    @Test
+    fun taygedoValidFailedPreflightIsExcluded() = runTest {
+        val fixture = taygedoSelectionFixture(503 to "")
+        fixture.health.set(TaygedoClient.SESSION_KEY, AuthHealth.VALID)
+
+        assertEquals(
+            emptyList<TaygedoNteProvider>(),
+            selectExecutableProviders(
+                setOf(fixture.nte.meta.id),
+                listOf(fixture.nte),
+                fixture.credentials,
+                fixture.health
+            )
+        )
+        assertEquals(1, fixture.requests.size)
+    }
+
+    @Test
+    fun sharedTaygedoOwnerUsesOnePreflightDecisionForBothServices() = runTest {
+        val success = taygedoSelectionFixture()
+        success.health.set(TaygedoClient.SESSION_KEY, AuthHealth.VALID)
+        assertEquals(
+            listOf(success.nte, success.community),
+            selectExecutableProviders(
+                setOf(success.nte.meta.id, success.community.meta.id),
+                listOf(success.nte, success.community),
+                success.credentials,
+                success.health
+            )
+        )
+        assertEquals(1, success.requests.size)
+
+        val failure = taygedoSelectionFixture(503 to "")
+        failure.health.set(TaygedoClient.SESSION_KEY, AuthHealth.VALID)
+        assertEquals(
+            emptyList<TaygedoNteProvider>(),
+            selectExecutableProviders(
+                setOf(failure.nte.meta.id, failure.community.meta.id),
+                listOf(failure.nte, failure.community),
+                failure.credentials,
+                failure.health
+            )
+        )
+        assertEquals(1, failure.requests.size)
+    }
+
+    @Test
+    fun expiredTaygedoRecoveryStillSelectsAfterRefresh() = runTest {
+        val fixture = taygedoSelectionFixture(
+            200 to "{\"code\":401}",
+            200 to "{\"code\":0,\"data\":{\"accessToken\":\"rotated-access\",\"refreshToken\":\"rotated-refresh\"}}",
+            200 to "{\"code\":0,\"data\":{},\"msg\":\"ok\",\"ok\":true}"
+        )
+        fixture.health.set(TaygedoClient.SESSION_KEY, AuthHealth.EXPIRED)
+
+        assertEquals(
+            listOf(fixture.nte),
+            selectExecutableProviders(
+                setOf(fixture.nte.meta.id),
+                listOf(fixture.nte),
+                fixture.credentials,
+                fixture.health
+            )
+        )
+        assertEquals(AuthHealth.VALID, fixture.health.get(TaygedoClient.SESSION_KEY))
+        assertEquals(3, fixture.requests.size)
     }
 
     @Test
@@ -264,6 +361,55 @@ class AutoCheckInWorkerTest {
         lastReward = null,
         lastMessage = null,
         lastTimestamp = null
+    )
+}
+
+private data class TaygedoSelectionFixture(
+    val credentials: FakeCredentialStore,
+    val health: FakeAuthHealthStore,
+    val requests: MutableList<String>,
+    val nte: TaygedoNteProvider,
+    val community: TaygedoCommunityProvider
+)
+
+private suspend fun taygedoSelectionFixture(
+    vararg responses: Pair<Int, String>
+): TaygedoSelectionFixture {
+    val credentials = FakeCredentialStore().also {
+        it.save(
+            TaygedoClient.SESSION_KEY,
+            "{\"accessToken\":\"synthetic-access\",\"refreshToken\":\"synthetic-refresh\",\"uid\":\"1\",\"deviceId\":\"synthetic-device\"}"
+        )
+    }
+    val health = FakeAuthHealthStore()
+    val requests = mutableListOf<String>()
+    val responseList = responses.toList().ifEmpty {
+        listOf(200 to "{\"code\":0,\"data\":{},\"msg\":\"ok\",\"ok\":true}")
+    }
+    var index = 0
+    val interceptor = Interceptor { chain ->
+        requests += chain.request().url.encodedPath
+        val (code, body) = responseList[index.coerceAtMost(responseList.lastIndex)]
+        index++
+        Response.Builder()
+            .request(chain.request())
+            .protocol(Protocol.HTTP_1_1)
+            .code(code)
+            .message("synthetic")
+            .body(body.toResponseBody())
+            .build()
+    }
+    val client = TaygedoClient(
+        ApplicationProvider.getApplicationContext(),
+        credentials,
+        OkHttpClient.Builder().addInterceptor(interceptor).build()
+    )
+    return TaygedoSelectionFixture(
+        credentials,
+        health,
+        requests,
+        TaygedoNteProvider(client),
+        TaygedoCommunityProvider(client)
     )
 }
 

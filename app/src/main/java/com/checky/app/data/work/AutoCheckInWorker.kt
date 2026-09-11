@@ -285,20 +285,26 @@ internal suspend fun selectExecutableProviders(
     credentials: CredentialStore,
     authHealthStore: AuthHealthStore = com.checky.app.domain.NoOpAuthHealthStore
 ): List<CheckInProvider> {
-    val attemptedRecoveryOwners = mutableSetOf<String>()
-    return providers.filter {
-    if (it.meta.id !in enabledIds) {
-        false
-    } else {
-        when (ProviderConnectionGate.health(it, credentials, authHealthStore)) {
-            com.checky.app.domain.AuthHealth.VALID -> true
-            com.checky.app.domain.AuthHealth.EXPIRED ->
-                it is TaygedoProvider &&
-                    attemptedRecoveryOwners.add(it.credentialOwnerId) &&
-                    it.recoverExpiredSession(authHealthStore)
-            else -> false
+    val taygedoPreflightByOwner = mutableMapOf<String, Boolean>()
+    return providers.filter { provider ->
+        if (provider.meta.id !in enabledIds) {
+            false
+        } else {
+            val health = ProviderConnectionGate.health(provider, credentials, authHealthStore)
+            when {
+                provider is TaygedoProvider &&
+                    (health == com.checky.app.domain.AuthHealth.VALID ||
+                        health == com.checky.app.domain.AuthHealth.EXPIRED) -> {
+                    val owner = provider.credentialOwnerId
+                    if (owner !in taygedoPreflightByOwner) {
+                        taygedoPreflightByOwner[owner] = provider.recoverExpiredSession(authHealthStore)
+                    }
+                    taygedoPreflightByOwner.getValue(owner)
+                }
+                health == com.checky.app.domain.AuthHealth.VALID -> true
+                else -> false
+            }
         }
-    }
     }
 }
 
