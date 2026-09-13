@@ -119,9 +119,9 @@
     <string name="background_open_app_settings">Open Checky app settings</string>
     <string name="add_services_title">Add services</string>
     <string name="add_connectable_services">Connectable services</string>
-    <string name="add_services_description">Checky supports these services today. Toggle the ones to include in “Check in all”.</string>
+    <string name="add_services_description">Enable the services to include in “Check in all”.</string>
     <string name="add_not_supported">Not supported yet</string>
-    <string name="add_not_supported_description">High-risk integrations (UI automation) are not available in this version.</string>
+    <string name="add_not_supported_description">These services are not available yet.</string>
     <string name="add_connect_reconnect">Connect / reconnect</string>
     <string name="connection_official_api">Official API</string>
     <string name="connection_session_credential">Session credential</string>

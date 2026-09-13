@@ -40,7 +40,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.checky.app.domain.model.ConnectionType
 import com.checky.app.domain.model.CredentialType
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.RiskLevel
@@ -182,11 +181,9 @@ private fun ProviderRow(
                     Switch(checked = enabled, onCheckedChange = onToggle)
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                MetaChip(connectionLabel(meta.connectionType), Color(0xFF2F6FED))
+            if (!locked) {
+                Spacer(modifier = Modifier.height(8.dp))
                 MetaChip(riskLabel(meta.riskLevel), riskColor(meta.riskLevel))
-                MetaChip(credentialLabel(meta.credentialType), Color(0xFF6B7280))
             }
             if (onConnect != null) {
                 androidx.compose.material3.OutlinedButton(
@@ -227,13 +224,6 @@ private fun NotSupportedChip() {
 }
 
 @Composable
-private fun connectionLabel(type: ConnectionType): String = when (type) {
-    ConnectionType.OFFICIAL_API -> stringResource(R.string.connection_official_api)
-    ConnectionType.HTTP_SESSION -> stringResource(R.string.connection_session_credential)
-    ConnectionType.UI_ASSISTED -> stringResource(R.string.connection_ui_automation)
-}
-
-@Composable
 private fun riskLabel(risk: RiskLevel): String = when (risk) {
     RiskLevel.LOW -> stringResource(R.string.risk_low)
     RiskLevel.MEDIUM -> stringResource(R.string.risk_medium)
@@ -244,13 +234,6 @@ private fun riskColor(risk: RiskLevel): Color = when (risk) {
     RiskLevel.LOW -> Color(0xFF1B8A4E)
     RiskLevel.MEDIUM -> Color(0xFFB45309)
     RiskLevel.HIGH -> Color(0xFFC62828)
-}
-
-@Composable
-private fun credentialLabel(type: CredentialType): String = when (type) {
-    CredentialType.NONE -> stringResource(R.string.credentials_none)
-    CredentialType.OAUTH -> stringResource(R.string.credentials_oauth)
-    CredentialType.SESSION_TOKEN -> stringResource(R.string.credentials_session)
 }
 
 @Preview

@@ -208,8 +208,8 @@ class MiyousheCommunityProvider(
             MiyousheCommunityPreflight.Incomplete -> runCheckIn(cookie)
             MiyousheCommunityPreflight.VerificationRequired ->
                 CheckInOutcome.ActionRequired(
-                    "米游社要求官方验证，请在官方 App 处理后再试。",
-                    "MIYOUSHE_COMMUNITY_VERIFICATION"
+                    "米游社接口请求需要验证码或风控验证，或暂时受限；连接凭据可能仍然有效，官方 App 不一定会显示提示。请稍后再试。",
+                    "MIYOUSHE_COMMUNITY_PREFLIGHT_VERIFICATION"
                 )
             MiyousheCommunityPreflight.AuthExpired -> when (val renewed = renewCommunityCookie(cookie)) {
                 MiyousheCommunityRenewal.MissingRoot -> CheckInOutcome.AuthenticationExpired(
@@ -232,8 +232,8 @@ class MiyousheCommunityProvider(
                     }
                     MiyousheCommunityPreflight.VerificationRequired ->
                         CheckInOutcome.ActionRequired(
-                            "米游社要求官方验证，请在官方 App 处理后再试。",
-                            "MIYOUSHE_COMMUNITY_VERIFICATION"
+                            "米游社接口请求需要验证码或风控验证，或暂时受限；连接凭据可能仍然有效，官方 App 不一定会显示提示。请稍后再试。",
+                            "MIYOUSHE_COMMUNITY_PREFLIGHT_VERIFICATION"
                         )
                     MiyousheCommunityPreflight.AuthExpired -> CheckInOutcome.AuthenticationExpired(
                         "米游社会话已失效，请重新扫码连接。",
@@ -758,11 +758,20 @@ internal fun mapMiyousheCommunityFields(
                 "米游社会话已失效，请重新扫码连接。",
                 "MIYOUSHE_COMMUNITY_AUTH_EXPIRED"
             )
-        retcode == 1034 || message.contains("验证") || message.contains("风险") ||
-            message.contains("captcha", ignoreCase = true) ->
+        retcode == 1034 ->
             CheckInOutcome.ActionRequired(
-                "米游社要求官方验证，请在官方 App 处理后再试。",
-                "MIYOUSHE_COMMUNITY_VERIFICATION"
+                "米游社接口请求需要验证码或风控验证，或暂时受限；连接凭据可能仍然有效，官方 App 不一定会显示提示。请稍后再试。",
+                "MIYOUSHE_COMMUNITY_VERIFICATION_RETCODE_1034"
+            )
+        message.contains("验证") || message.contains("风险") ->
+            CheckInOutcome.ActionRequired(
+                "米游社接口请求需要验证码或风控验证，或暂时受限；连接凭据可能仍然有效，官方 App 不一定会显示提示。请稍后再试。",
+                "MIYOUSHE_COMMUNITY_VERIFICATION_CN_MARKER"
+            )
+        message.contains("captcha", ignoreCase = true) ->
+            CheckInOutcome.ActionRequired(
+                "米游社接口请求需要验证码或风控验证，或暂时受限；连接凭据可能仍然有效，官方 App 不一定会显示提示。请稍后再试。",
+                "MIYOUSHE_COMMUNITY_VERIFICATION_CAPTCHA"
             )
         else -> CheckInOutcome.TemporaryFailure(
             "米游社讨论区签到失败（错误码 $retcode），请稍后重试。",

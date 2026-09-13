@@ -172,6 +172,17 @@ class ProviderParsingTest {
             """{"retcode":1034,"message":"需要验证"}"""
         )
         assertEquals(CheckInOutcome.ActionRequired("action").status, verification.status)
+        assertEquals("MIYOUSHE_COMMUNITY_VERIFICATION_RETCODE_1034", verification.diagnosticCode)
+
+        val chineseMarker = mapMiyousheCommunityResponse(
+            """{"retcode":999,"message":"风险验证"}"""
+        )
+        assertEquals("MIYOUSHE_COMMUNITY_VERIFICATION_CN_MARKER", chineseMarker.diagnosticCode)
+
+        val captchaMarker = mapMiyousheCommunityResponse(
+            """{"retcode":999,"message":"captcha"}"""
+        )
+        assertEquals("MIYOUSHE_COMMUNITY_VERIFICATION_CAPTCHA", captchaMarker.diagnosticCode)
 
         val rejected = mapMiyousheCommunityResponse(
             """{"retcode":999,"message":"拒绝"}"""

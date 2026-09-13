@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
@@ -412,35 +411,29 @@ private fun CheckInAllButton(
     onClick: () -> Unit,
     onCancel: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Button(
-                onClick = onClick,
-                enabled = !isRunning && total > 0,
-                modifier = Modifier.fillMaxWidth().height(52.dp)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Button(
+            onClick = onClick,
+            enabled = !isRunning && total > 0,
+            modifier = Modifier.fillMaxWidth().height(52.dp)
+        ) {
+            Text(
+                text = if (isRunning) stringResource(R.string.home_checking_in, doneCount, total) else stringResource(R.string.home_check_in_all),
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+        if (isRunning) {
+            Spacer(modifier = Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = { overall.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(MaterialTheme.shapes.small)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
             ) {
-                Text(
-                    text = if (isRunning) stringResource(R.string.home_checking_in, doneCount, total) else stringResource(R.string.home_check_in_all),
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-            if (isRunning) {
-                Spacer(modifier = Modifier.height(10.dp))
-                LinearProgressIndicator(
-                    progress = { overall.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(MaterialTheme.shapes.small)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    androidx.compose.material3.TextButton(onClick = onCancel) {
-                        Text(stringResource(R.string.home_cancel))
-                    }
+                androidx.compose.material3.TextButton(onClick = onCancel) {
+                    Text(stringResource(R.string.home_cancel))
                 }
             }
         }

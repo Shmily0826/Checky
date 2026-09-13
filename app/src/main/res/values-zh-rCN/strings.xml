@@ -119,9 +119,9 @@
     <string name="background_open_app_settings">打开 Checky 应用设置</string>
     <string name="add_services_title">添加服务</string>
     <string name="add_connectable_services">可连接的服务</string>
-    <string name="add_services_description">Checky 目前支持这些服务。打开需要加入“全部签到”的服务。</string>
+    <string name="add_services_description">开启需要加入“全部签到”的服务。</string>
     <string name="add_not_supported">暂不支持</string>
-    <string name="add_not_supported_description">高风险集成（界面自动化）在此版本中不可用。</string>
+    <string name="add_not_supported_description">这些服务暂不可用。</string>
     <string name="add_connect_reconnect">连接 / 重新连接</string>
     <string name="connection_official_api">官方 API</string>
     <string name="connection_session_credential">会话凭据</string>
