@@ -1,7 +1,9 @@
 package com.checky.app.di
 
 import android.content.Context
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
+import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.security.MockCredentialStore
 import com.checky.app.domain.CheckInProvider
 import okhttp3.OkHttpClient
@@ -10,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -41,10 +44,18 @@ class ProviderModuleTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val credentials = MockCredentialStore()
         val httpClient = OkHttpClient()
+        val preferences = UserPreferencesRepository(
+            PreferenceDataStoreFactory.create {
+                File.createTempFile("checky_provider_module", ".preferences_pb").apply {
+                    deleteOnExit()
+                }
+            }
+        )
         return ProviderModule.provideProviders(
             context = context,
             credentialStore = credentials,
-            httpClient = httpClient
+            httpClient = httpClient,
+            userPreferencesRepository = preferences
         )
     }
 }

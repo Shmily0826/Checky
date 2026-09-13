@@ -5,11 +5,14 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.view.accessibility.AccessibilityManager
 import com.checky.app.accessibility.TAPTAP_PACKAGE
 import com.checky.app.accessibility.TapTapAutomationCoordinator
 import com.checky.app.accessibility.TapTapRunResult
 import com.checky.app.accessibility.TapTapAccessibilityService
+import com.checky.app.MainActivity
+import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.CredentialValidation
@@ -25,11 +28,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.time.ZoneId
 
-class TapTapProvider(private val context: Context) : CheckInProvider {
+class TapTapProvider(
+    private val context: Context,
+    private val userPreferencesRepository: UserPreferencesRepository
+) : CheckInProvider {
     override val meta: ProviderMeta = META
 
     override suspend fun validateCredentials(secret: String): CredentialValidation =
@@ -58,9 +65,17 @@ class TapTapProvider(private val context: Context) : CheckInProvider {
             )
         }
 
-        val run = TapTapAutomationCoordinator.begin() ?: return unknown("TAPTAP_RUN_BUSY")
+        val eventUrl = resolveConfiguredEventUrl(
+            userPreferencesRepository.preferences.first().tapTapEventUrl
+        )
+            ?: return unknown("TAPTAP_INVALID_EVENT_URL")
+
+        val run = TapTapAutomationCoordinator.begin {
+            requestCheckyForeground(context)
+        } ?: return unknown("TAPTAP_RUN_BUSY")
+        Log.d(TAG, "provider run begin")
         try {
-            val intent = Intent(Intent.ACTION_VIEW, buildDeepLink(DEFAULT_EVENT_URL)).apply {
+            val intent = Intent(Intent.ACTION_VIEW, buildDeepLink(eventUrl)).apply {
                 setPackage(TAPTAP_PACKAGE)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -81,6 +96,7 @@ class TapTapProvider(private val context: Context) : CheckInProvider {
                 TapTapRunResult.UNKNOWN -> unknown("TAPTAP_UNKNOWN")
             }
         } catch (_: TimeoutCancellationException) {
+            Log.d(TAG, "provider run timeout")
             return unknown("TAPTAP_TIMEOUT")
         } catch (_: ActivityNotFoundException) {
             return CheckInOutcome.Unsupported(
@@ -92,6 +108,7 @@ class TapTapProvider(private val context: Context) : CheckInProvider {
         } catch (_: Exception) {
             return unknown("TAPTAP_UNKNOWN")
         } finally {
+            Log.d(TAG, "provider run end")
             TapTapAutomationCoordinator.clear(run)
         }
     }
@@ -104,11 +121,27 @@ class TapTapProvider(private val context: Context) : CheckInProvider {
         const val ID = "taptap_game_sign"
         const val DEFAULT_EVENT_URL = "https://www.taptap.cn/events/game-sign/7fva1f6e"
         private const val TIMEOUT_MS = 45_000L
+        private const val TAG = "TapTapProvider"
+        private val EVENT_PATH = Regex("^/events/game-sign/[A-Za-z0-9]+$")
+
+        fun isValidEventUrl(eventUrl: String): Boolean {
+            val uri = Uri.parse(eventUrl.trim())
+            return uri.scheme == "https" &&
+                uri.host == "www.taptap.cn" &&
+                uri.path?.matches(EVENT_PATH) == true &&
+                uri.query == null &&
+                uri.fragment == null
+        }
+
+        fun resolveConfiguredEventUrl(configuredEventUrl: String?): String? = when {
+            configuredEventUrl == null -> DEFAULT_EVENT_URL
+            isValidEventUrl(configuredEventUrl) -> configuredEventUrl.trim()
+            else -> null
+        }
 
         fun buildDeepLink(eventUrl: String): Uri {
-            val target = Uri.parse(eventUrl)
-            require(target.scheme == "https" && target.host == "www.taptap.cn") {
-                "TapTap event URL must be an HTTPS www.taptap.cn URL"
+            require(isValidEventUrl(eventUrl)) {
+                "TapTap event URL must be an HTTPS www.taptap.cn game-sign URL"
             }
             return Uri.Builder()
                 .scheme("taptap")
@@ -142,6 +175,22 @@ class TapTapProvider(private val context: Context) : CheckInProvider {
                     serviceInfo?.packageName == context.packageName &&
                         serviceInfo.name == TapTapAccessibilityService::class.java.name
                 }
+        }
+
+        private fun requestCheckyForeground(context: Context) {
+            try {
+                context.startActivity(Intent(context, MainActivity::class.java).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                })
+            } catch (_: ActivityNotFoundException) {
+                // The provider result remains authoritative if the task cannot be surfaced.
+            } catch (_: SecurityException) {
+                // Android background-activity restrictions must not change the check-in result.
+            }
         }
     }
 }

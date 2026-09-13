@@ -61,6 +61,12 @@
     <string name="settings_reminder_description">A daily reminder notification. Nothing runs automatically.</string>
     <string name="settings_time">Time</string>
     <string name="settings_checkin_behavior">Check-in behavior</string>
+    <string name="settings_taptap">TapTap</string>
+    <string name="settings_taptap_event_url">Game-sign event URL</string>
+    <string name="settings_taptap_event_url_description">Stored locally. Use the exact HTTPS TapTap game-sign URL; no discovery or account data is used.</string>
+    <string name="settings_taptap_event_url_save">Save TapTap URL</string>
+    <string name="settings_taptap_event_url_saved">TapTap URL saved</string>
+    <string name="settings_taptap_event_url_invalid">Use an HTTPS www.taptap.cn/events/game-sign/&lt;id&gt; URL without extra query or fragment.</string>
     <string name="settings_automatic_checkin">Automatic check-in</string>
     <string name="settings_automatic_description">Experimental: runs enabled providers in the background. Android and device manufacturers may delay or block background work. Review the Background reliability card when it appears. The MiYouShe provider is unofficial, high risk, and for your own account only.</string>
     <string name="settings_run_around">Run around</string>
@@ -80,7 +86,7 @@
     <string name="settings_protection_title">How Checky protects you</string>
     <string name="privacy_credentials">Credentials are stored on this device only — never uploaded.</string>
     <string name="privacy_logs">Sensitive values are kept out of logs and backups.</string>
-    <string name="privacy_accessibility">Checky never uses AccessibilityService or controls other apps.</string>
+    <string name="privacy_accessibility">Checky does not generically control other apps. The user-enabled TapTap AccessibilityService is used only during a pending TapTap check-in and only for the expected game-sign page and state in com.taptap.</string>
     <string name="privacy_no_tracking">No analytics, no crash reporting, no ads.</string>
     <string name="privacy_own_accounts">Connect only your own accounts; the app may stop working when platforms change.</string>
     <string name="settings_about">About</string>

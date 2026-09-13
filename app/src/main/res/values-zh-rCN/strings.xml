@@ -61,6 +61,12 @@
     <string name="settings_reminder_description">每日发送提醒通知，不会自动运行签到。</string>
     <string name="settings_time">时间</string>
     <string name="settings_checkin_behavior">签到行为</string>
+    <string name="settings_taptap">TapTap</string>
+    <string name="settings_taptap_event_url">签到活动 URL</string>
+    <string name="settings_taptap_event_url_description">仅保存在本机。请输入完整的 HTTPS TapTap 签到活动链接；不会自动发现活动或使用账号数据。</string>
+    <string name="settings_taptap_event_url_save">保存 TapTap URL</string>
+    <string name="settings_taptap_event_url_saved">TapTap URL 已保存</string>
+    <string name="settings_taptap_event_url_invalid">请输入 HTTPS www.taptap.cn/events/game-sign/&lt;id&gt; 链接，且不要包含额外查询参数或片段。</string>
     <string name="settings_automatic_checkin">自动签到</string>
     <string name="settings_automatic_description">实验功能：在后台运行已启用的服务。Android 和设备厂商可能延迟或阻止后台任务。出现“后台运行可靠性”卡片时请查看。米游社服务为非官方高风险接口，仅限本人账号。</string>
     <string name="settings_run_around">运行时间</string>
@@ -80,7 +86,7 @@
     <string name="settings_protection_title">Checky 如何保护你</string>
     <string name="privacy_credentials">凭据仅保存在本机，不会上传。</string>
     <string name="privacy_logs">敏感信息不会写入日志或备份。</string>
-    <string name="privacy_accessibility">Checky 不使用无障碍服务，也不控制其他应用。</string>
+    <string name="privacy_accessibility">Checky 不会通用地控制其他应用。仅在待处理的 TapTap 签到期间，使用用户启用的无障碍服务处理 com.taptap 中预期的游戏签到页面和状态。</string>
     <string name="privacy_no_tracking">无分析、无崩溃报告、无广告。</string>
     <string name="privacy_own_accounts">只连接你自己的账号；平台变更后服务可能停止工作。</string>
     <string name="settings_about">关于</string>

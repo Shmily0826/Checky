@@ -122,6 +122,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { userPreferencesRepository.setCheckInResultNotify(enabled) }
     }
 
+    fun setTapTapEventUrl(url: String) {
+        viewModelScope.launch { userPreferencesRepository.setTapTapEventUrl(url) }
+    }
+
     fun clearHistory() {
         viewModelScope.launch { repository.clearHistory() }
     }

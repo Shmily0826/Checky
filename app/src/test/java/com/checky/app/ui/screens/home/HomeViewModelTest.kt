@@ -1,6 +1,7 @@
 package com.checky.app.ui.screens.home
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.test.core.app.ApplicationProvider
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.domain.FakeCredentialStore
 import com.checky.app.domain.FakeAuthHealthStore
@@ -15,6 +16,9 @@ import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.CheckInStatus
 import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RewardType
+import com.checky.app.domain.providers.TaygedoClient
+import com.checky.app.domain.providers.TaygedoCommunityProvider
+import com.checky.app.domain.providers.TaygedoNteProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
@@ -33,6 +37,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.File
 
 /**
@@ -294,6 +303,54 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         assertEquals(1, provider.attempts)
+    }
+
+    @Test
+    fun checkInAllSkipsTaygedoWhenValidHealthFailsPreflight() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = FakeCredentialStore().also {
+            it.save(
+                TaygedoClient.SESSION_KEY,
+                "{\"accessToken\":\"synthetic-access\",\"refreshToken\":\"synthetic-refresh\",\"uid\":\"1\",\"deviceId\":\"synthetic-device\"}"
+            )
+        }
+        val health = FakeAuthHealthStore().also {
+            it.set(TaygedoClient.SESSION_KEY, AuthHealth.VALID)
+        }
+        val requests = mutableListOf<String>()
+        val client = TaygedoClient(
+            ApplicationProvider.getApplicationContext(),
+            credentials,
+            OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+                requests += chain.request().url.encodedPath
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(503)
+                    .message("synthetic")
+                    .body("".toResponseBody())
+                    .build()
+            }).build()
+        )
+        val providers = listOf(TaygedoNteProvider(client), TaygedoCommunityProvider(client))
+        val repo = FakeCheckInRepository(providers.map { service(it.meta.id) })
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo, credentials, health),
+            credentialStore = credentials,
+            providers = providers,
+            metas = providers.map { it.meta },
+            authHealthStore = health
+        )
+        backgroundScope.launch { vm.services.collect {} }
+        advanceUntilIdle()
+
+        vm.checkInAll()
+        advanceUntilIdle()
+
+        assertEquals(1, requests.size)
+        assertTrue(repo.saved.isEmpty())
     }
 
     @Test

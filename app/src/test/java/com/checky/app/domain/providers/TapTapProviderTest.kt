@@ -8,7 +8,9 @@ import com.checky.app.accessibility.TapTapPageDisposition
 import com.checky.app.accessibility.TapTapPageMatcher
 import com.checky.app.accessibility.TapTapRunResult
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +28,26 @@ class TapTapProviderTest {
         assertEquals("/to", deepLink.path)
         assertEquals(TapTapProvider.DEFAULT_EVENT_URL, deepLink.getQueryParameter("url"))
         assertTrue(deepLink.toString().contains("url=https%3A%2F%2Fwww.taptap.cn%2Fevents%2Fgame-sign%2F7fva1f6e"))
+    }
+
+    @Test
+    fun eventUrlValidationRequiresExactTapTapGameSignPath() {
+        assertTrue(TapTapProvider.isValidEventUrl(TapTapProvider.DEFAULT_EVENT_URL))
+        assertTrue(TapTapProvider.isValidEventUrl(" ${TapTapProvider.DEFAULT_EVENT_URL} "))
+        assertFalse(TapTapProvider.isValidEventUrl("https://www.taptap.cn/events/game-sign/7fva1f6e?x=1"))
+        assertFalse(TapTapProvider.isValidEventUrl("https://www.taptap.cn/events/other/7fva1f6e"))
+        assertFalse(TapTapProvider.isValidEventUrl("https://example.com/events/game-sign/7fva1f6e"))
+        assertFalse(TapTapProvider.isValidEventUrl("taptap://taptap.com/to?url=https%3A%2F%2Fwww.taptap.cn%2Fevents%2Fgame-sign%2F7fva1f6e"))
+    }
+
+    @Test
+    fun missingConfiguredUrlUsesVerifiedDefaultButInvalidConfiguredUrlFailsClosed() {
+        assertEquals(TapTapProvider.DEFAULT_EVENT_URL, TapTapProvider.resolveConfiguredEventUrl(null))
+        assertEquals(
+            TapTapProvider.DEFAULT_EVENT_URL,
+            TapTapProvider.resolveConfiguredEventUrl(" ${TapTapProvider.DEFAULT_EVENT_URL} ")
+        )
+        assertNull(TapTapProvider.resolveConfiguredEventUrl("https://www.taptap.cn/events/game-sign/"))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -67,7 +89,8 @@ class TapTapProviderTest {
 
     @Test
     fun coordinatorConsumesAtMostOneClickAndCompletesOnSuccess() = runBlocking {
-        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        var returnRequests = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin { returnRequests++ })
         try {
             var clicks = 0
             val ready = snapshot(buttons = listOf(button("立即签到", enabled = true, clickable = true)))
@@ -81,6 +104,47 @@ class TapTapProviderTest {
             )
             TapTapAutomationCoordinator.observe(run, success) { false }
             assertEquals(TapTapRunResult.SUCCESS, run.completion.await())
+            assertEquals(1, returnRequests)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun alreadyCompletedRequestsReturnOnceAndNonterminalStatesDoNot() = runBlocking {
+        var returnRequests = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin { returnRequests++ })
+        try {
+            TapTapAutomationCoordinator.observe(run, snapshot(buttons = emptyList())) { error("click not expected") }
+            assertEquals(0, returnRequests)
+
+            val completed = snapshot(
+                texts = listOf("签到领好礼", "已累计签到1天"),
+                buttons = listOf(button("今日已签到", enabled = false, clickable = false))
+            )
+            TapTapAutomationCoordinator.observe(run, completed) { error("click not expected") }
+            TapTapAutomationCoordinator.observe(run, completed) { error("click not expected") }
+
+            assertEquals(TapTapRunResult.ALREADY_COMPLETED, run.completion.await())
+            assertEquals(1, returnRequests)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun unknownDoesNotRequestReturnToChecky() = runBlocking {
+        var returnRequests = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin { returnRequests++ })
+        try {
+            val unknown = snapshot(
+                texts = listOf("签到领好礼", "已累计签到1天", "verification required"),
+                buttons = emptyList()
+            )
+            TapTapAutomationCoordinator.observe(run, unknown) { error("click not expected") }
+
+            assertEquals(TapTapRunResult.UNKNOWN, run.completion.await())
+            assertEquals(0, returnRequests)
         } finally {
             TapTapAutomationCoordinator.clear(run)
         }

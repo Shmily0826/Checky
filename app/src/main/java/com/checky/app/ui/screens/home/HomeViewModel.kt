@@ -168,24 +168,28 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun enabledProviders(): List<CheckInProvider> {
         val enabled = services.value.filter { it.isEnabled }.map { it.serviceId }.toSet()
-        val attemptedRecoveryOwners = mutableSetOf<String>()
+        val taygedoPreflightByOwner = mutableMapOf<String, Boolean>()
         return providers.filter {
-            it.meta.id in enabled && isConnected(it.meta.id, attemptedRecoveryOwners)
+            it.meta.id in enabled && isConnected(it.meta.id, taygedoPreflightByOwner)
         }
     }
 
     private suspend fun isConnected(
         serviceId: String,
-        attemptedRecoveryOwners: MutableSet<String> = mutableSetOf()
+        taygedoPreflightByOwner: MutableMap<String, Boolean> = mutableMapOf()
     ): Boolean {
         val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return false
-        return when (ProviderConnectionGate.health(provider, credentialStore, authHealthStore)) {
-            AuthHealth.VALID -> true
-            AuthHealth.EXPIRED ->
-                provider is TaygedoProvider &&
-                    attemptedRecoveryOwners.add(provider.credentialOwnerId) &&
-                    provider.recoverExpiredSession(authHealthStore)
-            else -> false
+        val health = ProviderConnectionGate.health(provider, credentialStore, authHealthStore)
+        return when {
+            provider is TaygedoProvider &&
+                (health == AuthHealth.VALID || health == AuthHealth.EXPIRED) -> {
+                val owner = provider.credentialOwnerId
+                if (!taygedoPreflightByOwner.containsKey(owner)) {
+                    taygedoPreflightByOwner[owner] = provider.recoverExpiredSession(authHealthStore)
+                }
+                taygedoPreflightByOwner.getValue(owner)
+            }
+            else -> health == AuthHealth.VALID
         }
     }
 

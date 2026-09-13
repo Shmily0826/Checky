@@ -11,6 +11,7 @@ import com.checky.app.domain.providers.TaygedoClient
 import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
 import com.checky.app.domain.providers.TapTapProvider
+import com.checky.app.data.preferences.UserPreferencesRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -36,7 +37,8 @@ object ProviderModule {
     fun provideProviders(
         @dagger.hilt.android.qualifiers.ApplicationContext context: Context,
         credentialStore: CredentialStore,
-        httpClient: okhttp3.OkHttpClient
+        httpClient: okhttp3.OkHttpClient,
+        userPreferencesRepository: UserPreferencesRepository
     ): List<CheckInProvider> {
         val taygedo = TaygedoClient(context, credentialStore, httpClient)
         val miyoushe = MiyousheProvider(context, credentialStore, httpClient)
@@ -46,7 +48,7 @@ object ProviderModule {
             MiyousheZzzProvider(context, credentialStore, httpClient),
             TaygedoNteProvider(taygedo),
             TaygedoCommunityProvider(taygedo),
-            TapTapProvider(context)
+            TapTapProvider(context, userPreferencesRepository)
         )
     }
 }

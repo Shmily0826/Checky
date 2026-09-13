@@ -32,7 +32,9 @@ data class UserPreferences(
     val autoCheckInMinute: Int = 0,
     /** Post a notification with the auto check-in result (success/failure summary). */
     val checkInResultNotify: Boolean = true,
-    val runMode: RunMode = RunMode.PARALLEL
+    val runMode: RunMode = RunMode.PARALLEL,
+    /** Optional local override for the TapTap game-sign event URL. */
+    val tapTapEventUrl: String? = null
 )
 
 @Singleton
@@ -53,7 +55,8 @@ class UserPreferencesRepository @Inject constructor(
                 autoCheckInHour = prefs[KEY_AUTO_HOUR] ?: 3,
                 autoCheckInMinute = prefs[KEY_AUTO_MINUTE] ?: 0,
                 checkInResultNotify = prefs[KEY_RESULT_NOTIFY] ?: true,
-                runMode = RunMode.valueOf(prefs[KEY_RUN_MODE] ?: RunMode.PARALLEL.name)
+                runMode = RunMode.valueOf(prefs[KEY_RUN_MODE] ?: RunMode.PARALLEL.name),
+                tapTapEventUrl = prefs[KEY_TAPTAP_EVENT_URL]
             )
         }
 
@@ -99,6 +102,10 @@ class UserPreferencesRepository @Inject constructor(
         dataStore.edit { it[KEY_RUN_MODE] = mode.name }
     }
 
+    suspend fun setTapTapEventUrl(url: String) {
+        dataStore.edit { it[KEY_TAPTAP_EVENT_URL] = url }
+    }
+
     companion object {
         private val KEY_THEME = stringPreferencesKey("theme_mode")
         private val KEY_ONBOARDING = booleanPreferencesKey("onboarding_complete")
@@ -111,5 +118,6 @@ class UserPreferencesRepository @Inject constructor(
         private val KEY_AUTO_MINUTE = intPreferencesKey("auto_checkin_minute")
         private val KEY_RESULT_NOTIFY = booleanPreferencesKey("checkin_result_notify")
         private val KEY_RUN_MODE = stringPreferencesKey("run_mode")
+        private val KEY_TAPTAP_EVENT_URL = stringPreferencesKey("taptap_event_url")
     }
 }

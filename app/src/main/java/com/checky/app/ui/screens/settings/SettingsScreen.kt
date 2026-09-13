@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,7 +36,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,10 +52,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -75,8 +82,10 @@ import com.checky.app.data.preferences.AutoCheckInDiagnosticOutcome
 import com.checky.app.data.preferences.AutoCheckInDiagnostics
 import com.checky.app.domain.background.BackgroundReliabilityReport
 import com.checky.app.domain.background.BackgroundReliabilityStatus
+import com.checky.app.domain.providers.TapTapProvider
 import com.checky.app.ui.navigation.CheckyBottomBar
 import com.checky.app.ui.theme.CheckyTheme
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -113,6 +122,7 @@ fun SettingsScreen(
         onAutoCheckInTime = viewModel::setAutoCheckInTime,
         onCheckInResultNotify = viewModel::setCheckInResultNotify,
         onRunMode = viewModel::setRunMode,
+        onTapTapEventUrl = viewModel::setTapTapEventUrl,
         onClearHistory = viewModel::clearHistory,
         onDeleteCredentials = viewModel::deleteAllCredentials,
         onShowOnboarding = viewModel::showOnboardingAgain
@@ -145,6 +155,7 @@ private fun SettingsContent(
     onAutoCheckInTime: (Int, Int) -> Unit,
     onCheckInResultNotify: (Boolean) -> Unit,
     onRunMode: (RunMode) -> Unit,
+    onTapTapEventUrl: (String) -> Unit,
     onClearHistory: () -> Unit,
     onDeleteCredentials: () -> Unit,
     onShowOnboarding: () -> Unit
@@ -154,6 +165,15 @@ private fun SettingsContent(
     var showAutoTimePicker by remember { mutableStateOf(false) }
     var showClearHistoryConfirmation by remember { mutableStateOf(false) }
     var showDeleteCredentialsConfirmation by remember { mutableStateOf(false) }
+    var tapTapEventUrl by remember(prefs.tapTapEventUrl) {
+        mutableStateOf(prefs.tapTapEventUrl ?: TapTapProvider.DEFAULT_EVENT_URL)
+    }
+    var tapTapUrlError by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    val tapTapUrlSavedMessage = stringResource(R.string.settings_taptap_event_url_saved)
     val configuration = LocalConfiguration.current
     val appLocaleTags = AppCompatDelegate.getApplicationLocales().toLanguageTags()
     val languageTag = when {
@@ -180,7 +200,8 @@ private fun SettingsContent(
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.SemiBold) }) },
-        bottomBar = { CheckyBottomBar(navController) }
+        bottomBar = { CheckyBottomBar(navController) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -284,6 +305,57 @@ private fun SettingsContent(
                             }
                             Switch(checked = prefs.checkInResultNotify, onCheckedChange = onCheckInResultNotify)
                         }
+                    }
+                }
+            }
+
+            SectionTitle(stringResource(R.string.settings_taptap))
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        stringResource(R.string.settings_taptap_event_url),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        stringResource(R.string.settings_taptap_event_url_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = tapTapEventUrl,
+                        onValueChange = {
+                            tapTapEventUrl = it
+                            tapTapUrlError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = tapTapUrlError,
+                        supportingText = {
+                            if (tapTapUrlError) {
+                                Text(stringResource(R.string.settings_taptap_event_url_invalid))
+                            }
+                        }
+                    )
+                    Button(
+                        onClick = {
+                            val normalized = tapTapEventUrl.trim()
+                            if (TapTapProvider.isValidEventUrl(normalized)) {
+                                onTapTapEventUrl(normalized)
+                                tapTapEventUrl = normalized
+                                tapTapUrlError = false
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(tapTapUrlSavedMessage)
+                                }
+                            } else {
+                                tapTapUrlError = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.settings_taptap_event_url_save))
                     }
                 }
             }
@@ -695,6 +767,7 @@ private fun SettingsPreview() {
             onAutoCheckInTime = { _, _ -> },
             onCheckInResultNotify = {},
             onRunMode = {},
+            onTapTapEventUrl = {},
             onClearHistory = {},
             onDeleteCredentials = {},
             onShowOnboarding = {}
