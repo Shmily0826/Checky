@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.net.Uri
 import android.provider.Settings
@@ -24,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -208,7 +206,7 @@ private fun SettingsContent(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             SectionTitle(stringResource(R.string.settings_appearance))
@@ -241,7 +239,7 @@ private fun SettingsContent(
                 }
             }
 
-            SectionTitle(stringResource(R.string.settings_daily_reminder))
+            SectionTitle(stringResource(R.string.settings_daily_checkin))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -268,7 +266,6 @@ private fun SettingsContent(
                 }
             }
 
-            SectionTitle(stringResource(R.string.settings_checkin_behavior))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -304,6 +301,25 @@ private fun SettingsContent(
                                 Text(stringResource(R.string.settings_result_notifications_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = prefs.checkInResultNotify, onCheckedChange = onCheckInResultNotify)
+                        }
+                    }
+                    Spacer(Modifier.padding(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.padding(8.dp))
+                        Column {
+                            Text(stringResource(R.string.settings_run_mode), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_run_mode_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(Modifier.padding(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RUN_MODE_OPTIONS.forEach { mode ->
+                            FilterChip(
+                                selected = prefs.runMode == mode,
+                                onClick = { onRunMode(mode) },
+                                label = { Text(runModeLabel(mode)) }
+                            )
                         }
                     }
                 }
@@ -360,65 +376,38 @@ private fun SettingsContent(
                 }
             }
 
-            SectionTitle(stringResource(R.string.settings_auto_diagnostics))
+            SectionTitle(stringResource(R.string.settings_advanced))
             AutoCheckInDiagnosticsCard(
                 prefs = prefs,
                 diagnostics = autoCheckInDiagnostics
             )
 
             if (backgroundReliability?.shouldShowInSettings(prefs.autoCheckInEnabled) == true) {
-                SectionTitle(stringResource(R.string.settings_background_reliability))
                 BackgroundReliabilityCard(
                     report = backgroundReliability,
                     onOpenAppSettings = onOpenAppSettings
                 )
             }
 
+            SectionTitle(stringResource(R.string.settings_data_reset))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.padding(8.dp))
-                        Column {
-                            Text(stringResource(R.string.settings_run_mode), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text(stringResource(R.string.settings_run_mode_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    Spacer(Modifier.padding(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RUN_MODE_OPTIONS.forEach { mode ->
-                            FilterChip(
-                                selected = prefs.runMode == mode,
-                                onClick = { onRunMode(mode) },
-                                label = { Text(runModeLabel(mode)) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            SectionTitle(stringResource(R.string.settings_data))
-            OutlinedButton(onClick = { showClearHistoryConfirmation = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.settings_clear_history))
-            }
-            OutlinedButton(
-                onClick = { showDeleteCredentialsConfirmation = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text(stringResource(R.string.settings_delete_credentials))
-            }
-            OutlinedButton(onClick = onShowOnboarding, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.settings_show_onboarding))
-            }
-
-            if (isDebuggableBuild(context)) {
-                SectionTitle("Temporary debug")
-                OutlinedButton(
-                    onClick = { openTemporaryTaygedoDiagnostics(context) },
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Open temporary Taygedo diagnostics")
+                    OutlinedButton(onClick = { showClearHistoryConfirmation = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.settings_clear_history))
+                    }
+                    OutlinedButton(
+                        onClick = { showDeleteCredentialsConfirmation = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text(stringResource(R.string.settings_delete_credentials))
+                    }
+                    OutlinedButton(onClick = onShowOnboarding, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.settings_show_onboarding))
+                    }
                 }
             }
 
@@ -681,19 +670,6 @@ private fun openAppSettings(context: Context) {
         }
     }
 }
-
-private const val TEMPORARY_TAYGEDO_DIAGNOSTICS_CLASS =
-    "com.checky.app.debug.TaygedoDiagnosticsActivity"
-
-private fun openTemporaryTaygedoDiagnostics(context: Context) {
-    if (!isDebuggableBuild(context)) return
-    context.startActivity(
-        Intent().setClassName(context.packageName, TEMPORARY_TAYGEDO_DIAGNOSTICS_CLASS)
-    )
-}
-
-private fun isDebuggableBuild(context: Context): Boolean =
-    context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
 @Composable
 private fun PrivacyLine(text: String) {
