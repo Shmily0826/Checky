@@ -3,6 +3,15 @@
 Checky is a **local-first check-in hub**. This document explains what it
 trusts, what it protects, and what it deliberately refuses to do.
 
+The primary deployment is one owner using one Xiaomi/HyperOS device and the
+owner's accounts. Device-specific permissions or settings are not forbidden by
+themselves: an explicitly user-granted background-popup, overlay, or
+accessibility permission may be considered when it provides a concrete UX
+benefit, provided the scope is documented, the permission is easy to revoke,
+and the behavior remains fail-closed. This personal-device optimization does
+not imply support for other OEMs or devices, and implementation/build/device/
+live verification claims remain distinct.
+
 ---
 
 ## 1. Trust model
@@ -66,6 +75,12 @@ manually. This check does not authenticate, contact, or mutate a Provider.
 - ❌ Use root or debugger hooks.
 - ❌ Store or transmit any credential off-device.
 
+Powerful or OEM-specific permissions are therefore a review question, not an
+automatic prohibition. They must never be used to extract another app's
+credentials, bypass CAPTCHA, anti-bot, verification, pinning, or risk-control
+systems, automate unknown tasks, or continue after malformed, ambiguous,
+authentication-expired, verification-required, or uncertain mutation state.
+
 ## 6. Threat boundaries (who could do what)
 
 | Threat | Mitigation |
@@ -84,9 +99,12 @@ game sign-in, and Taygedo community sign-in, plus one bounded TapTap
 UI-assisted game-sign provider. Dated live verification for the four HTTP
 providers, plus associated login/session and fail-closed checks, is recorded in
 `TEST_REPORT.md`; it is evidence for that tested scope and date, not a
-guarantee of continued upstream availability. The TapTap physical
-AlreadyCompleted path is verified for its fixed event; the real Ready -> click
--> Success path is not yet live-verified.
+guarantee of continued upstream availability. On the owner's Xiaomi/HyperOS
+device, TapTap physical validation verified the Ready -> one gesture -> positive
+terminal path and the AlreadyCompleted -> automatic Checky return path after
+the user granted Checky HyperOS “Open new windows while running in the
+background”. This remains device/account/event-scoped evidence, not a general
+platform guarantee.
 
 All providers store credentials locally and do not implement likes, comments,
 shares, follows, posts, redemptions, CAPTCHA handling, or risk-control

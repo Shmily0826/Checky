@@ -89,8 +89,7 @@ class TapTapProviderTest {
 
     @Test
     fun coordinatorConsumesAtMostOneClickAndCompletesOnSuccess() = runBlocking {
-        var returnRequests = 0
-        val run = requireNotNull(TapTapAutomationCoordinator.begin { returnRequests++ })
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
         try {
             var clicks = 0
             val ready = snapshot(buttons = listOf(button("立即签到", enabled = true, clickable = true)))
@@ -104,19 +103,127 @@ class TapTapProviderTest {
             )
             TapTapAutomationCoordinator.observe(run, success) { false }
             assertEquals(TapTapRunResult.SUCCESS, run.completion.await())
-            assertEquals(1, returnRequests)
         } finally {
             TapTapAutomationCoordinator.clear(run)
         }
     }
 
     @Test
-    fun alreadyCompletedRequestsReturnOnceAndNonterminalStatesDoNot() = runBlocking {
-        var returnRequests = 0
-        val run = requireNotNull(TapTapAutomationCoordinator.begin { returnRequests++ })
+    fun transientReadyThenAlreadyCompletedDoesNotGesture() = runBlocking {
+        var clicks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            val ready = snapshot(buttons = listOf(button("\u7acb\u5373\u7b7e\u5230", enabled = true, clickable = true)))
+            TapTapAutomationCoordinator.observe(run, ready, allowClick = false) {
+                clicks++
+                true
+            }
+            val completed = snapshot(buttons = listOf(button("\u4eca\u65e5\u5df2\u7b7e\u5230", enabled = false, clickable = false)))
+            TapTapAutomationCoordinator.observe(run, completed, allowClick = false) {
+                error("transient READY must not gesture")
+            }
+
+            assertEquals(0, clicks)
+            assertEquals(TapTapRunResult.ALREADY_COMPLETED, run.completion.await())
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun persistentReadyGesturesOnlyAtFinalSettleAndOnlyOnce() = runBlocking {
+        var clicks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            val ready = snapshot(buttons = listOf(button("\u7acb\u5373\u7b7e\u5230", enabled = true, clickable = true)))
+            TapTapAutomationCoordinator.observe(run, ready, allowClick = false) {
+                clicks++
+                true
+            }
+            TapTapAutomationCoordinator.observe(run, ready, allowClick = true) {
+                clicks++
+                true
+            }
+            TapTapAutomationCoordinator.observe(run, ready, allowClick = true) {
+                clicks++
+                true
+            }
+
+            assertEquals(1, clicks)
+            assertFalse(run.completion.isCompleted)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun postClickAlreadyCompletedCompletesOnce() = runBlocking {
+        var clicks = 0
+        var callbacks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin { callbacks++ })
+        try {
+            val ready = snapshot(
+                texts = listOf("签到领好礼", "已累计签到0天"),
+                buttons = listOf(button("立即签到", enabled = true, clickable = true))
+            )
+            TapTapAutomationCoordinator.observe(run, ready) { clicks++; true }
+
+            val completed = snapshot(
+                texts = listOf("签到领好礼", "已累计签到1天"),
+                buttons = listOf(button("今日已签到", enabled = false, clickable = false))
+            )
+            TapTapAutomationCoordinator.observe(run, completed) { error("click not expected") }
+            TapTapAutomationCoordinator.observe(run, completed) { error("click not expected") }
+
+            assertEquals(1, clicks)
+            assertEquals(TapTapRunResult.ALREADY_COMPLETED, run.completion.await())
+            assertEquals(1, callbacks)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun ambiguousPostClickCompletionRemainsUnknown() = runBlocking {
+        var callbacks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin { callbacks++ })
+        try {
+            val ready = snapshot(
+                texts = listOf("签到领好礼", "已累计签到1天"),
+                buttons = listOf(button("立即签到", enabled = true, clickable = true))
+            )
+            TapTapAutomationCoordinator.observe(run, ready, allowClick = false) { true }
+
+            val ambiguousCompletion = snapshot(
+                texts = ready.texts + "verification required",
+                buttons = ready.buttons.map {
+                    it.copy(text = "\u4eca\u65e5\u5df2\u7b7e\u5230", enabled = true, clickable = true)
+                }
+            )
+            TapTapAutomationCoordinator.observe(run, ambiguousCompletion) {
+                error("click not expected")
+            }
+
+            val completedWithoutTransition = snapshot(
+                texts = listOf("签到领好礼", "已累计签到1天"),
+                buttons = listOf(button("今日已签到", enabled = false, clickable = false))
+            )
+            TapTapAutomationCoordinator.observe(run, completedWithoutTransition) {
+                error("click not expected")
+            }
+
+            assertEquals(TapTapRunResult.UNKNOWN, run.completion.await())
+            assertEquals(0, callbacks)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun alreadyCompletedCompletesOnceAndNonterminalStatesDoNot() = runBlocking {
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
         try {
             TapTapAutomationCoordinator.observe(run, snapshot(buttons = emptyList())) { error("click not expected") }
-            assertEquals(0, returnRequests)
 
             val completed = snapshot(
                 texts = listOf("签到领好礼", "已累计签到1天"),
@@ -126,16 +233,14 @@ class TapTapProviderTest {
             TapTapAutomationCoordinator.observe(run, completed) { error("click not expected") }
 
             assertEquals(TapTapRunResult.ALREADY_COMPLETED, run.completion.await())
-            assertEquals(1, returnRequests)
         } finally {
             TapTapAutomationCoordinator.clear(run)
         }
     }
 
     @Test
-    fun unknownDoesNotRequestReturnToChecky() = runBlocking {
-        var returnRequests = 0
-        val run = requireNotNull(TapTapAutomationCoordinator.begin { returnRequests++ })
+    fun unknownDoesNotCompletePositively() = runBlocking {
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
         try {
             val unknown = snapshot(
                 texts = listOf("签到领好礼", "已累计签到1天", "verification required"),
@@ -144,7 +249,6 @@ class TapTapProviderTest {
             TapTapAutomationCoordinator.observe(run, unknown) { error("click not expected") }
 
             assertEquals(TapTapRunResult.UNKNOWN, run.completion.await())
-            assertEquals(0, returnRequests)
         } finally {
             TapTapAutomationCoordinator.clear(run)
         }

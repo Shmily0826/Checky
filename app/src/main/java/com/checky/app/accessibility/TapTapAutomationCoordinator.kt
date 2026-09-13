@@ -1,6 +1,5 @@
 package com.checky.app.accessibility
 
-import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 
 class TapTapPendingRun internal constructor(
@@ -47,6 +46,7 @@ object TapTapAutomationCoordinator {
     fun observe(
         run: TapTapPendingRun,
         snapshot: TapTapAccessibilitySnapshot,
+        allowClick: Boolean = true,
         click: () -> Boolean
     ) {
         var shouldClick = false
@@ -54,22 +54,19 @@ object TapTapAutomationCoordinator {
         synchronized(lock) {
             if (pending !== run || run.completion.isCompleted) return
             val disposition = TapTapPageMatcher.classify(snapshot)
-            Log.d(TAG, "evaluate classification=$disposition")
             when (disposition) {
                 TapTapPageDisposition.NOT_TARGET,
                 TapTapPageDisposition.WAITING -> Unit
                 TapTapPageDisposition.READY -> {
-                    if (!run.clickConsumed) {
+                    if (allowClick && !run.clickConsumed) {
                         run.clickConsumed = true
                         shouldClick = true
                     }
                 }
-                TapTapPageDisposition.ALREADY_COMPLETED ->
-                    if (run.clickConsumed) complete(run, TapTapRunResult.UNKNOWN)
-                    else {
-                        complete(run, TapTapRunResult.ALREADY_COMPLETED)
-                        shouldReturnToChecky = true
-                    }
+                TapTapPageDisposition.ALREADY_COMPLETED -> {
+                    complete(run, TapTapRunResult.ALREADY_COMPLETED)
+                    shouldReturnToChecky = true
+                }
                 TapTapPageDisposition.SUCCESS -> {
                     complete(run, TapTapRunResult.SUCCESS)
                     shouldReturnToChecky = true
@@ -89,6 +86,4 @@ object TapTapAutomationCoordinator {
         if (pending === run) pending = null
         run.completion.complete(result)
     }
-
-    private const val TAG = "TapTapCoordinator"
 }

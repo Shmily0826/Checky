@@ -3,6 +3,20 @@
 Local-first Android MVP. Kotlin, Jetpack Compose, Material 3, MVVM, Room,
 DataStore, Coroutines/Flow, Hilt.
 
+## Product scope and prioritization
+
+Checky is optimized first for one owner's accounts on one Xiaomi/HyperOS
+device. A Xiaomi/HyperOS-specific implementation or instruction is preferred
+when it materially lowers friction on that device; generic OEM abstractions and
+cross-device compatibility are optional, not architectural requirements.
+Explicitly user-granted device permissions, including background-popup,
+overlay, or accessibility permissions, may be considered when their benefit is
+concrete. Each must be narrowly scoped, clearly documented, easy to revoke,
+and never used to bypass provider security, verification, CAPTCHA, or risk
+controls. Device-specific behavior is not evidence of general support and
+must retain separate implemented/build-tested/device-tested/live-verified
+labels.
+
 ## Layered diagram
 
 ```
@@ -73,7 +87,10 @@ or an unknown signal conservatively. Xiaomi-family guidance is shown only for a
 normalized Xiaomi manufacturer; Black Shark is not treated as HyperOS. Even
 when Android reports no restriction and an ACTIVE/EXEMPTED-or-lower bucket,
 Xiaomi users must manually verify No restrictions and Background autostart
-because Checky cannot reliably read that HyperOS toggle. These diagnostics are
+because Checky cannot reliably read that HyperOS toggle. If a concrete UX need
+requires an additional Xiaomi/HyperOS permission or setting, the product may
+document an explicit user-granted, reversible step instead of rejecting it
+solely because it is OEM-specific or powerful. These diagnostics are
 device-health guidance only, not Provider or live check-in verification.
 
 ### Connect flow (credentials)
@@ -84,13 +101,13 @@ device-health guidance only, not Provider or live check-in verification.
 - The Miyoushe Genshin and Miyoushe community providers intentionally own separate credential entries and separate QR flows. Disconnecting the community provider removes only its own session.
 - The two Taygedo providers share one Keystore-backed session entry, `taygedo.shared.session`, through `TaygedoClient`; disconnecting either removes that shared session.
 - Fail-closed classification applies to response and state parsing: malformed, unknown, ambiguous, authentication-expired, or verification-required results stop the relevant flow. In multi-step mutation flows, only a confirmed `Success` or `AlreadyCompleted` permits the next mutation. Taygedo NTE and Taygedo community perform provider-specific sign-in state reads before their mutations; Miyoushe community submits its once-daily sign-in after confirming that a session is present.
-- TapTap game-sign is the sole bounded UI-assisted exception: during a pending Checky run, its user-enabled AccessibilityService processes only `com.taptap`, requires the expected game-sign page/state markers, waits for recognized settling states, and allows at most one `立即签到` click. Auth, verification, ambiguous, duplicate, and malformed states fail closed; it does not provide generic arbitrary-app automation. The fixed verified event's physical AlreadyCompleted path is verified, while the real Ready -> click -> Success path remains not live-verified.
+- TapTap game-sign is the sole bounded UI-assisted exception: during a pending Checky run, its user-enabled AccessibilityService processes only `com.taptap`, requires the expected game-sign page/state markers, waits for recognized settling states, and allows at most one `立即签到` click. Auth, verification, ambiguous, duplicate, and malformed states fail closed; it does not provide generic arbitrary-app automation. Physical validation on the owner's Xiaomi/HyperOS device verified the Ready -> one gesture -> positive-terminal path and the AlreadyCompleted -> automatic Checky return path when the user-granted HyperOS background-popup setting was enabled. This evidence remains device/account/event scoped.
 
 ## Design decisions
 
 | Decision | Rationale |
 |---|---|
-| `minSdk 26` | Covers ~98% of active devices, allows modern Java/Kotlin APIs, and gives a reliable Keystore + notification baseline; API < 26 devices are negligible for a prototype. |
+| `minSdk 26` | Supports the current Xiaomi/HyperOS target and gives a reliable Keystore + notification baseline; broader OEM/API coverage is not a current product requirement. |
 | Provider contract = streaming `Flow<CheckInEvent>` | Gives live progress for free and is easy for real providers to implement (retrofit calls inside the flow). |
 | Sealed `CheckInOutcome` instead of raw statuses at the boundary | Forces every provider to return **safe, user-facing** results (message + code + retry hint), never raw exceptions/headers/bodies. |
 | `CredentialStore` abstraction | The in-memory implementation is test-only infrastructure; production always binds the Keystore AES/GCM vault. |

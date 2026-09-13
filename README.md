@@ -24,6 +24,18 @@ apps and services into one friendly dashboard, then triggers them with one tap.
 - Retry a failed service individually, reconnect expired sessions, browse history.
 - Credentials stay **on the device**.
 
+### Product scope and prioritization
+
+Checky is primarily a personal tool for one owner, the owner's accounts, and
+the owner's Xiaomi/HyperOS device. Single-device, single-owner optimization is
+intentional: a lower-friction solution for that real device may be preferred
+over a portable abstraction when it materially improves the owner's UX. Xiaomi
+or HyperOS-specific instructions, permissions, and behavior are acceptable;
+generic cross-OEM compatibility is not a priority unless the target device or
+interview clarity requires it. Any such behavior must remain documented,
+explicitly user-granted, easy to roll back, and separately labeled as
+implemented, build-tested, device-tested, or live-verified.
+
 ## Current status
 
 - **Five implemented production providers**: Miyoushe Genshin sign-in,
@@ -40,10 +52,14 @@ apps and services into one friendly dashboard, then triggers them with one tap.
   recognizes the expected game-sign page, waits for recognized settling states,
   and permits at most one check-in click. Auth, verification, ambiguous, and
   malformed states fail closed; arbitrary-app automation is out of scope.
-- TapTap currently targets one fixed, verified game-sign event URL. Its physical
-  AlreadyCompleted path is verified; the real Ready -> click -> Success path is
-  not yet live-verified. A different or new event URL requires a provider update
-  or separate discovery work.
+- TapTap currently targets the configured game-sign event URL. On the owner's
+  Xiaomi/HyperOS device, physical validation covered both the Ready -> one
+  gesture -> positive-terminal path and the AlreadyCompleted -> automatic return
+  to Checky path. The foreground return required the user-granted HyperOS
+  setting “Open new windows while running in the background” for Checky. This
+  evidence is scoped to the tested device, account, and event; it is not a
+  general OEM or upstream availability guarantee. A different or new event URL
+  requires separate validation.
 - Credentials use the **Keystore-backed encrypted** implementation. The
   in-memory mock store remains available for JVM tests only.
 - Optional daily **reminder** via WorkManager, plus an explicitly opt-in
@@ -137,11 +153,10 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 
 ## minSdk 26 — why
 
-- Covers ~98% of active devices and all devices from Android 8.0 (2017) up.
-- Gives a reliable Android Keystore (AES/GCM) baseline, modern notification
-  APIs, and current Compose/Kotlin toolchain support.
-- API < 26 is negligible for a validation prototype and would complicate
-  security-relevant code paths.
+- Supports the current Xiaomi/HyperOS target and gives the project a reliable
+  Android Keystore (AES/GCM), notification, and Compose/Kotlin baseline.
+- Android API < 26 is outside the current personal-device target rather than a
+  compatibility requirement to preserve.
 
 ## Docs
 

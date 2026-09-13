@@ -6,7 +6,6 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -18,7 +17,6 @@ class TapTapAccessibilityService : AccessibilityService() {
     private val settleCallbacks = mutableListOf<Runnable>()
     private var serviceActive = false
     private val runActivationListener: (TapTapPendingRun) -> Unit = { run ->
-        Log.d(TAG, "run activation listener delivered serviceActive=$serviceActive")
         settleHandler.post {
             if (serviceActive) scheduleSettle(run)
         }
@@ -27,7 +25,6 @@ class TapTapAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         serviceActive = true
-        Log.d(TAG, "service connected")
         TapTapAutomationCoordinator.registerRunActivationListener(runActivationListener)
     }
 
@@ -35,15 +32,14 @@ class TapTapAccessibilityService : AccessibilityService() {
         if (event.packageName?.toString() != TAPTAP_PACKAGE) return
 
         val run = currentRun() ?: return
-        evaluate(run)
+        evaluate(run, allowClick = false)
         scheduleSettle(run)
     }
 
-    private fun evaluate(run: TapTapPendingRun) {
+    private fun evaluate(run: TapTapPendingRun, allowClick: Boolean) {
         if (currentRun() !== run || run.completion.isCompleted) return
 
         val root = rootInActiveWindow
-        Log.d(TAG, "evaluate entry rootPresent=${root != null}")
         root ?: return
         if (root.packageName?.toString() != TAPTAP_PACKAGE) return
 
@@ -70,7 +66,8 @@ class TapTapAccessibilityService : AccessibilityService() {
 
         TapTapAutomationCoordinator.observe(
             run = run,
-            snapshot = TapTapAccessibilitySnapshot(TAPTAP_PACKAGE, texts, buttons.map { it.second })
+            snapshot = TapTapAccessibilitySnapshot(TAPTAP_PACKAGE, texts, buttons.map { it.second }),
+            allowClick = allowClick
         ) {
             val target = buttons.singleOrNull {
                 it.second.className == "android.widget.Button" &&
@@ -79,7 +76,6 @@ class TapTapAccessibilityService : AccessibilityService() {
                     it.second.clickable
             }?.first
             val dispatched = target?.let(::dispatchSignInGesture) == true
-            Log.d(TAG, "gesture dispatch returned=$dispatched")
             dispatched
         }
     }
@@ -108,16 +104,16 @@ class TapTapAccessibilityService : AccessibilityService() {
         cancelSettles()
         settleRun = run
         val generation = settleGeneration
-        Log.d(TAG, "settle scheduled callbacks=${settleDelaysMs.size}")
         var remaining = settleDelaysMs.size
-        settleDelaysMs.forEach { delayMs ->
+        settleDelaysMs.forEachIndexed { index, delayMs ->
+            val allowClick = index == settleDelaysMs.lastIndex
             val callback = Runnable {
                 if (generation != settleGeneration || currentRun() !== run || run.completion.isCompleted) {
                     if (generation == settleGeneration) cancelSettles()
                     return@Runnable
                 }
 
-                evaluate(run)
+                evaluate(run, allowClick = allowClick)
                 remaining -= 1
                 if (currentRun() !== run || run.completion.isCompleted || remaining == 0) {
                     cancelSettles()
@@ -142,15 +138,10 @@ class TapTapAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         serviceActive = false
-        Log.d(TAG, "service destroyed")
         TapTapAutomationCoordinator.unregisterRunActivationListener(runActivationListener)
         cancelSettles()
         super.onDestroy()
     }
 
     private fun currentRun(): TapTapPendingRun? = TapTapAutomationCoordinator.current()
-
-    private companion object {
-        const val TAG = "TapTapAccessibility"
-    }
 }
