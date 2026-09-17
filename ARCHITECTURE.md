@@ -27,8 +27,8 @@ labels.
 │  ViewModels (StateFlow, viewModelScope, Hilt-injected)      │
 ├─────────────────────────────────────────────────────────────┤
 │  Domain                                                      │
-│  Five concrete providers: Miyoushe Genshin, Miyoushe       │
-│  community, Taygedo NTE, Taygedo community, TapTap game-sign│
+│  Five concrete providers: HoYoverse Genshin, HoYoLAB,      │
+│  Taygedo NTE, Taygedo community, TapTap game-sign         │
 │  CheckInProvider contract + opt-in QR/SMS/game-role caps    │
 │  CheckInEvent (Progress / Done)                             │
 │  CheckInOutcome (Success/Already/AuthExpired/ActionRequired │
@@ -97,10 +97,10 @@ device-health guidance only, not Provider or live check-in verification.
 
 - `ConnectProviderScreen` (FLAG_SECURE, secrets hidden, validated before save).
 - `ConnectProviderViewModel` validates via `provider.validateCredentials(...)`, saves through the default Keystore-backed `CredentialStore`, and supports per-provider delete.
-- The five production providers are registered directly in `ProviderModule`: Miyoushe Genshin, Miyoushe community, Taygedo NTE, Taygedo community, and the bounded TapTap game-sign provider. QR login, SMS login, and game-role selection are opt-in capability interfaces implemented only where supported; they are not a plugin marketplace.
-- The Miyoushe Genshin and Miyoushe community providers intentionally own separate credential entries and separate QR flows. Disconnecting the community provider removes only its own session.
+- The five production providers are registered directly in `ProviderModule`: HoYoverse Genshin, HoYoLAB, Taygedo NTE, Taygedo community, and the bounded TapTap game-sign provider. QR login, SMS login, and game-role selection are opt-in capability interfaces implemented only where supported; they are not a plugin marketplace.
+- The HoYoverse Genshin and HoYoLAB providers intentionally own separate credential entries and separate QR flows. Disconnecting the community provider removes only its own session.
 - The two Taygedo providers share one Keystore-backed session entry, `taygedo.shared.session`, through `TaygedoClient`; disconnecting either removes that shared session.
-- Fail-closed classification applies to response and state parsing: malformed, unknown, ambiguous, authentication-expired, or verification-required results stop the relevant flow. In multi-step mutation flows, only a confirmed `Success` or `AlreadyCompleted` permits the next mutation. Taygedo NTE and Taygedo community perform provider-specific sign-in state reads before their mutations; Miyoushe community submits its once-daily sign-in after confirming that a session is present.
+- Fail-closed classification applies to response and state parsing: malformed, unknown, ambiguous, authentication-expired, or verification-required results stop the relevant flow. In multi-step mutation flows, only a confirmed `Success` or `AlreadyCompleted` permits the next mutation. Taygedo NTE and Taygedo community perform provider-specific sign-in state reads before their mutations; HoYoLAB submits its once-daily sign-in after confirming that a session is present.
 - TapTap game-sign is the sole bounded UI-assisted exception: during a pending Checky run, its user-enabled AccessibilityService processes only `com.taptap`, requires the expected game-sign page/state markers, waits for recognized settling states, and allows at most one `立即签到` click. Auth, verification, ambiguous, duplicate, and malformed states fail closed; it does not provide generic arbitrary-app automation. Physical validation on the owner's Xiaomi/HyperOS device verified the Ready -> one gesture -> positive-terminal path and the AlreadyCompleted -> automatic Checky return path when the user-granted HyperOS background-popup setting was enabled. This evidence remains device/account/event scoped.
 
 ## Design decisions
@@ -112,7 +112,7 @@ device-health guidance only, not Provider or live check-in verification.
 | Sealed `CheckInOutcome` instead of raw statuses at the boundary | Forces every provider to return **safe, user-facing** results (message + code + retry hint), never raw exceptions/headers/bodies. |
 | `CredentialStore` abstraction | The in-memory implementation is test-only infrastructure; production always binds the Keystore AES/GCM vault. |
 | Single `CheckInAllUseCase` | One place for concurrency limits, duplicate guard, continue-on-failure, cancellation, persistence, summary — unit-testable with fakes. |
-| Direct OkHttp for current providers | The four current Miyoushe/Taygedo providers use provider-local OkHttp calls with HTTPS/host-policy checks; Retrofit remains available for a future stable integration. |
+| Direct OkHttp for current providers | The four current HoYoverse, HoYoLAB, and Taygedo providers use provider-local OkHttp calls with HTTPS/host-policy checks; Retrofit remains available for a future stable integration. |
 
 ## Testing strategy
 

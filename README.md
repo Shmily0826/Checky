@@ -38,8 +38,8 @@ implemented, build-tested, device-tested, or live-verified.
 
 ## Current status
 
-- **Five implemented production providers**: Miyoushe Genshin sign-in,
-  Miyoushe community sign-in, Taygedo NTE game sign-in, Taygedo community
+- **Five implemented production providers**: HoYoverse Genshin sign-in,
+  HoYoLAB sign-in, Taygedo NTE game sign-in, Taygedo community
   sign-in (APP + section), and a bounded TapTap game-sign provider. Historical
   live verification of the four HTTP providers was recorded on 2026-08-30 using
   the owner's accounts; it is date- and account-scoped evidence, not a current
@@ -116,7 +116,7 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 
 ## Security model (summary — full details in SECURITY.md)
 
-- Credentials: provider-scoped or explicitly shared provider-family storage through `CredentialStore`; the production implementation is **Android Keystore AES-256/GCM**; never logged, never backed up (`allowBackup=false`). Miyoushe Genshin and Miyoushe community sessions are separate; both Taygedo providers share `taygedo.shared.session`.
+- Credentials: provider-scoped or explicitly shared provider-family storage through `CredentialStore`; the production implementation is **Android Keystore AES-256/GCM**; never logged, never backed up (`allowBackup=false`). HoYoverse Genshin and HoYoLAB sessions are separate; both Taygedo providers share `taygedo.shared.session`.
 - Network: **HTTPS only**, per-provider **host allowlist**, and a **redacting interceptor** (Authorization, Cookie, tokens, API keys…); body logging is disabled in release. The experimental providers use direct OkHttp calls and remain subject to upstream API changes.
 - Provider state is fail-closed: malformed, unknown, ambiguous, expired, or verification-required results stop the relevant mutation flow and surface reconnect/action-needed guidance.
 - No arbitrary AccessibilityService or silent cross-app control: the sole narrow exception is the user-enabled, pending-run TapTap game-sign service restricted to `com.taptap` and the expected page/state markers. Root, CAPTCHA/anti-bot bypass, verification bypass, and automated financial actions remain **explicitly out of scope**.

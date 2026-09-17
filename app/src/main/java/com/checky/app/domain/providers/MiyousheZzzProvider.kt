@@ -73,7 +73,7 @@ class MiyousheZzzProvider(
 
     override suspend fun revalidateSavedCredential(): SavedCredentialValidation = withContext(Dispatchers.IO) {
         val saved = credentialStore.get(meta.id)
-            ?: return@withContext SavedCredentialValidation.Unverified("No saved MiYouShe session.")
+            ?: return@withContext SavedCredentialValidation.Unverified("No saved HoYoverse session.")
         val session = decodeSession(saved)
         val names = cookieNames(session.cookie)
         val hasLtokenPair = ("ltoken" in names && "ltuid" in names) ||
@@ -92,13 +92,13 @@ class MiyousheZzzProvider(
             )
         }.fold(
             onSuccess = ::mapMiyousheZzzRoleReadOnlyResponse,
-            onFailure = { SavedCredentialValidation.Unverified("MiYouShe connection could not be confirmed.") }
+            onFailure = { SavedCredentialValidation.Unverified("HoYoverse connection could not be confirmed.") }
         )
     }
 
     override suspend fun fetchGameRoles(): List<GameRole> = withContext(Dispatchers.IO) {
             val cookie = credentialStore.get(meta.id)?.let(::decodeSession)?.cookie.orEmpty()
-            check(cookie.isNotBlank()) { "MiYouShe session is unavailable." }
+            check(cookie.isNotBlank()) { "HoYoverse session is unavailable." }
             val body = request(
                 API_HOST,
                 "GET",
@@ -108,9 +108,9 @@ class MiyousheZzzProvider(
                 includeRoleDs = true
             )
             val json = JSONObject(body)
-            check(json.optInt("retcode", Int.MIN_VALUE) == 0) { "MiYouShe role lookup failed." }
+            check(json.optInt("retcode", Int.MIN_VALUE) == 0) { "HoYoverse role lookup failed." }
             val list = json.optJSONObject("data")?.optJSONArray("list")
-                ?: error("MiYouShe role response is missing a role list.")
+                ?: error("HoYoverse role response is missing a role list.")
             buildList {
                 for (index in 0 until list.length()) {
                     val role = list.optJSONObject(index) ?: continue
@@ -134,10 +134,10 @@ class MiyousheZzzProvider(
             return CredentialValidation.Invalid("Enter an 8–10 digit ZZZ game UID.")
         }
         if (normalizedRegion.isBlank()) {
-            return CredentialValidation.Invalid("Enter the ZZZ region returned by MiYouShe.")
+            return CredentialValidation.Invalid("Enter the ZZZ region returned by HoYoverse.")
         }
         val existing = credentialStore.get(meta.id)
-            ?: return CredentialValidation.Invalid("Complete MiYouShe QR connection first.")
+            ?: return CredentialValidation.Invalid("Complete HoYoverse QR connection first.")
         val session = decodeSession(existing)
         when (val validation = validateCredentials(session.cookie)) {
             is CredentialValidation.Invalid -> return validation
@@ -156,12 +156,12 @@ class MiyousheZzzProvider(
         )
         val json = JSONObject(response.body)
         if (json.optInt("retcode", -1) != 0) {
-            throw IllegalStateException(json.optString("message", "MiYouShe QR generation failed."))
+            throw IllegalStateException(json.optString("message", "HoYoverse QR generation failed."))
         }
         val data = json.optJSONObject("data")
         val qrUrl = data?.optString("url").orEmpty()
         val ticket = data?.optString("ticket").orEmpty()
-        if (qrUrl.isBlank() || ticket.isBlank()) throw IllegalStateException("MiYouShe returned an invalid QR code.")
+        if (qrUrl.isBlank() || ticket.isBlank()) throw IllegalStateException("HoYoverse returned an invalid QR code.")
         QrLoginSession(qrUrl, "$deviceId|$ticket")
     }
 
@@ -176,7 +176,7 @@ class MiyousheZzzProvider(
                 parts[0]
             )
         }.getOrElse {
-            return@withContext QrLoginPollResult.Failed("MiYouShe QR status could not be checked.")
+            return@withContext QrLoginPollResult.Failed("HoYoverse QR status could not be checked.")
         }
         val json = JSONObject(response.body)
         when (json.optInt("retcode", 0)) {
@@ -184,10 +184,10 @@ class MiyousheZzzProvider(
             -3505 -> return@withContext QrLoginPollResult.Expired("QR login was cancelled; generate a new one.")
         }
         if (json.optInt("retcode", 0) != 0) {
-            return@withContext QrLoginPollResult.Failed(json.optString("message", "MiYouShe rejected QR login."))
+            return@withContext QrLoginPollResult.Failed(json.optString("message", "HoYoverse rejected QR login."))
         }
         val data = json.optJSONObject("data") ?:
-            return@withContext QrLoginPollResult.Failed("MiYouShe returned an unknown QR state.")
+            return@withContext QrLoginPollResult.Failed("HoYoverse returned an unknown QR state.")
         when (data.optString("status")) {
             "Created" -> QrLoginPollResult.Waiting
             "Scanned" -> QrLoginPollResult.Scanned
@@ -207,12 +207,12 @@ class MiyousheZzzProvider(
                     )
                 }
             }
-            else -> QrLoginPollResult.Failed("MiYouShe returned an unknown QR state.")
+            else -> QrLoginPollResult.Failed("HoYoverse returned an unknown QR state.")
         }
     }
 
     override fun checkIn() = flow {
-        emit(CheckInEvent.Progress(0.15f, "Reading MiYouShe session…"))
+        emit(CheckInEvent.Progress(0.15f, "Reading HoYoverse session…"))
         val saved = credentialStore.get(meta.id)
         if (saved.isNullOrBlank()) {
             emit(CheckInEvent.Done(result(authExpired())))
@@ -257,11 +257,11 @@ class MiyousheZzzProvider(
         }
     } catch (error: HttpStatusException) {
         CheckInOutcome.TemporaryFailure(
-            "MiYouShe returned HTTP ${error.statusCode}.",
+            "HoYoverse returned HTTP ${error.statusCode}.",
             "MIYOUSHE_ZZZ_HTTP_${error.statusCode}"
         )
     } catch (_: Exception) {
-        CheckInOutcome.TemporaryFailure("MiYouShe is temporarily unavailable; try again later.", "MIYOUSHE_ZZZ_NETWORK")
+        CheckInOutcome.TemporaryFailure("HoYoverse is temporarily unavailable; try again later.", "MIYOUSHE_ZZZ_NETWORK")
     }
 
     private fun request(
@@ -387,7 +387,7 @@ class MiyousheZzzProvider(
     }
 
     private fun authExpired() = CheckInOutcome.AuthenticationExpired(
-        "MiYouShe session expired; reconnect to continue.",
+        "HoYoverse session expired; reconnect to continue.",
         "MIYOUSHE_ZZZ_AUTH_EXPIRED"
     )
 
@@ -416,7 +416,7 @@ class MiyousheZzzProvider(
 
         val META = ProviderMeta(
             id = "miyoushe_zzz_experimental",
-            displayName = "MiYouShe ZZZ check-in (experimental)",
+            displayName = "HoYoverse ZZZ check-in (experimental)",
             description = "Unofficial CN ZZZ interface for your own account; check-in only.",
             category = "Gaming community",
             iconKey = "game",
@@ -441,7 +441,7 @@ internal fun mapMiyousheZzzResponse(body: String, checkingOnly: Boolean): CheckI
         listOf("captcha", "geetest", "verification", "risk", "验证", "风控").any(message::contains)
     ) {
         return CheckInOutcome.ActionRequired(
-            "MiYouShe requires official verification; no automatic bypass is attempted.",
+            "HoYoverse requires official verification; no automatic bypass is attempted.",
             "MIYOUSHE_ZZZ_VERIFICATION"
         )
     }
@@ -453,30 +453,30 @@ internal fun mapMiyousheZzzResponse(body: String, checkingOnly: Boolean): CheckI
             else CheckInOutcome.Success("ZZZ check-in status is unsigned.", "STATUS_UNSIGNED", Reward.empty())
         } else CheckInOutcome.Success("ZZZ check-in completed.", "MIYOUSHE_ZZZ_SUCCESS", Reward.empty())
         -100, 10001 -> CheckInOutcome.AuthenticationExpired(
-            "MiYouShe session expired; reconnect to continue.",
+            "HoYoverse session expired; reconnect to continue.",
             "MIYOUSHE_ZZZ_AUTH_EXPIRED"
         )
         -5003 -> CheckInOutcome.AlreadyCompleted("ZZZ is already checked in today.", "ALREADY")
         else -> CheckInOutcome.TemporaryFailure(
-            "MiYouShe rejected the ZZZ request (code ${json.optInt("retcode", Int.MIN_VALUE)}).",
+            "HoYoverse rejected the ZZZ request (code ${json.optInt("retcode", Int.MIN_VALUE)}).",
             "MIYOUSHE_ZZZ_REJECTED"
         )
     }
 }
 
 private fun zzzMalformedOutcome() = CheckInOutcome.PermanentFailure(
-    "MiYouShe returned an unrecognized ZZZ response; no sign request was sent.",
+    "HoYoverse returned an unrecognized ZZZ response; no sign request was sent.",
     "MIYOUSHE_ZZZ_BAD_RESPONSE"
 )
 
 internal fun mapMiyousheZzzRoleReadOnlyResponse(body: String): SavedCredentialValidation {
     val json = runCatching { JSONObject(body) }.getOrNull()
-        ?: return SavedCredentialValidation.Unverified("MiYouShe returned an unrecognized role response.")
+    ?: return SavedCredentialValidation.Unverified("HoYoverse returned an unrecognized role response.")
     return when {
         json.optInt("retcode", Int.MIN_VALUE) == 0 && json.optJSONObject("data")?.optJSONArray("list") != null ->
             SavedCredentialValidation.Valid
         json.optInt("retcode", Int.MIN_VALUE) == -100 || json.optInt("retcode", Int.MIN_VALUE) == 10001 ->
             SavedCredentialValidation.Expired
-        else -> SavedCredentialValidation.Unverified("MiYouShe did not return a confirmed role response.")
+        else -> SavedCredentialValidation.Unverified("HoYoverse did not return a confirmed role response.")
     }
 }

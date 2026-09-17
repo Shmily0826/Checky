@@ -94,7 +94,7 @@ authentication-expired, verification-required, or uncertain mutation state.
 ## 7. Reporting
 
 The production catalog contains four non-official, high-risk HTTP-session
-providers: Miyoushe Genshin sign-in, Miyoushe community sign-in, Taygedo NTE
+providers: HoYoverse Genshin sign-in, HoYoLAB sign-in, Taygedo NTE
 game sign-in, and Taygedo community sign-in, plus one bounded TapTap
 UI-assisted game-sign provider. Dated live verification for the four HTTP
 providers, plus associated login/session and fail-closed checks, is recorded in

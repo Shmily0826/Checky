@@ -57,7 +57,7 @@ The recorded 2026-09-02 run above predates the current source inventory. A
 mechanical count of top-level `@Test` annotations in `app/src/test/java` is
 currently **172** after the `a658921` follow-up coverage, the
 `CHECKY-20260903-1401` Provider Details regression test, and the
-`CHECKY-20260903-1426` Miyoushe community QR parser coverage. The
+`CHECKY-20260903-1426` HoYoLAB QR parser coverage. The
 `CHECKY-20260903-1519` gate coverage adds one test. This task adds eight
 background-reliability classifier tests. A fresh run of the current
 **172-test** suite passed, as did `:app:assembleDebug` and `:app:lintDebug`
@@ -95,8 +95,8 @@ that exception. The fresh `CHECKY-20260903-1519` 163-test JVM run also did not
 reproduce it. Neither result should be described as warning-free or
 exception-free; no Room production refactor is implied by this task.
 
-The provider count is four actual `CheckInProvider` integrations: Miyoushe
-Genshin, Miyoushe community, Taygedo NTE game, and Taygedo community. QR, SMS,
+The provider count is four actual `CheckInProvider` integrations: HoYoverse
+Genshin, HoYoLAB, Taygedo NTE game, and Taygedo community. QR, SMS,
 game-role, parsing, and orchestration checks are capabilities or test scopes,
 not additional providers.
 
@@ -105,7 +105,7 @@ not additional providers.
 On the connected physical Xiaomi device (`2410DPN6CC`), the current debug APK
 was installed with `adb install -r` after its signing certificate was matched
 to the existing installation; application data was preserved. The user
-completed one official Miyoushe QR confirmation, and reported that the
+completed one official HoYoLAB QR confirmation, and reported that the
 community check-in succeeded. A subsequent read-only Checky UI inspection
 showed `Connected`, `Success`, and `米游社讨论区签到成功，米游币 +30。` No second
 check-in or other Provider mutation was performed.
@@ -188,11 +188,11 @@ current 2026-09-03 community re-verification is documented separately above.
 |---|---|
 | Taygedo NTE game sign-in | live verified; repeat correctly reported already done |
 | Taygedo community sign-in | live verified after a transport fix; state preflight skipped repeat mutation |
-| Miyoushe Genshin sign-in via web QR | live verified; repeat correctly reported already done |
-| Miyoushe community sign-in via app QR | live verified |
+| HoYoverse Genshin sign-in via web QR | live verified; repeat correctly reported already done |
+| HoYoLAB sign-in via app QR | live verified |
 
 Associated historical authentication/session evidence includes Taygedo SMS
-login and shared-session establishment, the Miyoushe QR login paths, FLAG_SECURE
+login and shared-session establishment, the HoYoLAB QR login paths, FLAG_SECURE
 behavior, and an unconnected provider failing closed without mutation. These
 are auth/capability checks, not additional providers, and do not authorize or
 claim current live verification.
