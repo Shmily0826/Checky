@@ -216,6 +216,7 @@ private fun HomeContent(
                 !connected -> stringResource(R.string.action_connect)
                 status == CheckInStatus.LOGIN_EXPIRED -> stringResource(R.string.action_reconnect)
                 status == CheckInStatus.FAILED -> stringResource(R.string.action_retry)
+                status == CheckInStatus.USER_ACTION_REQUIRED -> stringResource(R.string.action_retry_sign_in)
                 isOrdinaryPendingCard(status, connected, needsVerification) -> stringResource(R.string.action_check_in)
                 else -> null
             },
@@ -224,6 +225,7 @@ private fun HomeContent(
                 !connected -> ({ onReconnect(s.serviceId, false) })
                 status == CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(s.serviceId, true) })
                 status == CheckInStatus.FAILED -> ({ onRetry(s.serviceId) })
+                status == CheckInStatus.USER_ACTION_REQUIRED -> ({ onRetry(s.serviceId) })
                 isOrdinaryPendingCard(status, connected, needsVerification) -> ({ onRetry(s.serviceId) })
                 else -> null
             }
