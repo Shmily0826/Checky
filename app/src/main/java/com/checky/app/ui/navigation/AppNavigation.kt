@@ -1,5 +1,6 @@
 package com.checky.app.ui.navigation
 
+import com.checky.app.BuildConfig
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
@@ -25,6 +26,7 @@ import com.checky.app.ui.screens.settings.SettingsScreen
 import com.checky.app.ui.screens.addservice.AddServiceScreen
 import com.checky.app.ui.screens.connect.ConnectProviderScreen
 import com.checky.app.ui.screens.provider.ProviderDetailsScreen
+import com.checky.app.ui.screens.taptaplab.TapTapLabScreen
 import androidx.compose.ui.res.stringResource
 import com.checky.app.R
 import kotlinx.coroutines.CoroutineScope
@@ -81,6 +83,11 @@ fun CheckyNavHost(
 ) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     NavHost(navController = navController, startDestination = startDestination) {
+        if (BuildConfig.DEBUG) {
+            composable("taptap_lab") {
+                TapTapLabScreen()
+            }
+        }
         composable("onboarding") {
             OnboardingScreen(
                 onFinish = {

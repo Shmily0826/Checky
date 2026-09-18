@@ -6,11 +6,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.view.accessibility.AccessibilityManager
+import com.checky.app.BuildConfig
 import com.checky.app.accessibility.TAPTAP_PACKAGE
 import com.checky.app.accessibility.TapTapAutomationCoordinator
+import com.checky.app.accessibility.TapTapLabTrace
 import com.checky.app.accessibility.TapTapRunResult
 import com.checky.app.accessibility.TapTapAccessibilityService
-import com.checky.app.MainActivity
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.CheckInProvider
@@ -64,13 +65,20 @@ class TapTapProvider(
             )
         }
 
+        val preferences = userPreferencesRepository.preferences.first()
         val eventUrl = resolveConfiguredEventUrl(
-            userPreferencesRepository.preferences.first().tapTapEventUrl
+            configuredEventUrl = preferences.tapTapEventUrl,
+            debugTestEventUrl = preferences.tapTapTestEventUrl,
+            isDebugBuild = BuildConfig.DEBUG
         )
             ?: return unknown("TAPTAP_INVALID_EVENT_URL")
 
         val run = TapTapAutomationCoordinator.begin {
-            requestCheckyForeground(context)
+            TapTapLabTrace.autoReturnAttempted()
+            TapTapLabTrace.expectForegroundReturn()
+            TapTapLabTrace.autoReturnLaunchAccepted(
+                TapTapAccessibilityService.requestCheckyForeground()
+            )
         } ?: return unknown("TAPTAP_RUN_BUSY")
         try {
             val intent = Intent(Intent.ACTION_VIEW, buildDeepLink(eventUrl)).apply {
@@ -86,15 +94,18 @@ class TapTapProvider(
             withContext(Dispatchers.Main.immediate) { context.startActivity(intent) }
             return when (withTimeout(TIMEOUT_MS) { run.completion.await() }) {
                 TapTapRunResult.SUCCESS -> CheckInOutcome.Success(
-                    "TapTap check-in succeeded.", "TAPTAP_SUCCESS", Reward.empty()
+                    "TapTap check-in succeeded.", diagnosticCodeFor(TapTapRunResult.SUCCESS), Reward.empty()
                 )
                 TapTapRunResult.ALREADY_COMPLETED -> CheckInOutcome.AlreadyCompleted(
-                    "TapTap is already checked in today.", "TAPTAP_ALREADY"
+                    "TapTap is already checked in today.", diagnosticCodeFor(TapTapRunResult.ALREADY_COMPLETED)
                 )
-                TapTapRunResult.UNKNOWN -> unknown("TAPTAP_UNKNOWN")
+                TapTapRunResult.GESTURE_FAILED -> unknown(diagnosticCodeFor(TapTapRunResult.GESTURE_FAILED))
+                TapTapRunResult.PAGE_NOT_READY -> unknown(diagnosticCodeFor(TapTapRunResult.PAGE_NOT_READY))
+                TapTapRunResult.CONFIRMATION_TIMEOUT -> unknown(diagnosticCodeFor(TapTapRunResult.CONFIRMATION_TIMEOUT))
+                TapTapRunResult.UNKNOWN -> unknown(diagnosticCodeFor(TapTapRunResult.UNKNOWN))
             }
         } catch (_: TimeoutCancellationException) {
-            return unknown("TAPTAP_TIMEOUT")
+            return unknown(CONFIRM_TIMEOUT_DIAGNOSTIC)
         } catch (_: ActivityNotFoundException) {
             return CheckInOutcome.Unsupported(
                 "TapTap is not installed or cannot open the game-sign event.",
@@ -128,11 +139,31 @@ class TapTapProvider(
                 uri.fragment == null
         }
 
-        fun resolveConfiguredEventUrl(configuredEventUrl: String?): String? = when {
-            configuredEventUrl == null -> DEFAULT_EVENT_URL
-            isValidEventUrl(configuredEventUrl) -> configuredEventUrl.trim()
-            else -> null
+        fun resolveConfiguredEventUrl(
+            configuredEventUrl: String?,
+            debugTestEventUrl: String? = null,
+            isDebugBuild: Boolean = BuildConfig.DEBUG
+        ): String? {
+            if (isDebugBuild) {
+                return normalizedEventUrl(debugTestEventUrl)
+            }
+            return normalizedEventUrl(configuredEventUrl) ?:
+                if (configuredEventUrl == null) DEFAULT_EVENT_URL else null
         }
+
+        fun diagnosticCodeFor(result: TapTapRunResult): String = when (result) {
+            TapTapRunResult.SUCCESS -> "TAPTAP_SUCCESS"
+            TapTapRunResult.ALREADY_COMPLETED -> "TAPTAP_ALREADY"
+            TapTapRunResult.GESTURE_FAILED -> "TAPTAP_GESTURE_FAILED"
+            TapTapRunResult.PAGE_NOT_READY -> "TAPTAP_PAGE_NOT_READY"
+            TapTapRunResult.CONFIRMATION_TIMEOUT -> CONFIRM_TIMEOUT_DIAGNOSTIC
+            TapTapRunResult.UNKNOWN -> "TAPTAP_UNSAFE_OR_UNKNOWN_PAGE"
+        }
+
+        const val CONFIRM_TIMEOUT_DIAGNOSTIC = "TAPTAP_CONFIRM_TIMEOUT"
+
+        private fun normalizedEventUrl(eventUrl: String?): String? =
+            eventUrl?.trim()?.takeIf(::isValidEventUrl)
 
         fun buildDeepLink(eventUrl: String): Uri {
             require(isValidEventUrl(eventUrl)) {
@@ -172,20 +203,5 @@ class TapTapProvider(
                 }
         }
 
-        private fun requestCheckyForeground(context: Context) {
-            try {
-                context.startActivity(Intent(context, MainActivity::class.java).apply {
-                    addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    )
-                })
-            } catch (_: ActivityNotFoundException) {
-                // The provider result remains authoritative if the task cannot be surfaced.
-            } catch (_: SecurityException) {
-                // Android background-activity restrictions must not change the check-in result.
-            }
-        }
     }
 }

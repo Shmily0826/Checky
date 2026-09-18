@@ -7,6 +7,7 @@ import com.checky.app.accessibility.TapTapAutomationCoordinator
 import com.checky.app.accessibility.TapTapPageDisposition
 import com.checky.app.accessibility.TapTapPageMatcher
 import com.checky.app.accessibility.TapTapRunResult
+import com.checky.app.accessibility.TapTapRunState
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -42,12 +43,77 @@ class TapTapProviderTest {
 
     @Test
     fun missingConfiguredUrlUsesVerifiedDefaultButInvalidConfiguredUrlFailsClosed() {
-        assertEquals(TapTapProvider.DEFAULT_EVENT_URL, TapTapProvider.resolveConfiguredEventUrl(null))
         assertEquals(
             TapTapProvider.DEFAULT_EVENT_URL,
-            TapTapProvider.resolveConfiguredEventUrl(" ${TapTapProvider.DEFAULT_EVENT_URL} ")
+            TapTapProvider.resolveConfiguredEventUrl(null, isDebugBuild = false)
         )
-        assertNull(TapTapProvider.resolveConfiguredEventUrl("https://www.taptap.cn/events/game-sign/"))
+        assertEquals(
+            TapTapProvider.DEFAULT_EVENT_URL,
+            TapTapProvider.resolveConfiguredEventUrl(
+                " ${TapTapProvider.DEFAULT_EVENT_URL} ",
+                isDebugBuild = false
+            )
+        )
+        assertNull(
+            TapTapProvider.resolveConfiguredEventUrl(
+                "https://www.taptap.cn/events/game-sign/",
+                isDebugBuild = false
+            )
+        )
+    }
+
+    @Test
+    fun debugTestOverrideIsValidatedAndCannotAffectReleaseOrNormalMode() {
+        val override = "https://www.taptap.cn/events/game-sign/abc123"
+        val normal = "https://www.taptap.cn/events/game-sign/normal"
+
+        assertEquals(
+            override,
+            TapTapProvider.resolveConfiguredEventUrl(
+                configuredEventUrl = normal,
+                debugTestEventUrl = " $override ",
+                isDebugBuild = true
+            )
+        )
+        assertNull(
+            TapTapProvider.resolveConfiguredEventUrl(
+                configuredEventUrl = normal,
+                debugTestEventUrl = " ",
+                isDebugBuild = true
+            )
+        )
+        assertEquals(
+            normal,
+            TapTapProvider.resolveConfiguredEventUrl(
+                configuredEventUrl = normal,
+                debugTestEventUrl = override,
+                isDebugBuild = false
+            )
+        )
+        assertEquals(
+            TapTapProvider.DEFAULT_EVENT_URL,
+            TapTapProvider.resolveConfiguredEventUrl(
+                configuredEventUrl = null,
+                debugTestEventUrl = override,
+                isDebugBuild = false
+            )
+        )
+        assertNull(
+            TapTapProvider.resolveConfiguredEventUrl(
+                configuredEventUrl = normal,
+                debugTestEventUrl = null,
+                isDebugBuild = true
+            )
+        )
+    }
+
+    @Test
+    fun diagnosticMappingSeparatesGestureUnknownPageAndTimeout() {
+        assertEquals("TAPTAP_GESTURE_FAILED", TapTapProvider.diagnosticCodeFor(TapTapRunResult.GESTURE_FAILED))
+        assertEquals("TAPTAP_PAGE_NOT_READY", TapTapProvider.diagnosticCodeFor(TapTapRunResult.PAGE_NOT_READY))
+        assertEquals("TAPTAP_UNSAFE_OR_UNKNOWN_PAGE", TapTapProvider.diagnosticCodeFor(TapTapRunResult.UNKNOWN))
+        assertEquals("TAPTAP_CONFIRM_TIMEOUT", TapTapProvider.diagnosticCodeFor(TapTapRunResult.CONFIRMATION_TIMEOUT))
+        assertEquals("TAPTAP_CONFIRM_TIMEOUT", TapTapProvider.CONFIRM_TIMEOUT_DIAGNOSTIC)
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -103,6 +169,28 @@ class TapTapProviderTest {
             )
             TapTapAutomationCoordinator.observe(run, success) { false }
             assertEquals(TapTapRunResult.SUCCESS, run.completion.await())
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun failedGestureCompletesWithoutAllowingAnotherGesture() = runBlocking {
+        var clicks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            val ready = snapshot(buttons = listOf(button("\u7acb\u5373\u7b7e\u5230", enabled = true, clickable = true)))
+            TapTapAutomationCoordinator.observe(run, ready) {
+                clicks++
+                false
+            }
+            TapTapAutomationCoordinator.observe(run, ready) {
+                clicks++
+                true
+            }
+
+            assertEquals(1, clicks)
+            assertEquals(TapTapRunResult.GESTURE_FAILED, run.completion.await())
         } finally {
             TapTapAutomationCoordinator.clear(run)
         }
@@ -178,6 +266,141 @@ class TapTapProviderTest {
             assertEquals(1, clicks)
             assertEquals(TapTapRunResult.ALREADY_COMPLETED, run.completion.await())
             assertEquals(1, callbacks)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun transientMixedPostClickTreeStaysConfirmingUntilSuccess() = runBlocking {
+        var clicks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            val ready = snapshot(
+                buttons = listOf(button("\u7acb\u5373\u7b7e\u5230", enabled = true, clickable = true))
+            )
+            TapTapAutomationCoordinator.observe(run, ready) { clicks++; true }
+            assertEquals(TapTapRunState.CONFIRMING, run.state)
+
+            val transient = ready.copy(
+                texts = ready.texts + "loading",
+                buttons = listOf(button("\u4eca\u65e5\u5df2\u7b7e\u5230", enabled = true, clickable = true))
+            )
+            TapTapAutomationCoordinator.observe(run, transient) { error("confirmation must not click again") }
+            assertFalse(run.completion.isCompleted)
+            assertEquals(TapTapRunState.CONFIRMING, run.state)
+
+            val success = transient.copy(
+                texts = transient.texts + "\u7b7e\u5230\u6210\u529f\uff0c\u606d\u559c\u83b7\u5f97",
+                buttons = listOf(button("\u4eca\u65e5\u5df2\u7b7e\u5230", enabled = false, clickable = false))
+            )
+            TapTapAutomationCoordinator.observe(run, success) { error("success must not click") }
+            assertEquals(1, clicks)
+            assertEquals(TapTapRunResult.SUCCESS, run.completion.await())
+            assertEquals(TapTapRunState.SUCCESS, run.state)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun postClickLoginOrVerificationIsTerminalAndFailClosed() = runBlocking {
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            val ready = snapshot(
+                buttons = listOf(button("\u7acb\u5373\u7b7e\u5230", enabled = true, clickable = true))
+            )
+            TapTapAutomationCoordinator.observe(run, ready) { true }
+            TapTapAutomationCoordinator.observe(run, ready.copy(texts = ready.texts + "captcha")) {
+                error("unsafe page must not click")
+            }
+
+            assertEquals(TapTapRunResult.UNKNOWN, run.completion.await())
+            assertEquals(TapTapRunState.UNSAFE_OR_UNKNOWN_PAGE, run.state)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun confirmationTimeoutCannotDispatchASecondGesture() = runBlocking {
+        var clicks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            val ready = snapshot(
+                buttons = listOf(button("\u7acb\u5373\u7b7e\u5230", enabled = true, clickable = true))
+            )
+            TapTapAutomationCoordinator.observe(run, ready) { clicks++; true }
+            TapTapAutomationCoordinator.observe(run, ready.copy(texts = ready.texts + "loading")) {
+                error("confirmation must not click again")
+            }
+            TapTapAutomationCoordinator.finish(run, TapTapRunResult.CONFIRMATION_TIMEOUT)
+            TapTapAutomationCoordinator.observe(run, ready) { clicks++; true }
+
+            assertEquals(1, clicks)
+            assertEquals(TapTapRunResult.CONFIRMATION_TIMEOUT, run.completion.await())
+            assertEquals(TapTapRunState.CONFIRMATION_TIMEOUT, run.state)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun transientInitialNotTargetStaysReadyUntilLaterReady() = runBlocking {
+        var clicks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            TapTapAutomationCoordinator.observe(
+                run,
+                TapTapAccessibilitySnapshot(TAPTAP_PACKAGE, emptyList(), emptyList())
+            ) { clicks++; true }
+            assertEquals(TapTapRunState.READY, run.state)
+            assertFalse(run.completion.isCompleted)
+
+            TapTapAutomationCoordinator.observe(
+                run,
+                snapshot(buttons = listOf(button("\u7acb\u5373\u7b7e\u5230", enabled = true, clickable = true)))
+            ) { clicks++; true }
+
+            assertEquals(1, clicks)
+            assertEquals(TapTapRunState.CONFIRMING, run.state)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun unsafeInitialPageTerminatesBeforeReadinessTimeoutWithoutGesture() = runBlocking {
+        var clicks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            TapTapAutomationCoordinator.observe(
+                run,
+                TapTapAccessibilitySnapshot(TAPTAP_PACKAGE, listOf("captcha"), emptyList())
+            ) { clicks++; true }
+
+            assertEquals(TapTapRunResult.UNKNOWN, run.completion.await())
+            assertEquals(0, clicks)
+            assertEquals(TapTapRunState.UNSAFE_OR_UNKNOWN_PAGE, run.state)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun readinessTimeoutEndsWithoutGesture() = runBlocking {
+        var clicks = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            TapTapAutomationCoordinator.observe(
+                run,
+                TapTapAccessibilitySnapshot(TAPTAP_PACKAGE, emptyList(), emptyList())
+            ) { clicks++; true }
+            TapTapAutomationCoordinator.finish(run, TapTapRunResult.PAGE_NOT_READY)
+
+            assertEquals(TapTapRunResult.PAGE_NOT_READY, run.completion.await())
+            assertEquals(0, clicks)
+            assertEquals(TapTapRunState.PAGE_NOT_READY, run.state)
         } finally {
             TapTapAutomationCoordinator.clear(run)
         }

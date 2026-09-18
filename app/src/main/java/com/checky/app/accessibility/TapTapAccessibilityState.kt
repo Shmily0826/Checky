@@ -24,9 +24,23 @@ enum class TapTapPageDisposition {
     UNKNOWN
 }
 
+enum class TapTapRunState {
+    READY,
+    CONFIRMING,
+    SUCCESS,
+    ALREADY_COMPLETED,
+    PAGE_NOT_READY,
+    GESTURE_FAILED,
+    UNSAFE_OR_UNKNOWN_PAGE,
+    CONFIRMATION_TIMEOUT
+}
+
 enum class TapTapRunResult {
     SUCCESS,
     ALREADY_COMPLETED,
+    GESTURE_FAILED,
+    PAGE_NOT_READY,
+    CONFIRMATION_TIMEOUT,
     UNKNOWN
 }
 
@@ -41,9 +55,9 @@ object TapTapPageMatcher {
         if (snapshot.packageName != TAPTAP_PACKAGE) return TapTapPageDisposition.NOT_TARGET
 
         val texts = snapshot.texts.map(String::trim).filter(String::isNotEmpty)
+        if (texts.any(::isVerificationMarker)) return TapTapPageDisposition.UNKNOWN
         val expectedPage = PAGE_TITLE in texts && texts.any { it.startsWith(CUMULATIVE_PREFIX) }
         if (!expectedPage) return TapTapPageDisposition.NOT_TARGET
-        if (texts.any(::isVerificationMarker)) return TapTapPageDisposition.UNKNOWN
 
         val readyButtons = snapshot.buttons.filter { it.isButton(READY_TEXT) }
         val actionableReady = readyButtons.filter { it.enabled && it.clickable }
@@ -68,6 +82,9 @@ object TapTapPageMatcher {
 
     private fun TapTapAccessibilityButton.isButton(expectedText: String): Boolean =
         className == BUTTON_CLASS && text.trim() == expectedText
+
+    fun isUnsafe(snapshot: TapTapAccessibilitySnapshot): Boolean =
+        snapshot.packageName == TAPTAP_PACKAGE && snapshot.texts.any { isVerificationMarker(it.trim()) }
 
     private fun isVerificationMarker(text: String): Boolean {
         val normalized = text.lowercase()

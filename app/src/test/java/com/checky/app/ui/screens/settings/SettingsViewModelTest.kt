@@ -104,6 +104,7 @@ class SettingsViewModelTest {
             credentialStore = credentials,
             backgroundReliabilityReader = BackgroundReliabilityReader(context),
             providerMetas = emptyList(),
+            providers = emptyList(),
             context = context
         )
     }
@@ -182,6 +183,18 @@ class SettingsViewModelTest {
         vm.setRunMode(RunMode.SEQUENTIAL)
 
         assertEquals(RunMode.SEQUENTIAL, awaitPref { it.runMode == RunMode.SEQUENTIAL }.runMode)
+    }
+
+    @Test
+    fun setTapTapTestUrlPersistsSeparatelyFromNormalUrl() {
+        val vm = buildVm()
+
+        vm.setTapTapEventUrl("https://www.taptap.cn/events/game-sign/normal")
+        vm.setTapTapTestEventUrl("https://www.taptap.cn/events/game-sign/test")
+
+        val prefs = awaitPref { it.tapTapTestEventUrl != null }
+        assertEquals("https://www.taptap.cn/events/game-sign/normal", prefs.tapTapEventUrl)
+        assertEquals("https://www.taptap.cn/events/game-sign/test", prefs.tapTapTestEventUrl)
     }
 
     @Test

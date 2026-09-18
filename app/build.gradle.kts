@@ -79,6 +79,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             // R8 is safe here: Hilt/Room/Compose wire everything at compile
             // time and the app was smoke-verified on an emulator with
@@ -111,6 +115,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // The Compose compiler is now supplied by org.jetbrains.kotlin.plugin.compose

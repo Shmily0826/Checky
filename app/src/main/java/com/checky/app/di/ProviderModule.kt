@@ -1,6 +1,7 @@
 package com.checky.app.di
 
 import android.content.Context
+import com.checky.app.BuildConfig
 import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.model.ProviderMeta
@@ -40,6 +41,9 @@ object ProviderModule {
         httpClient: okhttp3.OkHttpClient,
         userPreferencesRepository: UserPreferencesRepository
     ): List<CheckInProvider> {
+        if (BuildConfig.DEBUG) {
+            return listOf(TapTapProvider(context, userPreferencesRepository))
+        }
         val taygedo = TaygedoClient(context, credentialStore, httpClient)
         val miyoushe = MiyousheProvider(context, credentialStore, httpClient)
         return listOf(

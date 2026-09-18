@@ -23,19 +23,12 @@ class ProviderModuleTest {
         val providers = runtimeProviders()
         val catalog = ProviderModule.provideProviderCatalog(providers)
 
-        assertEquals(6, providers.size)
-        assertEquals(6, catalog.size)
+        assertEquals(1, providers.size)
+        assertEquals(1, catalog.size)
         assertEquals(providers.map { it.meta.id }, catalog.map { it.id })
-        assertEquals(6, providers.map { it.meta.id }.toSet().size)
+        assertEquals(1, providers.map { it.meta.id }.toSet().size)
         assertEquals(
-            listOf(
-                "miyoushe_genshin_experimental",
-                "miyoushe_community_signin",
-                "miyoushe_zzz_experimental",
-                "taygedo_nte",
-                "taygedo_community",
-                "taptap_game_sign"
-            ),
+            listOf("taptap_game_sign"),
             providers.map { it.meta.id }
         )
     }

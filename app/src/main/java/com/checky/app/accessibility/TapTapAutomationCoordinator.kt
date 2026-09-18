@@ -7,6 +7,7 @@ class TapTapPendingRun internal constructor(
     internal val onPositiveTerminal: () -> Unit = {}
 ) {
     internal var clickConsumed: Boolean = false
+    internal var state: TapTapRunState = TapTapRunState.READY
 }
 
 /** One bounded bridge between the provider coroutine and the TapTap service. */
@@ -54,28 +55,62 @@ object TapTapAutomationCoordinator {
         synchronized(lock) {
             if (pending !== run || run.completion.isCompleted) return
             val disposition = TapTapPageMatcher.classify(snapshot)
-            when (disposition) {
-                TapTapPageDisposition.NOT_TARGET,
-                TapTapPageDisposition.WAITING -> Unit
-                TapTapPageDisposition.READY -> {
-                    if (allowClick && !run.clickConsumed) {
-                        run.clickConsumed = true
-                        shouldClick = true
+            TapTapLabTrace.stage(disposition.name)
+            when (run.state) {
+                TapTapRunState.READY -> when (disposition) {
+                    TapTapPageDisposition.NOT_TARGET,
+                    TapTapPageDisposition.WAITING -> Unit
+                    TapTapPageDisposition.READY -> {
+                        if (allowClick && !run.clickConsumed) {
+                            run.clickConsumed = true
+                            run.state = TapTapRunState.CONFIRMING
+                            shouldClick = true
+                        }
                     }
+                    TapTapPageDisposition.ALREADY_COMPLETED -> {
+                        complete(run, TapTapRunResult.ALREADY_COMPLETED)
+                        shouldReturnToChecky = true
+                    }
+                    TapTapPageDisposition.SUCCESS -> {
+                        complete(run, TapTapRunResult.SUCCESS)
+                        shouldReturnToChecky = true
+                    }
+                    TapTapPageDisposition.UNKNOWN -> complete(run, TapTapRunResult.UNKNOWN)
                 }
-                TapTapPageDisposition.ALREADY_COMPLETED -> {
-                    complete(run, TapTapRunResult.ALREADY_COMPLETED)
-                    shouldReturnToChecky = true
+                TapTapRunState.CONFIRMING -> when (disposition) {
+                    TapTapPageDisposition.SUCCESS -> {
+                        complete(run, TapTapRunResult.SUCCESS)
+                        shouldReturnToChecky = true
+                    }
+                    TapTapPageDisposition.ALREADY_COMPLETED -> {
+                        complete(run, TapTapRunResult.ALREADY_COMPLETED)
+                        shouldReturnToChecky = true
+                    }
+                    TapTapPageDisposition.UNKNOWN -> {
+                        if (TapTapPageMatcher.isUnsafe(snapshot)) {
+                            complete(run, TapTapRunResult.UNKNOWN)
+                        }
+                    }
+                    else -> Unit
                 }
-                TapTapPageDisposition.SUCCESS -> {
-                    complete(run, TapTapRunResult.SUCCESS)
-                    shouldReturnToChecky = true
-                }
-                TapTapPageDisposition.UNKNOWN -> complete(run, TapTapRunResult.UNKNOWN)
+                else -> Unit
             }
         }
-        if (shouldClick && !click()) complete(run, TapTapRunResult.UNKNOWN)
+        if (shouldClick) {
+            val dispatched = click()
+            TapTapLabTrace.gestureDispatched(dispatched)
+            if (dispatched) {
+                TapTapLabTrace.stage("GESTURE_DISPATCHED")
+                TapTapLabTrace.stage(TapTapRunState.CONFIRMING.name)
+            } else {
+                complete(run, TapTapRunResult.GESTURE_FAILED)
+            }
+        }
         if (shouldReturnToChecky) run.onPositiveTerminal()
+    }
+
+    fun finish(run: TapTapPendingRun, result: TapTapRunResult) = synchronized(lock) {
+        if (pending === run && !run.completion.isCompleted) complete(run, result)
     }
 
     fun clear(run: TapTapPendingRun) = synchronized(lock) {
@@ -84,6 +119,15 @@ object TapTapAutomationCoordinator {
 
     private fun complete(run: TapTapPendingRun, result: TapTapRunResult) {
         if (pending === run) pending = null
+        run.state = when (result) {
+            TapTapRunResult.SUCCESS -> TapTapRunState.SUCCESS
+            TapTapRunResult.ALREADY_COMPLETED -> TapTapRunState.ALREADY_COMPLETED
+            TapTapRunResult.GESTURE_FAILED -> TapTapRunState.GESTURE_FAILED
+            TapTapRunResult.PAGE_NOT_READY -> TapTapRunState.PAGE_NOT_READY
+            TapTapRunResult.CONFIRMATION_TIMEOUT -> TapTapRunState.CONFIRMATION_TIMEOUT
+            TapTapRunResult.UNKNOWN -> TapTapRunState.UNSAFE_OR_UNKNOWN_PAGE
+        }
+        TapTapLabTrace.stage(run.state.name)
         run.completion.complete(result)
     }
 }
