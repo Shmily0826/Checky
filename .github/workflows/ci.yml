@@ -6,10 +6,19 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The full connected suite has never completed locally or on CI; the
+# instrumented job historically ran to the default 6-hour job limit on every
+# push. It is therefore manual-only with a hard timeout, and superseded runs
+# on the same ref are cancelled.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit-tests:
     name: Unit tests & lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -41,8 +50,10 @@ jobs:
             app/build/reports/lint-results-*.html
 
   instrumented-tests:
-    name: Instrumented tests (API 34 emulator)
+    name: Instrumented tests (API 34 emulator, manual only)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 

@@ -275,3 +275,17 @@ only; no code was changed and no new validation was run.
 - **UI automation scope docs.** PROVIDER_DEVELOPMENT.md previously described
   UI-assisted providers as "Not supported yet"; it now documents the sole
   bounded TapTap exception, consistent with ARCHITECTURE.md and SECURITY.md.
+
+## 2026-09-19 CI workflow change (no app code change)
+
+Every push since at least 2026-09-13 produced a failed CI run: the
+instrumented-tests job ran to the default 6-hour job limit (matching the
+long-standing full connected-suite timeout), and from 2026-09-19 jobs stopped
+starting entirely due to a GitHub Actions billing failure on the account —
+not a code or test failure.
+
+`.github/workflows/ci.yml` was changed accordingly: the instrumented-tests
+job is now manual-only (`workflow_dispatch`) with a 45-minute timeout, the
+unit/lint job has a 30-minute timeout, and a concurrency group cancels
+superseded runs on the same ref. No app code was changed and no validation
+was run in this task; the change is build-infrastructure configuration only.

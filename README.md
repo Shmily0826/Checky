@@ -143,8 +143,12 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 
 1. Release hardening: signed release build from an untracked `keystore.properties`
    (falls back to the debug key without it), `lint` baseline, and CI.
-2. CI matrix: `Unit tests & lint` (`testDebugUnitTest`, `assembleRelease`,
-   `lintRelease`) plus an instrumented-test job targeting an API 34 emulator.
+2. CI: `Unit tests & lint` (`testDebugUnitTest`, `assembleRelease`,
+   `lintRelease`) runs on every push with a 30-minute timeout. The
+   instrumented-test job (API 34 emulator) runs only on manual
+   `workflow_dispatch` with a 45-minute timeout, because the full connected
+   suite has never completed and historically ran to the default 6-hour job
+   limit on every push.
 3. Instrumented coverage for the **Keystore credential store**.
 4. Background auto-check-in (opt-in, 24 h periodic), auto-retry and reconnect
    notifications, history heatmap, and a home-screen widget.
