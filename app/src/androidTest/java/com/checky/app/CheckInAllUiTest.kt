@@ -61,7 +61,9 @@ class CheckInAllUiTest {
         }
         composeRule.onNodeWithText("Check in all").assertExists()
 
-        // The catalog lists the real providers with their risk labels.
+        // The catalog lists the providers registered in THIS build variant:
+        // debug registers only TapTap (see di/ProviderModule), release
+        // registers all six. Assert the debug-visible entry.
         composeRule.onNodeWithContentDescription("Add service").performClick()
         if (!waitForText("Add services", 30_000)) {
             throw AssertionError(
@@ -69,9 +71,6 @@ class CheckInAllUiTest {
                     composeRule.onRoot().printToString()
             )
         }
-        composeRule.onNodeWithText("米游社签到（原神实验版）").assertExists()
-        composeRule.onNodeWithText("米游社讨论区签到").assertExists()
-        composeRule.onNodeWithText("异环游戏签到").assertExists()
-        composeRule.onNodeWithText("塔吉多社区签到").assertExists()
+        composeRule.onNodeWithText("TapTap game check-in").assertExists()
     }
 }

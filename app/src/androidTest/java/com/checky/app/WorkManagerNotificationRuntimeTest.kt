@@ -54,6 +54,11 @@ class WorkManagerNotificationRuntimeTest {
 
     @Test
     fun notificationChannelAndGrantedDeliveryAreVisibleToAndroid() {
+        // The two notification tests need opposite permission states; ambient
+        // grant state on a fresh emulator/API image is arbitrary (targetSdk
+        // 33+ defaults POST_NOTIFICATIONS to denied). Grant/deny explicitly
+        // through the instrumentation's shell access.
+        setPostNotificationsPermission(true)
         NotificationHelper.ensureChannel(context)
         val channel = notificationManager.getNotificationChannel("checky_reminders")
         assertNotNull(channel)
@@ -66,8 +71,26 @@ class WorkManagerNotificationRuntimeTest {
 
     @Test
     fun deniedPermissionSuppressesDeliveryWithoutThrowing() {
+        setPostNotificationsPermission(false)
         assertFalse(NotificationManagerCompat.from(context).areNotificationsEnabled())
         NotificationHelper.showDailyReminder(context)
+    }
+
+    private fun setPostNotificationsPermission(granted: Boolean) {
+        val command = if (granted) "grant" else "revoke"
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            .uiAutomation
+            .executeShellCommand(
+                "pm $command ${context.packageName} android.permission.POST_NOTIFICATIONS"
+            )
+            .close()
+        // pm grant/revoke propagates to NotificationManager asynchronously;
+        // poll until the expected state is visible (or give up after 5 s).
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            if (NotificationManagerCompat.from(context).areNotificationsEnabled() == granted) return
+            Thread.sleep(100)
+        }
     }
 
     private fun uniqueWork() = WorkManager.getInstance(context)

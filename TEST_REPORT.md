@@ -289,3 +289,47 @@ job is now manual-only (`workflow_dispatch`) with a 45-minute timeout, the
 unit/lint job has a 30-minute timeout, and a concurrency group cancels
 superseded runs on the same ref. No app code was changed and no validation
 was run in this task; the change is build-infrastructure configuration only.
+
+## 2026-09-19 unit-test hang fix and first full green suite
+
+### Root cause of the CI unit-test hang (supersedes the "suspected new test"
+### note in the section above)
+
+`TapTapProviderTest` used the synthetic English text "verification required"
+as a verification marker, but `TapTapPageMatcher.isVerificationMarker`
+(unchanged since `f23ba36`) only recognizes Chinese markers plus "captcha".
+The ambiguous snapshot was therefore classified `WAITING`, not `UNKNOWN`, and
+the test's `run.completion.await()` suspended forever — a deterministic
+deadlock that reproduced locally and on every CI run since 2026-09-13. Fix
+(fc03fd6): "verification" added to the marker list, strengthening fail-closed
+classification. A thread dump of the Gradle test worker (`jstack`) located the
+deadlocked `Sandbox.runOnMainThread` / `runBlocking` pair.
+
+### Second latent failure uncovered once the suite could complete
+
+`HomeViewModelTest.checkInAllSkipsTaygedoWhenValidHealthFailsPreflight`
+failed twice: it needs an Android `Context` (class is now
+`@RunWith(RobolectricTestRunner)` `@Config(sdk = [34])`, matching the existing
+`SettingsViewModelTest` pattern), and the Taygedo preflight request runs on
+real `Dispatchers.IO`, which `advanceUntilIdle()` virtual time does not cover
+(the test now polls on the real clock, same pattern as `SettingsViewModelTest`).
+
+### Current validation baseline (2026-09-19)
+
+- JVM: **322 tests, 0 failures/errors** (`testDebugUnitTest`, local run,
+  JDK 17 Temurin 17.0.19). This supersedes the 172-test baseline above; the
+  suite grew without a recorded full-suite run because it could not complete.
+- CI: first green push-triggered run since 2026-09-13 (fc03fd6, 6m05s,
+  unit + lint).
+- Instrumented: on emulator API level per AVD, **16/16 tests passed** for the
+  first recorded time (previously timed out, then 14/16). Fixes: the debug
+  build's start destination no longer overrides an incomplete onboarding
+  (fresh debug installs see onboarding; the start destination is decided once
+  from the first persisted preferences so the NavHost graph is not rebuilt
+  mid-session), `CheckInAllUiTest` asserts the debug-visible catalog entry
+  (TapTap only in debug), and the notification tests grant/revoke
+  `POST_NOTIFICATIONS` through UiAutomation `pm grant/revoke` with a
+  bounded state poll instead of relying on ambient grant state.
+- Dependency bumps validated with the full JVM suite: espresso-core 3.7.0,
+  robolectric 4.16.1, appcompat 1.8.0. `hilt-navigation-compose` stays at
+  1.2.0 — 1.4.0 requires compileSdk 37 (app compiles against 35).

@@ -84,11 +84,11 @@ implemented, build-tested, device-tested, or live-verified.
   in system settings.
 - Genshin roles are auto-fetched from the miyoushe binding API after QR
   connect; manual UID entry is only a fallback.
-- Current validation (2026-09-04): 172 JVM tests passed with 0 failures,
-  errors, or skips; `assembleDebug` passed; `lintDebug` passed with 18 warnings
-  and 0 errors. Targeted API 34 emulator UI checks passed for fresh-install and
-  unconnected states. The full `connectedDebugAndroidTest` suite timed out and
-  remains unverified.
+- Current validation (2026-09-19): 322 JVM tests passed with 0 failures,
+  errors, or skips; `assembleDebug` passed; `lintDebug` clean in CI; the CI
+  push pipeline (unit + lint) is green. The full `connectedDebugAndroidTest`
+  suite (16 tests) passes 16/16 on the local emulator as of 2026-09-19 —
+  it had never completed before.
 
 ## Setup & build
 

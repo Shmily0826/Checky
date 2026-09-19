@@ -5,6 +5,7 @@ import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
 import com.checky.app.accessibility.TapTapLabTrace
@@ -16,6 +17,7 @@ import com.checky.app.ui.navigation.Screen
 import com.checky.app.ui.theme.CheckyTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -43,16 +45,27 @@ class MainActivity : AppCompatActivity() {
             val prefs by userPreferencesRepository.preferences
                 .collectAsStateWithLifecycle(initialValue = UserPreferences())
             CheckyTheme(themeMode = prefs.themeMode) {
-                val navController = rememberNavController()
-                CheckyNavHost(
-                    navController = navController,
-                    userPreferencesRepository = userPreferencesRepository,
-                    startDestination = when {
-                        BuildConfig.DEBUG -> "taptap_lab"
-                        prefs.onboardingComplete -> Screen.Home.route
+                // The start destination must be decided ONCE from the first
+                // persisted preferences and stay stable afterwards: a reactive
+                // startDestination rebuilds the NavHost graph mid-session and
+                // yanks the user off their current screen.
+                val startDestination by produceState<String?>(null) {
+                    val first = userPreferencesRepository.preferences.first()
+                    value = when {
+                        BuildConfig.DEBUG && first.onboardingComplete -> "taptap_lab"
+                        first.onboardingComplete -> Screen.Home.route
                         else -> "onboarding"
                     }
-                )
+                }
+                val destination = startDestination
+                if (destination != null) {
+                    val navController = rememberNavController()
+                    CheckyNavHost(
+                        navController = navController,
+                        userPreferencesRepository = userPreferencesRepository,
+                        startDestination = destination
+                    )
+                }
             }
         }
     }
