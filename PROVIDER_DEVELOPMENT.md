@@ -108,5 +108,20 @@ fun providerMapsApiFailureToUserFacingOutcome() = runTest {
 
 ## 6. What stays out of scope
 
-- ❌ UI automation providers (`ConnectionType.UI_ASSISTED`) — shown as "Not supported yet".
-- ❌ Anything requiring AccessibilityService, root, or cross-app control.
+- ❌ Generic UI-automation providers. The **sole bounded exception** is the
+  already-implemented TapTap game-sign provider: a user-enabled
+  AccessibilityService that observes only `com.taptap` during one pending
+  Checky run, waits for the expected game-sign page/state markers, and performs
+  at most one check-in click; auth, verification, ambiguous, and malformed
+  states fail closed. Do not add a second UI-assisted provider without an
+  explicit, documented owner need and the same fail-closed bounds (see
+  ARCHITECTURE.md and SECURITY.md).
+- ❌ Anything requiring root, CAPTCHA/anti-bot/verification bypass, or silent
+  cross-app control.
+
+## 7. Need-driven scope
+
+Checky is a personal tool for one owner. Add a provider **only** for a service
+the owner actually uses today; speculative coverage ("it might be nice") is
+out of scope. Marketplaces, broad distribution, and feature parity with
+commercial check-in apps are not goals.

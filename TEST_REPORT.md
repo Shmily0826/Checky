@@ -249,3 +249,29 @@ dispatch experiment remains separate evidence and does not establish
 individual-toggle causality. The current non-device validation passed: 172 JVM
 tests, `assembleDebug`, and `lintDebug` with 18 warnings and 0 errors. These
 results and the device UI check are not live-provider evidence.
+
+## 2026-09-19 documentation sync (no code change)
+
+Corrections to earlier statements in this report, recorded as documentation
+only; no code was changed and no new validation was run.
+
+- **Provider inventory.** The 2026-09-03 note above ("four actual
+  `CheckInProvider` integrations") predates the current source. The release
+  build now registers six providers: HoYoverse Genshin (miyoushe), miyoushe
+  community, HoYoverse ZZZ (experimental), Taygedo NTE, Taygedo community,
+  and the bounded TapTap game-sign provider. Debug builds register only the
+  TapTap provider. The HoYoLAB app-QR live record of 2026-08-30 and the
+  2026-09-03 community re-verification remain their own dated, scoped
+  evidence.
+- **ZZZ live verification status.** The HoYoverse ZZZ provider is
+  unit-tested and shares the Genshin provider's structural pattern, but has
+  no live verification record. It must not be described as live verified.
+- **Stale-schedule reconciliation.** The 2026-09-03 lifecycle section stated
+  that "no startup scheduling reconciliation" was implemented and left the
+  "enabled preference, missing work" state as an unverified edge. This was
+  superseded by the auto check-in stale-schedule reconciliation
+  implementation (commit `3836c6d`), which reconciles stale work on worker
+  runs. No fresh validation of that behavior is claimed here.
+- **UI automation scope docs.** PROVIDER_DEVELOPMENT.md previously described
+  UI-assisted providers as "Not supported yet"; it now documents the sole
+  bounded TapTap exception, consistent with ARCHITECTURE.md and SECURITY.md.

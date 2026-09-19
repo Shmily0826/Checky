@@ -29,7 +29,10 @@ apps and services into one friendly dashboard, then triggers them with one tap.
 Checky is primarily a personal tool for one owner, the owner's accounts, and
 the owner's Xiaomi/HyperOS device. Single-device, single-owner optimization is
 intentional: a lower-friction solution for that real device may be preferred
-over a portable abstraction when it materially improves the owner's UX. Xiaomi
+over a portable abstraction when it materially improves the owner's UX. New
+providers and features are added **only** when the owner has a real, current
+usage need (a service or game the owner actually uses); speculative coverage
+and feature parity with commercial check-in apps are not goals. Xiaomi
 or HyperOS-specific instructions, permissions, and behavior are acceptable;
 generic cross-OEM compatibility is not a priority unless the target device or
 interview clarity requires it. Any such behavior must remain documented,
@@ -38,14 +41,18 @@ implemented, build-tested, device-tested, or live-verified.
 
 ## Current status
 
-- **Five implemented production providers**: HoYoverse Genshin sign-in,
-  HoYoLAB sign-in, Taygedo NTE game sign-in, Taygedo community
-  sign-in (APP + section), and a bounded TapTap game-sign provider. Historical
-  live verification of the four HTTP providers was recorded on 2026-08-30 using
-  the owner's accounts; it is date- and account-scoped evidence, not a current
-  availability guarantee. They use non-official HTTP surfaces, may stop
-  working after platform changes, and perform no likes, comments, shares,
-  redemptions, CAPTCHA handling, or risk-control workarounds.
+- **Six implemented production providers**: HoYoverse Genshin sign-in
+  (miyoushe), miyoushe community sign-in, HoYoverse ZZZ sign-in
+  (experimental), Taygedo NTE game sign-in, Taygedo community sign-in
+  (APP + section), and a bounded TapTap game-sign provider. Historical live
+  verification of the four then-existing HTTP providers was recorded on
+  2026-08-30 using the owner's accounts; the miyoushe community provider was
+  re-verified live on 2026-09-03. The ZZZ provider has no live verification
+  record yet. Live records are date- and account-scoped evidence, not a
+  current availability guarantee. These providers use non-official HTTP
+  surfaces, may stop working after platform changes, and perform no likes,
+  comments, shares, redemptions, CAPTCHA handling, or risk-control
+  workarounds.
 - No cloud account, no sync, no remote credential storage, no analytics.
 - TapTap is the sole narrow UI-assisted exception: during a pending Checky
   TapTap run, a user-enabled AccessibilityService observes only `com.taptap`,
@@ -108,7 +115,7 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 |---|---|
 | **Onboarding** | Explains local-first privacy, that not every service is supported, to connect only your own accounts, and that services may break after platform changes. |
 | **Home dashboard** | Date, done/remaining/attention counts, reward summary, big "Check in all" button (with progress + Cancel), per-service cards with live status/reward/retry/reconnect. |
-| **Add services** | Catalog of the five real providers with connection type, risk level and credential type; every experimental provider is explicitly marked high risk. |
+| **Add services** | Catalog of the six real providers with connection type, risk level and credential type; every experimental provider is explicitly marked high risk. |
 | **Connect provider** | Explains what data is required and where it is stored; hidden-by-default secret field, validation before save, per-provider delete, FLAG_SECURE. |
 | **History** | Date, provider, status, reward, duration, safe diagnostic code; clear-history action. |
 | **Settings** | Theme, daily reminder (time picker), run mode (parallel ≤3 / sequential), background-reliability health card, clear history, **delete all credentials**, privacy & security explanation. |
@@ -146,10 +153,21 @@ Requirements: JDK 17+, Android SDK (platform 35), Android Studio, or the include
 
 5. Maintain the unofficial integrations: when a provider breaks, follow the
    documented evidence-gradient diagnosis (see TEST_REPORT.md). *(ongoing)*
-6. Per-provider schedule (e.g. "only weekdays") — the current auto-check-in is a
-   single global 24 h periodic work request.
-7. Provider health checks (declared hosts reachable, API versions).
-8. Reminder notification polish.
+6. Add a provider only for a service the owner actually uses (need-driven,
+   e.g. another miHoYo title only if the owner plays it); no speculative
+   coverage.
+7. Per-provider schedule tuning — only if the single global auto-check-in
+   schedule proves insufficient in the owner's daily use.
+
+### Intentionally not planned
+
+Scope discipline: the following are deliberately not on the roadmap because
+the owner has no current need for them.
+
+- Provider health-check dashboards.
+- Reminder notification polish beyond current behavior.
+- Cross-OEM support, broad distribution, or commercial feature parity.
+- Any new provider without a real owner use.
 
 ## minSdk 26 — why
 
