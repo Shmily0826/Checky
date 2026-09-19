@@ -88,7 +88,7 @@ object TapTapPageMatcher {
 
     private fun isVerificationMarker(text: String): Boolean {
         val normalized = text.lowercase()
-        return listOf("captcha", "验证码", "人机验证", "安全验证", "滑块", "请登录").any {
+        return listOf("captcha", "verification", "验证码", "人机验证", "安全验证", "滑块", "请登录").any {
             it in normalized
         }
     }

@@ -37,6 +37,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -51,7 +54,12 @@ import java.io.File
  * Main is bound to the runTest scheduler so viewModelScope coroutines are
  * driven deterministically. Main is reset in @After (after runTest fully
  * drains) because the DataStore actor may emit during finalization.
+ *
+ * Robolectric is required because the Taygedo preflight test constructs a
+ * real TaygedoClient with an application context.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class HomeViewModelTest {
 
     @After
@@ -317,7 +325,7 @@ class HomeViewModelTest {
         val health = FakeAuthHealthStore().also {
             it.set(TaygedoClient.SESSION_KEY, AuthHealth.VALID)
         }
-        val requests = mutableListOf<String>()
+        val requests = java.util.concurrent.CopyOnWriteArrayList<String>()
         val client = TaygedoClient(
             ApplicationProvider.getApplicationContext(),
             credentials,
@@ -347,6 +355,16 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         vm.checkInAll()
+
+        // The Taygedo preflight runs on Dispatchers.IO, which virtual time
+        // does not cover. Wait on the real clock for the single preflight
+        // request, then drain the scheduler (same pattern as
+        // SettingsViewModelTest).
+        val deadline = System.currentTimeMillis() + 5_000
+        while (requests.size < 1 && System.currentTimeMillis() < deadline) {
+            advanceUntilIdle()
+            Thread.sleep(20)
+        }
         advanceUntilIdle()
 
         assertEquals(1, requests.size)
