@@ -53,6 +53,63 @@ class AutoCheckInWorkerTest {
         assertEquals(false, shouldDeferScheduleReplacement(listOf(androidx.work.WorkInfo.State.ENQUEUED)))
         assertEquals(false, shouldDeferScheduleReplacement(emptyList()))
     }
+
+    @Test
+    fun stalePlanReconcilesOnlyWhenItsPlannedDateHasNoRun() {
+        val zone = ZoneId.of("Pacific/Auckland")
+        val planned = ZonedDateTime.of(2026, 9, 19, 9, 0, 0, 0, zone)
+        val now = planned.plusHours(5)
+
+        assertEquals(
+            true,
+            shouldReconcileStaleSchedule(
+                AutoCheckInDiagnostics(plannedNextEpochMillis = planned.toInstant().toEpochMilli()),
+                now
+            )
+        )
+        assertEquals(
+            false,
+            shouldReconcileStaleSchedule(
+                AutoCheckInDiagnostics(
+                    plannedNextEpochMillis = planned.toInstant().toEpochMilli(),
+                    lastStartEpochMillis = planned.plusMinutes(1).toInstant().toEpochMilli()
+                ),
+                now
+            )
+        )
+        assertEquals(
+            false,
+            shouldReconcileStaleSchedule(
+                AutoCheckInDiagnostics(
+                    plannedNextEpochMillis = planned.toInstant().toEpochMilli(),
+                    lastFinishEpochMillis = planned.plusMinutes(20).toInstant().toEpochMilli()
+                ),
+                now
+            )
+        )
+        assertEquals(
+            true,
+            shouldReconcileStaleSchedule(
+                AutoCheckInDiagnostics(
+                    plannedNextEpochMillis = planned.toInstant().toEpochMilli(),
+                    lastStartEpochMillis = planned.minusDays(1).toInstant().toEpochMilli(),
+                    lastFinishEpochMillis = planned.minusDays(1).plusMinutes(20).toInstant().toEpochMilli()
+                ),
+                now
+            )
+        )
+        assertEquals(
+            false,
+            shouldReconcileStaleSchedule(
+                AutoCheckInDiagnostics(plannedNextEpochMillis = now.toInstant().toEpochMilli()),
+                now
+            )
+        )
+        assertEquals(
+            false,
+            shouldReconcileStaleSchedule(AutoCheckInDiagnostics(), now)
+        )
+    }
     @Test
     fun nextRunUsesLocalWallClockAndRollsToTomorrow() {
         val zone = ZoneId.of("Pacific/Auckland")

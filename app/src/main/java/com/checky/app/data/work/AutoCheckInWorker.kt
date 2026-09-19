@@ -12,6 +12,7 @@ import androidx.work.workDataOf
 import com.checky.app.data.preferences.UserPreferences
 import com.checky.app.data.preferences.UserPreferencesRepository
 import com.checky.app.data.preferences.AutoCheckInDiagnosticOutcome
+import com.checky.app.data.preferences.AutoCheckInDiagnostics
 import com.checky.app.data.preferences.AutoCheckInDiagnosticsStore
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.data.repository.CheckInRepository
@@ -202,6 +203,49 @@ class AutoCheckInWorker(
             }
         }
 
+        suspend fun reconcileIfStale(
+            context: Context,
+            now: ZonedDateTime = ZonedDateTime.now()
+        ) {
+            val entryPoint = EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                AutoCheckInEntryPoint::class.java
+            )
+            val preferences = entryPoint.preferences().preferences.first()
+            val diagnosticsStore = entryPoint.diagnostics()
+            scheduleStaleIfNeeded(
+                context = context,
+                preferences = preferences,
+                diagnostics = diagnosticsStore.diagnostics.first(),
+                now = now,
+                providerMetas = entryPoint.providers().map { it.meta },
+                diagnosticsStore = diagnosticsStore
+            )
+        }
+
+        internal suspend fun scheduleStaleIfNeeded(
+            context: Context,
+            preferences: UserPreferences,
+            diagnostics: AutoCheckInDiagnostics,
+            now: ZonedDateTime,
+            providerMetas: List<ProviderMeta> = emptyList(),
+            diagnosticsStore: AutoCheckInDiagnosticsStore? = null
+        ): Boolean {
+            if (!preferences.autoCheckInEnabled ||
+                !shouldReconcileStaleSchedule(diagnostics, now)
+            ) return false
+
+            schedule(
+                context,
+                preferences.autoCheckInHour,
+                preferences.autoCheckInMinute,
+                now = now,
+                providerMetas = providerMetas,
+                diagnostics = diagnosticsStore
+            )
+            return true
+        }
+
         /** Queues behind the currently running worker without replacing it. */
         internal suspend fun scheduleAfterRun(
             context: Context,
@@ -275,6 +319,21 @@ internal fun isDailyScheduled(inputData: Data): Boolean =
 
 internal fun shouldDeferScheduleReplacement(states: List<androidx.work.WorkInfo.State>): Boolean =
     states.any { it == androidx.work.WorkInfo.State.RUNNING }
+
+internal fun shouldReconcileStaleSchedule(
+    diagnostics: AutoCheckInDiagnostics,
+    now: ZonedDateTime
+): Boolean {
+    val plannedNext = diagnostics.plannedNextEpochMillis ?: return false
+    if (plannedNext >= now.toInstant().toEpochMilli()) return false
+
+    val plannedDate = java.time.Instant.ofEpochMilli(plannedNext).atZone(now.zone).toLocalDate()
+    return listOf(diagnostics.lastStartEpochMillis, diagnostics.lastFinishEpochMillis)
+        .filterNotNull()
+        .none { epochMillis ->
+            java.time.Instant.ofEpochMilli(epochMillis).atZone(now.zone).toLocalDate() == plannedDate
+        }
+}
 
 internal fun shouldRunAutoCheckIn(preferences: UserPreferences): Boolean =
     preferences.autoCheckInEnabled

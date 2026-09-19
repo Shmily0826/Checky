@@ -16,6 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.runBlocking
 
 /** Runtime-only checks using WorkManager and local notification content. */
 @RunWith(AndroidJUnit4::class)
@@ -25,19 +26,19 @@ class WorkManagerNotificationRuntimeTest {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
 
     @Before
-    fun setUp() {
+    fun setUp() = runBlocking {
         AutoCheckInWorker.cancel(context)
         notificationManager.cancelAll()
     }
 
     @After
-    fun tearDown() {
+    fun tearDown() = runBlocking {
         AutoCheckInWorker.cancel(context)
         notificationManager.cancelAll()
     }
 
     @Test
-    fun scheduleChangeReplacesUniqueWorkAndCancelRemovesIt() {
+    fun scheduleChangeReplacesUniqueWorkAndCancelRemovesIt() = runBlocking {
         AutoCheckInWorker.schedule(context, 1, 2)
         val first = uniqueWork()
         assertEquals(1, first.size)
