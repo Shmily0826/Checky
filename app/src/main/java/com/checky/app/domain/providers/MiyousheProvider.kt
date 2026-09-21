@@ -92,15 +92,18 @@ class MiyousheProvider(
         if (session.cookie.isBlank() || !hasLtokenPair) {
             return@withContext SavedCredentialValidation.Unverified("已保存会话缺少可用于只读检查的 LToken 字段。")
         }
+        if (!session.uid.matches(Regex("\\d{9,10}")) || session.region !in SUPPORTED_REGIONS) {
+            return@withContext SavedCredentialValidation.Unverified("已保存会话缺少可用于签到状态检查的 UID 或区服。")
+        }
         runCatching {
             request(
                 method = "GET",
-                path = "/binding/api/getUserGameRolesByCookie",
-                query = emptyMap(),
+                path = "/event/luna/hk4e/info",
+                query = dailyRewardQuery(session),
                 cookie = session.cookie
             )
         }.fold(
-            onSuccess = ::mapMiyousheGameReadOnlyResponse,
+            onSuccess = ::mapMiyousheGameCheckInReadOnlyResponse,
             onFailure = { SavedCredentialValidation.Unverified("米游社只读连接检查暂时无法确认。") }
         )
     }
@@ -416,7 +419,7 @@ class MiyousheProvider(
         return when (retcode) {
             0 -> if (checkingOnly) {
                 val data = json.optJSONObject("data")
-                if (data == null || !data.has("is_sign")) {
+                if (data == null || data.opt("is_sign") !is Boolean) {
                     CheckInOutcome.PermanentFailure(
                         userMessage = "米游社返回了无法识别的签到状态，已停止操作。",
                         diagnosticCode = "MIYOUSHE_BAD_STATE"
@@ -465,6 +468,13 @@ class MiyousheProvider(
             }
         }
     }
+
+    private fun mapMiyousheGameCheckInReadOnlyResponse(body: String): SavedCredentialValidation =
+        when (mapResponse(body, checkingOnly = true)) {
+            is CheckInOutcome.Success -> SavedCredentialValidation.Valid
+            is CheckInOutcome.AuthenticationExpired -> SavedCredentialValidation.Expired
+            else -> SavedCredentialValidation.Unverified("米游社未返回可确认的签到状态。")
+        }
 
     private fun accountId(cookie: String): String {
         val preferredNames = listOf("account_id_v2", "account_id", "ltuid_v2", "ltuid")

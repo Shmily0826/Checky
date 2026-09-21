@@ -81,17 +81,19 @@ class MiyousheZzzProvider(
         if (!hasLtokenPair) {
             return@withContext SavedCredentialValidation.Unverified("Saved session lacks a readable LToken pair.")
         }
+        if (!session.uid.matches(UID_PATTERN) || session.region.isBlank()) {
+            return@withContext SavedCredentialValidation.Unverified("Saved session lacks a usable ZZZ UID or region.")
+        }
         runCatching {
             request(
-                API_HOST,
+                ZZZ_HOST,
                 "GET",
-                "/binding/api/getUserGameRolesByCookie",
-                emptyMap(),
-                session.cookie,
-                includeRoleDs = true
+                "/event/luna/zzz/info",
+                infoQuery(session),
+                session.cookie
             )
         }.fold(
-            onSuccess = ::mapMiyousheZzzRoleReadOnlyResponse,
+            onSuccess = ::mapMiyousheZzzCheckInReadOnlyResponse,
             onFailure = { SavedCredentialValidation.Unverified("HoYoverse connection could not be confirmed.") }
         )
     }
@@ -263,6 +265,14 @@ class MiyousheZzzProvider(
     } catch (_: Exception) {
         CheckInOutcome.TemporaryFailure("HoYoverse is temporarily unavailable; try again later.", "MIYOUSHE_ZZZ_NETWORK")
     }
+
+    private fun mapMiyousheZzzCheckInReadOnlyResponse(body: String): SavedCredentialValidation =
+        when (mapMiyousheZzzResponse(body, checkingOnly = true)) {
+            is CheckInOutcome.Success,
+            is CheckInOutcome.AlreadyCompleted -> SavedCredentialValidation.Valid
+            is CheckInOutcome.AuthenticationExpired -> SavedCredentialValidation.Expired
+            else -> SavedCredentialValidation.Unverified("HoYoverse did not return a confirmed ZZZ check-in state.")
+        }
 
     private fun request(
         host: String,

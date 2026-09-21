@@ -89,10 +89,17 @@ fun ProviderDetailsScreen(
 private fun formatTime(ts: Long?): String =
     if (ts == null) "—" else SimpleDateFormat("MMM d · HH:mm", Locale.getDefault()).format(Date(ts))
 
-internal enum class ConnectionAction { MANAGE_CONNECTION, RECONNECT }
+internal enum class ConnectionAction { MANAGE_CONNECTION, CHECK_CONNECTION, RECONNECT }
 
 internal fun connectionAction(isConnected: Boolean): ConnectionAction =
     if (isConnected) ConnectionAction.MANAGE_CONNECTION else ConnectionAction.RECONNECT
+
+internal fun connectionAction(authHealth: AuthHealth?, lastStatus: CheckInStatus): ConnectionAction = when {
+    authHealth == AuthHealth.EXPIRED -> ConnectionAction.RECONNECT
+    authHealth == AuthHealth.VALID && lastStatus == CheckInStatus.LOGIN_EXPIRED -> ConnectionAction.CHECK_CONNECTION
+    authHealth == AuthHealth.VALID || authHealth == AuthHealth.UNVERIFIED -> ConnectionAction.MANAGE_CONNECTION
+    else -> ConnectionAction.RECONNECT
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,6 +134,7 @@ private fun ProviderDetailsContent(
             return@Scaffold
         }
         val lastCheckInStatus = service?.lastStatus ?: CheckInStatus.PENDING
+        val detailAction = connectionAction(authHealth, lastCheckInStatus)
         val connectionLabel = when (authHealth) {
             AuthHealth.VALID -> stringResource(R.string.connect_connected)
             AuthHealth.UNVERIFIED -> stringResource(R.string.connect_needs_verification)
@@ -173,6 +181,13 @@ private fun ProviderDetailsContent(
                     if (!lastMessage.isNullOrBlank()) {
                         Text(lastMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    if (detailAction == ConnectionAction.CHECK_CONNECTION) {
+                        Text(
+                            stringResource(R.string.connect_last_result_expired_recheck),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.provider_last_update), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Text(formatTime(service?.lastTimestamp), style = MaterialTheme.typography.bodySmall)
@@ -195,10 +210,10 @@ private fun ProviderDetailsContent(
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = { onManageConnection(meta.id) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
                     Text(
-                        if (authHealth == AuthHealth.VALID || authHealth == AuthHealth.UNVERIFIED) {
-                            stringResource(R.string.connect_manage_connection)
-                        } else {
-                            stringResource(R.string.connect_reconnect)
+                        when (detailAction) {
+                            ConnectionAction.CHECK_CONNECTION -> stringResource(R.string.connect_open_check)
+                            ConnectionAction.MANAGE_CONNECTION -> stringResource(R.string.connect_manage_connection)
+                            ConnectionAction.RECONNECT -> stringResource(R.string.connect_reconnect)
                         }
                     )
                 }

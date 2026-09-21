@@ -31,6 +31,14 @@ import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 import kotlin.jvm.JvmSuppressWildcards
 
+internal enum class SavedCredentialCheckState {
+    IDLE,
+    RUNNING,
+    VALID,
+    EXPIRED,
+    UNVERIFIED
+}
+
 /**
  * Connect screen: lets the user provide (or delete) the credential a
  * credential-requiring provider needs. For the MVP this is a fake token form.
@@ -74,7 +82,15 @@ class ConnectProviderViewModel @Inject constructor(
     private val _verifying = MutableStateFlow(false)
     val verifying: StateFlow<Boolean> = _verifying.asStateFlow()
 
+    private val _savedCredentialCheckState = MutableStateFlow(SavedCredentialCheckState.IDLE)
+    internal val savedCredentialCheckState: StateFlow<SavedCredentialCheckState> =
+        _savedCredentialCheckState.asStateFlow()
+
     val supportsReadOnlyRevalidation: Boolean = provider is SavedCredentialRevalidator
+
+    /** Only the game role lookups are strict GET-only checks. */
+    val supportsConnectedSavedCredentialCheck: Boolean =
+        provider is SavedCredentialRevalidator && provider.meta.id in STRICT_READ_ONLY_PROVIDER_IDS
 
     private val _secret = MutableStateFlow("")
     val secret: StateFlow<String> = _secret.asStateFlow()
@@ -155,6 +171,7 @@ class ConnectProviderViewModel @Inject constructor(
 
     fun refreshConnection() {
         val target = provider ?: return
+        _savedCredentialCheckState.value = SavedCredentialCheckState.IDLE
         viewModelScope.launch {
             if (reconnectPending) {
                 enterReconnectState()
@@ -205,23 +222,39 @@ class ConnectProviderViewModel @Inject constructor(
     /** Explicit foreground evidence path for structurally saved credentials. */
     fun verifySavedCredential() {
         val target = provider ?: return
-        if ((_authHealth.value != AuthHealth.UNVERIFIED &&
-                _authHealth.value != AuthHealth.EXPIRED) || _verifying.value) return
+        val canVerifyConnected = _authHealth.value == AuthHealth.VALID && supportsConnectedSavedCredentialCheck
+        val canVerifySaved = _authHealth.value == AuthHealth.UNVERIFIED ||
+            _authHealth.value == AuthHealth.EXPIRED
+        if ((!canVerifyConnected && !canVerifySaved) ||
+            !supportsConnectedSavedCredentialCheck || _verifying.value
+        ) return
         viewModelScope.launch {
             _verifying.value = true
+            _savedCredentialCheckState.value = SavedCredentialCheckState.RUNNING
             _error.value = null
             try {
-                when (val result = (target as? SavedCredentialRevalidator)?.revalidateSavedCredential()) {
+                val result = try {
+                    (target as? SavedCredentialRevalidator)?.revalidateSavedCredential()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    null
+                }
+                when (result) {
                     SavedCredentialValidation.Valid -> {
+                        _savedCredentialCheckState.value = SavedCredentialCheckState.VALID
                         markProviderConfirmedValid()
                     }
                     SavedCredentialValidation.Expired -> {
+                        _savedCredentialCheckState.value = SavedCredentialCheckState.EXPIRED
                         authHealthStore.set(target.credentialOwnerId, AuthHealth.EXPIRED)
                         _authHealth.value = AuthHealth.EXPIRED
                         _connected.value = false
                     }
                     is SavedCredentialValidation.Unverified, null -> {
-                        _authHealth.value = authHealthStore.get(target.credentialOwnerId)
+                        _savedCredentialCheckState.value = SavedCredentialCheckState.UNVERIFIED
+                        authHealthStore.set(target.credentialOwnerId, AuthHealth.UNVERIFIED)
+                        _authHealth.value = AuthHealth.UNVERIFIED
                         _connected.value = false
                         _error.value = ConnectError.App(ConnectAppError.VERIFICATION_FAILED)
                     }
@@ -451,5 +484,12 @@ class ConnectProviderViewModel @Inject constructor(
     override fun onCleared() {
         qrJob?.cancel()
         super.onCleared()
+    }
+
+    private companion object {
+        val STRICT_READ_ONLY_PROVIDER_IDS = setOf(
+            "miyoushe_genshin_experimental",
+            "miyoushe_zzz_experimental"
+        )
     }
 }

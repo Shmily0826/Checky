@@ -122,15 +122,92 @@ class MiyousheZzzProviderTest {
     }
 
     @Test
-    fun savedSessionValidationUsesRoleDs() = runTest {
+    fun savedCredentialRevalidationUsesCheckInInfoGetWithoutPostOrMutation() = runTest {
         val requests = mutableListOf<okhttp3.Request>()
         val provider = provider(
-            responseBodies = listOf("""{"retcode":0,"data":{"list":[]}}"""),
+            responseBodies = listOf("""{"retcode":0,"data":{"is_sign":false}}"""),
             requests = requests
         )
 
         assertTrue(provider.revalidateSavedCredential() is com.checky.app.domain.SavedCredentialValidation.Valid)
-        assertValidRoleDs(requests.single())
+        assertEquals(1, requests.size)
+        val request = requests.single()
+        assertEquals("GET", request.method)
+        assertEquals("act-nap-api.mihoyo.com", request.url.host)
+        assertEquals("/event/luna/zzz/info", request.url.encodedPath)
+        assertEquals("zh-cn", request.url.queryParameter("lang"))
+        assertEquals("e202406242138391", request.url.queryParameter("act_id"))
+        assertEquals("prod_gf_cn", request.url.queryParameter("region"))
+        assertEquals("123456789", request.url.queryParameter("uid"))
+        assertRequiredZzzHeaders(request)
+        assertEquals(null, request.header("DS"))
+        assertFalse(requests.any { it.method == "POST" })
+    }
+
+    @Test
+    fun savedCredentialRevalidationMapsAuthAndMalformedStatesFailClosed() = runTest {
+        val cases = listOf(
+            """{"retcode":-100}""" to true,
+            """{"retcode":10001}""" to true,
+            """{"retcode":1034,"message":"verification"}""" to false,
+            """{"retcode":0,"data":{}}""" to false,
+            """{"retcode":0,"data":{"is_sign":"false"}}""" to false,
+            "not-json" to false
+        )
+
+        cases.forEach { (body, expired) ->
+            val requests = mutableListOf<okhttp3.Request>()
+            val credentials = RecordingStore().also {
+                it.put(MiyousheZzzProvider.META.id, sessionJson())
+            }
+            val original = credentials.peek(MiyousheZzzProvider.META.id)
+            val provider = provider(listOf(body), requests, credentials)
+
+            val result = provider.revalidateSavedCredential()
+            if (expired) {
+                assertTrue(result is com.checky.app.domain.SavedCredentialValidation.Expired)
+            } else {
+                assertTrue(result is com.checky.app.domain.SavedCredentialValidation.Unverified)
+            }
+            assertEquals(1, requests.size)
+            assertFalse(requests.any { it.method == "POST" })
+            assertEquals(0, credentials.saveCount)
+            assertEquals(0, credentials.deleteCount)
+            assertEquals(original, credentials.peek(MiyousheZzzProvider.META.id))
+        }
+    }
+
+    @Test
+    fun missingGameAccountConfigAndTransportFailureAreUnverifiedWithoutPost() = runTest {
+        val missingConfigRequests = mutableListOf<okhttp3.Request>()
+        val missingConfigCredentials = RecordingStore().also {
+            it.put(MiyousheZzzProvider.META.id, sessionJson(uid = "", region = ""))
+        }
+        val missingConfigProvider = provider(
+            responseBodies = listOf("""{"retcode":0,"data":{"is_sign":false}}"""),
+            requests = missingConfigRequests,
+            credentials = missingConfigCredentials
+        )
+
+        assertTrue(missingConfigProvider.revalidateSavedCredential() is com.checky.app.domain.SavedCredentialValidation.Unverified)
+        assertTrue(missingConfigRequests.isEmpty())
+
+        val networkRequests = mutableListOf<okhttp3.Request>()
+        val networkCredentials = RecordingStore().also {
+            it.put(MiyousheZzzProvider.META.id, sessionJson())
+        }
+        val networkProvider = provider(
+            responseBodies = emptyList(),
+            requests = networkRequests,
+            credentials = networkCredentials,
+            failTransport = true
+        )
+
+        assertTrue(networkProvider.revalidateSavedCredential() is com.checky.app.domain.SavedCredentialValidation.Unverified)
+        assertEquals(1, networkRequests.size)
+        assertFalse(networkRequests.any { it.method == "POST" })
+        assertEquals(0, networkCredentials.saveCount)
+        assertEquals(0, networkCredentials.deleteCount)
     }
 
     @Test
@@ -186,11 +263,16 @@ class MiyousheZzzProviderTest {
 
     private fun provider(
         responseBodies: List<String>,
-        requests: MutableList<okhttp3.Request>
+        requests: MutableList<okhttp3.Request>,
+        credentials: RecordingStore = RecordingStore().also {
+            it.put(MiyousheZzzProvider.META.id, sessionJson())
+        },
+        failTransport: Boolean = false
     ): MiyousheZzzProvider {
         val responses = responseBodies.iterator()
         val interceptor = Interceptor { chain ->
             requests += chain.request()
+            if (failTransport) throw java.io.IOException("synthetic transport failure")
             Response.Builder()
                 .request(chain.request())
                 .protocol(Protocol.HTTP_1_1)
@@ -199,7 +281,6 @@ class MiyousheZzzProviderTest {
                 .body(responses.next().toResponseBody("application/json".toMediaType()))
                 .build()
         }
-        val credentials = RecordingStore().also { it.put(MiyousheZzzProvider.META.id, sessionJson()) }
         return MiyousheZzzProvider(
             ApplicationProvider.getApplicationContext<Context>(),
             credentials,
@@ -207,11 +288,11 @@ class MiyousheZzzProviderTest {
         )
     }
 
-    private fun sessionJson() = JSONObject().apply {
+    private fun sessionJson(uid: String = "123456789", region: String = "prod_gf_cn") = JSONObject().apply {
         put("version", 1)
         put("cookie", validCookie())
-        put("uid", "123456789")
-        put("region", "prod_gf_cn")
+        put("uid", uid)
+        put("region", region)
     }.toString()
 
     private fun validCookie() = "ltoken=${"x".repeat(30)}; ltuid=123456789"
@@ -252,10 +333,22 @@ class MiyousheZzzProviderTest {
 
 private class RecordingStore : CredentialStore {
     private val values = mutableMapOf<String, String>()
+    var saveCount = 0
+    var deleteCount = 0
     fun put(providerId: String, secret: String) { values[providerId] = secret }
-    override suspend fun save(providerId: String, secret: String) { values[providerId] = secret }
+    fun peek(providerId: String): String? = values[providerId]
+    override suspend fun save(providerId: String, secret: String) {
+        saveCount++
+        values[providerId] = secret
+    }
     override suspend fun get(providerId: String): String? = values[providerId]
     override suspend fun has(providerId: String): Boolean = providerId in values
-    override suspend fun delete(providerId: String) { values.remove(providerId) }
-    override suspend fun deleteAll() { values.clear() }
+    override suspend fun delete(providerId: String) {
+        deleteCount++
+        values.remove(providerId)
+    }
+    override suspend fun deleteAll() {
+        deleteCount++
+        values.clear()
+    }
 }

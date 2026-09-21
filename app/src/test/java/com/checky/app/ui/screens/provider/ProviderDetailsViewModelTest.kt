@@ -186,6 +186,22 @@ class ProviderDetailsViewModelTest {
         assertEquals("synthetic-test-secret", credentials.get(provider.meta.id))
     }
 
+    @Test
+    fun validHealthWithExpiredLastResultOffersConnectionCheck() {
+        assertEquals(
+            ConnectionAction.CHECK_CONNECTION,
+            connectionAction(AuthHealth.VALID, CheckInStatus.LOGIN_EXPIRED)
+        )
+        assertEquals(
+            ConnectionAction.MANAGE_CONNECTION,
+            connectionAction(AuthHealth.VALID, CheckInStatus.SUCCESS)
+        )
+        assertEquals(
+            ConnectionAction.RECONNECT,
+            connectionAction(AuthHealth.EXPIRED, CheckInStatus.SUCCESS)
+        )
+    }
+
     private fun snapshot(id: String, enabled: Boolean) = ServiceSnapshot(
         serviceId = id,
         displayName = id,

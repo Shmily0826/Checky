@@ -86,9 +86,12 @@ class ConnectProviderViewModelTest {
     @Test
     fun reconnectEntryCheckConnectionRevalidatesAndRestoresValid() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        val credentials = RecordingCredentialStore().also { it.save("fake-read-only", "existing") }
-        val health = FakeAuthHealthStore().also { it.set("fake-read-only", AuthHealth.VALID) }
-        val provider = FakeReadOnlyProvider(SavedCredentialValidation.Valid)
+        val provider = FakeReadOnlyProvider(
+            SavedCredentialValidation.Valid,
+            id = "miyoushe_genshin_experimental"
+        )
+        val credentials = RecordingCredentialStore().also { it.save(provider.meta.id, "existing") }
+        val health = FakeAuthHealthStore().also { it.set(provider.meta.id, AuthHealth.VALID) }
         val vm = vmWith(credentials, provider, health, reconnect = true)
         advanceUntilIdle()
 
@@ -98,7 +101,8 @@ class ConnectProviderViewModelTest {
         assertEquals(1, provider.revalidationCalls)
         assertTrue(vm.connected.value)
         assertEquals(AuthHealth.VALID, vm.authHealth.value)
-        assertEquals(AuthHealth.VALID, health.get("fake-read-only"))
+        assertEquals(SavedCredentialCheckState.VALID, vm.savedCredentialCheckState.value)
+        assertEquals(AuthHealth.VALID, health.get(provider.meta.id))
     }
 
     @Test
@@ -187,7 +191,11 @@ class ConnectProviderViewModelTest {
             Dispatchers.setMain(StandardTestDispatcher(testScheduler))
             val credentials = RecordingCredentialStore()
             val health = FakeAuthHealthStore()
-            val vm = vmWith(credentials, FakeReadOnlyProvider(validation), health)
+            val vm = vmWith(
+                credentials,
+                FakeReadOnlyProvider(validation, id = "miyoushe_genshin_experimental"),
+                health
+            )
             vm.updateSecret("a-valid-token")
             vm.save()
             advanceUntilIdle()
@@ -197,6 +205,14 @@ class ConnectProviderViewModelTest {
 
             assertEquals(expectedHealth, vm.authHealth.value)
             assertEquals(expectedHealth == AuthHealth.VALID, vm.connected.value)
+            assertEquals(
+                when (expectedHealth) {
+                    AuthHealth.VALID -> SavedCredentialCheckState.VALID
+                    AuthHealth.EXPIRED -> SavedCredentialCheckState.EXPIRED
+                    AuthHealth.UNVERIFIED -> SavedCredentialCheckState.UNVERIFIED
+                },
+                vm.savedCredentialCheckState.value
+            )
             Dispatchers.resetMain()
         }
     }
@@ -205,12 +221,16 @@ class ConnectProviderViewModelTest {
     fun expiredHealthCanBeRevalidatedWithoutPromotingUnknown() = runTest {
         listOf(
             SavedCredentialValidation.Valid to AuthHealth.VALID,
-            SavedCredentialValidation.Unverified("unknown") to AuthHealth.EXPIRED
+            SavedCredentialValidation.Unverified("unknown") to AuthHealth.UNVERIFIED
         ).forEach { (validation, expectedHealth) ->
             Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-            val credentials = RecordingCredentialStore().also { it.save("fake-read-only", "existing") }
-            val health = FakeAuthHealthStore().also { it.set("fake-read-only", AuthHealth.EXPIRED) }
-            val vm = vmWith(credentials, FakeReadOnlyProvider(validation), health)
+            val provider = FakeReadOnlyProvider(
+                validation,
+                id = "miyoushe_genshin_experimental"
+            )
+            val credentials = RecordingCredentialStore().also { it.save(provider.meta.id, "existing") }
+            val health = FakeAuthHealthStore().also { it.set(provider.meta.id, AuthHealth.EXPIRED) }
+            val vm = vmWith(credentials, provider, health)
             advanceUntilIdle()
             assertFalse(vm.connected.value)
 
@@ -219,9 +239,96 @@ class ConnectProviderViewModelTest {
 
             assertEquals(expectedHealth, vm.authHealth.value)
             assertEquals(expectedHealth == AuthHealth.VALID, vm.connected.value)
-            assertEquals(expectedHealth, health.get("fake-read-only"))
+            assertEquals(
+                when (expectedHealth) {
+                    AuthHealth.VALID -> SavedCredentialCheckState.VALID
+                    AuthHealth.UNVERIFIED -> SavedCredentialCheckState.UNVERIFIED
+                    else -> error("unexpected test state")
+                },
+                vm.savedCredentialCheckState.value
+            )
+            assertEquals(expectedHealth, health.get(provider.meta.id))
             Dispatchers.resetMain()
         }
+    }
+
+    @Test
+    fun connectedMiyousheGamesCanCheckSavedCredentialWithoutDeletingIt() = runTest {
+        listOf("miyoushe_genshin_experimental", "miyoushe_zzz_experimental").forEach { providerId ->
+            listOf(
+                SavedCredentialValidation.Valid to AuthHealth.VALID,
+                SavedCredentialValidation.Expired to AuthHealth.EXPIRED,
+                SavedCredentialValidation.Unverified("unknown") to AuthHealth.UNVERIFIED
+            ).forEach { (validation, expectedHealth) ->
+                Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+                val credentials = RecordingCredentialStore().also { it.save(providerId, "existing") }
+                val health = FakeAuthHealthStore().also { it.set(providerId, AuthHealth.VALID) }
+                val provider = FakeReadOnlyProvider(validation, id = providerId)
+                val vm = vmWith(credentials, provider, health)
+                advanceUntilIdle()
+                assertTrue(vm.connected.value)
+                assertTrue(vm.supportsConnectedSavedCredentialCheck)
+
+                vm.verifySavedCredential()
+                advanceUntilIdle()
+
+                assertEquals(1, provider.revalidationCalls)
+                assertEquals(expectedHealth, vm.authHealth.value)
+                assertEquals(expectedHealth == AuthHealth.VALID, vm.connected.value)
+                assertEquals(
+                    when (expectedHealth) {
+                        AuthHealth.VALID -> SavedCredentialCheckState.VALID
+                        AuthHealth.EXPIRED -> SavedCredentialCheckState.EXPIRED
+                        AuthHealth.UNVERIFIED -> SavedCredentialCheckState.UNVERIFIED
+                    },
+                    vm.savedCredentialCheckState.value
+                )
+                assertEquals("existing", credentials.get(providerId))
+                Dispatchers.resetMain()
+            }
+        }
+    }
+
+    @Test
+    fun communitySavedCredentialCheckIsNotExposedAsStrictReadOnlyCheck() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = FakeReadOnlyProvider(
+            SavedCredentialValidation.Valid,
+            id = "miyoushe_community_signin"
+        )
+        val credentials = RecordingCredentialStore().also { it.save(provider.meta.id, "existing") }
+        val health = FakeAuthHealthStore().also { it.set(provider.meta.id, AuthHealth.VALID) }
+        val vm = vmWith(credentials, provider, health)
+        advanceUntilIdle()
+
+        assertFalse(vm.supportsConnectedSavedCredentialCheck)
+        vm.verifySavedCredential()
+        advanceUntilIdle()
+
+        assertEquals(0, provider.revalidationCalls)
+        assertEquals(SavedCredentialCheckState.IDLE, vm.savedCredentialCheckState.value)
+    }
+
+    @Test
+    fun refreshingConnectionClearsPreviousSavedCredentialCheckResult() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = FakeReadOnlyProvider(
+            SavedCredentialValidation.Valid,
+            id = "miyoushe_genshin_experimental"
+        )
+        val credentials = RecordingCredentialStore().also { it.save(provider.meta.id, "existing") }
+        val health = FakeAuthHealthStore().also { it.set(provider.meta.id, AuthHealth.VALID) }
+        val vm = vmWith(credentials, provider, health)
+        advanceUntilIdle()
+
+        vm.verifySavedCredential()
+        advanceUntilIdle()
+        assertEquals(SavedCredentialCheckState.VALID, vm.savedCredentialCheckState.value)
+
+        vm.refreshConnection()
+        advanceUntilIdle()
+
+        assertEquals(SavedCredentialCheckState.IDLE, vm.savedCredentialCheckState.value)
     }
 
     @Test
@@ -777,8 +884,9 @@ private class ScriptedProvider(
 }
 
 private class FakeReadOnlyProvider(
-    private val validationResult: SavedCredentialValidation
-) : BaseFakeProvider(testMeta("fake-read-only")), SavedCredentialRevalidator {
+    private val validationResult: SavedCredentialValidation,
+    id: String = "fake-read-only"
+) : BaseFakeProvider(testMeta(id)), SavedCredentialRevalidator {
     var revalidationCalls = 0
     override suspend fun revalidateSavedCredential(): SavedCredentialValidation {
         revalidationCalls++

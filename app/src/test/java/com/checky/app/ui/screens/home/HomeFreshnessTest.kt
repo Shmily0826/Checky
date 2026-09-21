@@ -6,6 +6,7 @@ import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.CheckInSummary
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.Reward
+import com.checky.app.domain.AuthHealth
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -149,6 +150,27 @@ class HomeFreshnessTest {
         assertTrue(isOrdinaryPendingCard(CheckInStatus.PENDING, connected = true, needsVerification = false))
         listOf(CheckInStatus.SUCCESS, CheckInStatus.ALREADY_CHECKED_IN).forEach { status ->
             assertFalse(isOrdinaryPendingCard(status, connected = true, needsVerification = false))
+        }
+    }
+
+    @Test
+    fun connectedValidStaleExpiredResultOffersSignInRetry() {
+        assertTrue(
+            staleLoginExpiredCanRetry(
+                connected = true,
+                authHealth = AuthHealth.VALID,
+                lastStatus = CheckInStatus.LOGIN_EXPIRED
+            )
+        )
+        listOf(
+            Triple(false, AuthHealth.VALID, CheckInStatus.LOGIN_EXPIRED),
+            Triple(true, AuthHealth.EXPIRED, CheckInStatus.LOGIN_EXPIRED),
+            Triple(true, AuthHealth.UNVERIFIED, CheckInStatus.LOGIN_EXPIRED),
+            Triple(true, null, CheckInStatus.LOGIN_EXPIRED),
+            Triple(true, AuthHealth.VALID, CheckInStatus.SUCCESS),
+            Triple(true, AuthHealth.VALID, CheckInStatus.PENDING)
+        ).forEach { (connected, authHealth, lastStatus) ->
+            assertFalse(staleLoginExpiredCanRetry(connected, authHealth, lastStatus))
         }
     }
 

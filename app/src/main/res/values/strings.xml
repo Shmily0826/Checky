@@ -151,6 +151,12 @@
     <string name="connect_auth_expired_preserved">The provider reported an expired login. Your local credential was kept; reconnect to restore automatic check-ins.</string>
     <string name="connect_verify_saved_credential">Verify by checking in now</string>
     <string name="connect_check_connection">Check connection</string>
+    <string name="connect_open_check">Open connection check</string>
+    <string name="connect_saved_check_running">Checking the saved connection (read-only)…</string>
+    <string name="connect_saved_check_valid">Read-only check passed: the saved credential is currently usable.</string>
+    <string name="connect_saved_check_expired">The saved login is expired. The credential was kept; no login was started.</string>
+    <string name="connect_saved_check_unverified">The connection could not be confirmed. The credential was kept; no login was started.</string>
+    <string name="connect_last_result_expired_recheck">The last check-in reported an expired login; the saved credential was not deleted. Check connection before deciding whether to reconnect.</string>
     <string name="connect_genshin_account">Genshin account</string>
     <string name="connect_zzz_account">ZZZ account</string>
     <string name="connect_zzz_account_saved">ZZZ account saved</string>

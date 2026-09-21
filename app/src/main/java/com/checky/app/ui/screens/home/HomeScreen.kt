@@ -70,6 +70,12 @@ internal fun currentSummaryServices(
     connectionById: Map<String, Boolean>
 ): List<ServiceSnapshot> = services.filter { connectionById[it.serviceId] == true }
 
+internal fun staleLoginExpiredCanRetry(
+    connected: Boolean,
+    authHealth: AuthHealth?,
+    lastStatus: CheckInStatus?
+): Boolean = connected && authHealth == AuthHealth.VALID && lastStatus == CheckInStatus.LOGIN_EXPIRED
+
 @Composable
 fun HomeScreen(
     navController: NavHostController,
@@ -188,6 +194,7 @@ private fun HomeContent(
             liveState != null -> liveState.status
             else -> persisted.status
         }
+        val canRetryStaleExpired = staleLoginExpiredCanRetry(connected, authHealth, s.lastStatus)
         CardInput(
             serviceId = s.serviceId,
             meta = meta,
@@ -212,8 +219,9 @@ private fun HomeContent(
                 else -> null
             },
             actionLabel = when {
+                canRetryStaleExpired -> stringResource(R.string.action_retry)
                 needsVerification -> stringResource(R.string.connect_manage_connection)
-                !connected -> stringResource(R.string.action_connect)
+                !connected -> stringResource(if (authHealth == AuthHealth.EXPIRED) R.string.action_reconnect else R.string.action_connect)
                 status == CheckInStatus.LOGIN_EXPIRED -> stringResource(R.string.action_reconnect)
                 status == CheckInStatus.FAILED -> stringResource(R.string.action_retry)
                 status == CheckInStatus.USER_ACTION_REQUIRED -> stringResource(R.string.action_retry_sign_in)
@@ -221,8 +229,9 @@ private fun HomeContent(
                 else -> null
             },
             onAction = when {
+                canRetryStaleExpired -> ({ onRetry(s.serviceId) })
                 needsVerification -> ({ onReconnect(s.serviceId, false) })
-                !connected -> ({ onReconnect(s.serviceId, false) })
+                !connected -> ({ onReconnect(s.serviceId, authHealth == AuthHealth.EXPIRED) })
                 status == CheckInStatus.LOGIN_EXPIRED -> ({ onReconnect(s.serviceId, true) })
                 status == CheckInStatus.FAILED -> ({ onRetry(s.serviceId) })
                 status == CheckInStatus.USER_ACTION_REQUIRED -> ({ onRetry(s.serviceId) })

@@ -139,6 +139,7 @@ fun ConnectProviderScreen(
     val connected by viewModel.connected.collectAsStateWithLifecycle()
     val authHealth by viewModel.authHealth.collectAsStateWithLifecycle()
     val verifying by viewModel.verifying.collectAsStateWithLifecycle()
+    val savedCredentialCheckState by viewModel.savedCredentialCheckState.collectAsStateWithLifecycle()
     val secret by viewModel.secret.collectAsStateWithLifecycle()
     val showSecret by viewModel.showSecret.collectAsStateWithLifecycle()
     val saving by viewModel.saving.collectAsStateWithLifecycle()
@@ -379,6 +380,13 @@ fun ConnectProviderScreen(
                             }
                         }
                     }
+                    if (viewModel.supportsConnectedSavedCredentialCheck) {
+                        SavedCredentialCheckControls(
+                            state = savedCredentialCheckState,
+                            verifying = verifying,
+                            onCheck = viewModel::verifySavedCredential
+                        )
+                    }
                     OutlinedButton(
                         onClick = { showDeleteConfirmation = true },
                         modifier = Modifier.fillMaxWidth(),
@@ -411,15 +419,12 @@ fun ConnectProviderScreen(
                         else -> Unit
                     }
                     if ((authHealth == AuthHealth.UNVERIFIED || authHealth == AuthHealth.EXPIRED) &&
-                        viewModel.supportsReadOnlyRevalidation) {
-                        OutlinedButton(
-                            onClick = viewModel::verifySavedCredential,
-                            enabled = !verifying,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (verifying) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            else Text(stringResource(R.string.connect_check_connection))
-                        }
+                        viewModel.supportsConnectedSavedCredentialCheck) {
+                        SavedCredentialCheckControls(
+                            state = savedCredentialCheckState,
+                            verifying = verifying,
+                            onCheck = viewModel::verifySavedCredential
+                        )
                     }
                     if (viewModel.smsProvider != null) {
                             Text(stringResource(R.string.connect_phone_verification), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -629,6 +634,46 @@ fun ConnectProviderScreen(
                 TextButton(onClick = { showLeaveSmsConfirmation = false }) {
                     Text(stringResource(R.string.action_cancel))
                 }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SavedCredentialCheckControls(
+    state: SavedCredentialCheckState,
+    verifying: Boolean,
+    onCheck: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onCheck,
+        enabled = !verifying,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        if (verifying) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.size(8.dp))
+            Text(stringResource(R.string.connect_saved_check_running))
+        } else {
+            Text(stringResource(R.string.connect_check_connection))
+        }
+    }
+    val resultRes = when (state) {
+        SavedCredentialCheckState.IDLE,
+        SavedCredentialCheckState.RUNNING -> null
+        SavedCredentialCheckState.VALID -> R.string.connect_saved_check_valid
+        SavedCredentialCheckState.EXPIRED -> R.string.connect_saved_check_expired
+        SavedCredentialCheckState.UNVERIFIED -> R.string.connect_saved_check_unverified
+    }
+    resultRes?.let { result ->
+        Text(
+            stringResource(result),
+            style = MaterialTheme.typography.bodySmall,
+            color = when (state) {
+                SavedCredentialCheckState.VALID -> MaterialTheme.colorScheme.tertiary
+                SavedCredentialCheckState.EXPIRED,
+                SavedCredentialCheckState.UNVERIFIED -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
         )
     }

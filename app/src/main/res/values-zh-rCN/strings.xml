@@ -151,6 +151,12 @@
     <string name="connect_auth_expired_preserved">服务方报告登录已失效。本地凭据已保留；重新连接后即可恢复自动签到。</string>
     <string name="connect_verify_saved_credential">立即签到以验证凭据</string>
     <string name="connect_check_connection">检查连接</string>
+    <string name="connect_open_check">打开连接检查</string>
+    <string name="connect_saved_check_running">正在只读检查已保存连接…</string>
+    <string name="connect_saved_check_valid">只读检查成功：当前已保存凭证可用。</string>
+    <string name="connect_saved_check_expired">已确认登录失效。本地凭证已保留，未启动登录。</string>
+    <string name="connect_saved_check_unverified">无法确认连接。本地凭证已保留，未启动登录。</string>
+    <string name="connect_last_result_expired_recheck">上次签到报告登录已失效；本地凭证未被删除。请先检查连接，再决定是否重新扫码。</string>
     <string name="connect_genshin_account">原神账号</string>
     <string name="connect_zzz_account">绝区零账号</string>
     <string name="connect_zzz_account_saved">已保存绝区零账号</string>
