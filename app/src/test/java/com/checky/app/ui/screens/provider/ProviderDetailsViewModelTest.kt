@@ -15,6 +15,8 @@ import com.checky.app.domain.model.Reward
 import com.checky.app.domain.model.RewardType
 import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
+import com.checky.app.domain.providers.MiyousheCommunityProvider
+import com.checky.app.domain.providers.MiyousheProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
@@ -187,6 +189,55 @@ class ProviderDetailsViewModelTest {
     }
 
     @Test
+    fun detailsStatusReconcilesCommunitySessionBeforeHealthGate() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = FakeCredentialStore().also {
+            it.save(MiyousheCommunityProvider.META.id, completeCommunityCookie())
+        }
+        val health = FakeAuthHealthStore()
+        val provider = SequenceCheckInProvider(meta = MiyousheProvider.META)
+        val vm = ProviderDetailsViewModel(
+            repository = DetailsFakeRepository(),
+            credentialStore = credentials,
+            providers = listOf(provider),
+            metas = listOf(MiyousheProvider.META),
+            savedStateHandle = SavedStateHandle(mapOf("serviceId" to MiyousheProvider.META.id)),
+            authHealthStore = health
+        )
+
+        val status = async { vm.authHealth.first { it != null } }
+        advanceUntilIdle()
+
+        assertEquals(AuthHealth.UNVERIFIED, status.await())
+        assertTrue(credentials.has(MiyousheProvider.META.id))
+    }
+
+    @Test
+    fun gameOnlySessionDoesNotBecomeCommunityConnected() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = FakeCredentialStore().also {
+            it.save(MiyousheProvider.META.id, "ltoken=token;ltuid=123456789")
+        }
+        val vm = ProviderDetailsViewModel(
+            repository = DetailsFakeRepository(),
+            credentialStore = credentials,
+            providers = listOf(SequenceCheckInProvider(meta = MiyousheCommunityProvider.META)),
+            metas = listOf(MiyousheCommunityProvider.META),
+            savedStateHandle = SavedStateHandle(
+                mapOf("serviceId" to MiyousheCommunityProvider.META.id)
+            ),
+            authHealthStore = FakeAuthHealthStore()
+        )
+
+        val collector = async { vm.authHealth.collect {} }
+        advanceUntilIdle()
+
+        assertNull(vm.authHealth.value)
+        assertFalse(credentials.has(MiyousheCommunityProvider.META.id))
+        collector.cancel()
+    }
+
+    @Test
     fun validHealthWithExpiredLastResultOffersConnectionCheck() {
         assertEquals(
             ConnectionAction.CHECK_CONNECTION,
@@ -211,6 +262,20 @@ class ProviderDetailsViewModelTest {
         lastMessage = null,
         lastTimestamp = null
     )
+
+    private fun completeCommunityCookie() = listOf(
+        "stoken=token",
+        "stoken_v2=token-v2",
+        "mid=mid",
+        "stuid=123456789",
+        "account_id=123456789",
+        "account_id_v2=123456789",
+        "cookie_token_v2=cookie-token",
+        "ltoken=ltoken",
+        "ltoken_v2=ltoken-v2",
+        "ltuid=123456789",
+        "ltmid_v2=123456789"
+    ).joinToString(";")
 }
 
 private class DetailsFakeRepository : CheckInRepository {

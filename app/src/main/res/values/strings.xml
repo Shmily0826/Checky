@@ -151,6 +151,7 @@
     <string name="connect_auth_expired_preserved">The provider reported an expired login. Your local credential was kept; reconnect to restore automatic check-ins.</string>
     <string name="connect_verify_saved_credential">Verify by checking in now</string>
     <string name="connect_check_connection">Check connection</string>
+    <string name="connect_community_full_session_hint">This saved game session cannot authenticate the community provider. Use the community QR once; it will also connect the game providers without another scan.</string>
     <string name="connect_open_check">Open connection check</string>
     <string name="connect_saved_check_running">Checking the saved connection (read-only)…</string>
     <string name="connect_saved_check_valid">Read-only check passed: the saved credential is currently usable.</string>
@@ -205,6 +206,10 @@
     <string name="connect_error_qr_timeout">QR code timed out. Generate a new one.</string>
     <string name="connect_error_game_roles_unavailable">Could not fetch characters automatically. Enter the game UID manually.</string>
     <string name="connect_error_verification_failed">The credential was not verified. Try again or reconnect.</string>
+    <string name="connect_error_zzz_session_missing">No ZZZ session is saved in Checky. No login or check-in was started.</string>
+    <string name="connect_error_zzz_ltoken_pair_missing">The saved ZZZ session is missing a readable LToken pair. The session was kept; no login or check-in was started.</string>
+    <string name="connect_error_zzz_uid_region_missing">The saved ZZZ session has no usable game UID or region. The session was kept; no login or check-in was started.</string>
+    <string name="connect_error_zzz_provider_not_confirmed">HoYoverse did not confirm the saved ZZZ connection. It remains unverified; no sign-in or check-in was performed.</string>
     <string name="connect_cancel_scan">Cancel scan</string>
     <string name="connect_manual_cookie_community">Enter community Cookie manually (advanced)</string>
     <string name="connect_manual_cookie">Enter Cookie manually (advanced)</string>

@@ -12,6 +12,7 @@ import com.checky.app.domain.LegacyAuthHealthMigration
 import com.checky.app.domain.NoOpAuthHealthStore
 import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.model.ProviderMeta
+import com.checky.app.domain.providers.MiyousheCredentialSharing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +52,7 @@ class ProviderDetailsViewModel @Inject constructor(
             LegacyAuthHealthMigration.seedIfNeeded(
                 providers, repository.observeServices().first(), credentialStore, authHealthStore
             )
+            MiyousheCredentialSharing.reconcile(credentialStore, authHealthStore)
             ProviderConnectionGate.health(provider, credentialStore, authHealthStore)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)

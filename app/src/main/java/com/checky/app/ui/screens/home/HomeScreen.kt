@@ -243,14 +243,7 @@ private fun HomeContent(
 
     val currentServices = currentSummaryServices(services, connectionById)
     val executableIds = currentServices.map { it.serviceId }.toSet()
-    val doneCount = if (live != null) {
-        live.values.count { isLiveStateForBusinessDate(it, now, runStartedAt) && it.status.isTerminal }
-    } else {
-        services.count {
-            it.serviceId in executableIds &&
-                projectHomeStatusForConnection(it, metaById[it.serviceId]!!, now, true).status.isTerminal
-        }
-    }
+    val doneCount = countCurrentDoneServices(currentServices, metaById, live, now, runStartedAt)
     val completed = currentServices.count {
         projectHomeStatusForConnection(it, metaById[it.serviceId]!!, now, true).status.isPositive
     }

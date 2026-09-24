@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.CredentialStore
+import com.checky.app.domain.QrLoginPollResult
+import com.checky.app.domain.QrLoginSession
 import com.checky.app.domain.SavedCredentialValidation
 import com.checky.app.domain.model.CheckInOutcome
 import kotlinx.coroutines.flow.first
@@ -25,6 +27,41 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class MiyousheCommunityProviderTest {
+
+    @Test
+    fun confirmedQrEnrichesValidatesAndPersistsCommunityCredential() = runTest {
+        val requests = mutableListOf<okhttp3.Request>()
+        val store = CommunityRecordingStore()
+        val provider = provider(
+            responses = listOf(
+                """{"retcode":0,"data":{"status":"Confirmed","tokens":[{"token":"synthetic-stoken"}],"user_info":{"mid":"synthetic-mid","aid":"synthetic-account"}}}""",
+                """{"retcode":0,"data":{"cookie_token":"synthetic-cookie"}}""",
+                """{"retcode":0,"data":{"ltoken":"synthetic-ltoken"}}"""
+            ),
+            store = store,
+            requests = requests
+        )
+
+        val result = provider.pollQrLogin(
+            QrLoginSession("synthetic-qr", "synthetic-device|synthetic-ticket")
+        )
+
+        assertTrue(result is QrLoginPollResult.Confirmed)
+        val saved = store.getNow(MiyousheCommunityProvider.META.id).orEmpty()
+        assertTrue(store.has(MiyousheCommunityProvider.META.id))
+        assertTrue(saved.contains("cookie_token_v2="))
+        assertTrue(saved.contains("ltoken_v2="))
+        assertTrue(saved.contains("ltuid="))
+        assertTrue(saved.contains("ltmid_v2="))
+        assertEquals(3, requests.size)
+        assertEquals("POST", requests[0].method)
+        assertEquals("/account/ma-cn-passport/app/queryQRLoginStatus", requests[0].url.encodedPath)
+        assertEquals("GET", requests[1].method)
+        assertEquals("/account/auth/api/getCookieAccountInfoBySToken", requests[1].url.encodedPath)
+        assertEquals("GET", requests[2].method)
+        assertEquals("/account/auth/api/getLTokenBySToken", requests[2].url.encodedPath)
+        assertFalse(requests.any { it.url.encodedPath == "/apihub/app/api/signIn" })
+    }
 
     @Test
     fun incompleteSessionPreflightsThenSendsOneSignPostWithoutRenewal() = runTest {

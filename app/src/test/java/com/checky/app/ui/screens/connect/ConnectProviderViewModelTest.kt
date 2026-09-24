@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.CheckInProvider
 import com.checky.app.domain.AuthHealth
+import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.FakeAuthHealthStore
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.CredentialValidation
@@ -22,6 +23,7 @@ import com.checky.app.domain.model.CheckInResult
 import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.Reward
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -42,6 +44,12 @@ import org.junit.Test
  * never a real provider.
  */
 class ConnectProviderViewModelTest {
+
+    @Test
+    fun confirmedQrStatusRemainsVisibleAfterSessionClears() {
+        assertTrue(shouldRenderQrStatus(null, QrUiStatus.Confirmed(null)))
+        assertFalse(shouldRenderQrStatus(null, QrUiStatus.Waiting))
+    }
 
     @After
     fun tearDown() {
@@ -290,7 +298,7 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
-    fun communitySavedCredentialCheckIsNotExposedAsStrictReadOnlyCheck() = runTest {
+    fun communitySavedCredentialCheckUsesReadOnlyRevalidatorWithoutCheckIn() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val provider = FakeReadOnlyProvider(
             SavedCredentialValidation.Valid,
@@ -298,15 +306,100 @@ class ConnectProviderViewModelTest {
         )
         val credentials = RecordingCredentialStore().also { it.save(provider.meta.id, "existing") }
         val health = FakeAuthHealthStore().also { it.set(provider.meta.id, AuthHealth.VALID) }
-        val vm = vmWith(credentials, provider, health)
+        val vm = vmWith(credentials, provider, health, reconnect = true)
         advanceUntilIdle()
 
-        assertFalse(vm.supportsConnectedSavedCredentialCheck)
+        assertTrue(vm.supportsConnectedSavedCredentialCheck)
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
         vm.verifySavedCredential()
         advanceUntilIdle()
 
-        assertEquals(0, provider.revalidationCalls)
-        assertEquals(SavedCredentialCheckState.IDLE, vm.savedCredentialCheckState.value)
+        assertEquals(1, provider.revalidationCalls)
+        assertEquals(0, provider.checkInCalls)
+        assertTrue(vm.connected.value)
+        assertEquals(AuthHealth.VALID, vm.authHealth.value)
+        assertEquals(SavedCredentialCheckState.VALID, vm.savedCredentialCheckState.value)
+    }
+
+    @Test
+    fun savedCredentialUnverifiedShowsOnlyAllowlistedZzzReasons() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+
+        suspend fun checkError(providerId: String, reason: String): Pair<ConnectProviderViewModel, FakeReadOnlyProvider> {
+            val provider = FakeReadOnlyProvider(SavedCredentialValidation.Unverified(reason), providerId)
+            val credentials = RecordingCredentialStore().also {
+                it.save(providerId, "synthetic-credential-must-not-be-visible")
+            }
+            val savedCredentials = credentials.vault.toMap()
+            val health = FakeAuthHealthStore().also { it.set(providerId, AuthHealth.UNVERIFIED) }
+            val vm = vmWith(credentials, provider, health)
+            advanceUntilIdle()
+
+            vm.verifySavedCredential()
+            advanceUntilIdle()
+            assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+            assertEquals(SavedCredentialCheckState.UNVERIFIED, vm.savedCredentialCheckState.value)
+            assertEquals(0, provider.checkInCalls)
+            assertEquals(savedCredentials, credentials.vault)
+            assertFalse(vm.error.value.toString().contains("synthetic-credential-must-not-be-visible"))
+            return vm to provider
+        }
+
+        val localReasons = listOf(
+            "No saved HoYoverse session." to ConnectAppError.ZZZ_SESSION_NOT_SAVED,
+            "Saved session lacks a readable LToken pair." to ConnectAppError.ZZZ_LTOKEN_PAIR_MISSING,
+            "Saved session lacks a usable ZZZ UID or region." to ConnectAppError.ZZZ_UID_OR_REGION_MISSING
+        )
+        localReasons.forEach { (reason, expectedError) ->
+            val (vm, provider) = checkError("miyoushe_zzz_experimental", reason)
+            assertEquals(ConnectError.App(expectedError), vm.error.value)
+            assertEquals(1, provider.revalidationCalls)
+        }
+
+        val providerReasons = listOf(
+            "HoYoverse connection could not be confirmed.",
+            "HoYoverse did not return a confirmed ZZZ check-in state."
+        )
+        providerReasons.forEach { reason ->
+            val (vm, provider) = checkError("miyoushe_zzz_experimental", reason)
+            assertEquals(ConnectError.App(ConnectAppError.ZZZ_PROVIDER_NOT_CONFIRMED), vm.error.value)
+            assertEquals(1, provider.revalidationCalls)
+        }
+
+        val unknownReason = "synthetic-private-response-must-not-be-visible"
+        val (unknownVm, _) = checkError("miyoushe_zzz_experimental", unknownReason)
+        assertEquals(ConnectError.App(ConnectAppError.VERIFICATION_FAILED), unknownVm.error.value)
+        assertFalse(unknownVm.error.value.toString().contains(unknownReason))
+
+        val (otherVm, _) = checkError("miyoushe_genshin_experimental", localReasons.last().first)
+        assertEquals(ConnectError.App(ConnectAppError.VERIFICATION_FAILED), otherVm.error.value)
+    }
+
+    @Test
+    fun autoQrWaitsForInitialHealthResolutionBeforeCheckingSavedCredential() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = FakeQrReadOnlyProvider("miyoushe_zzz_experimental")
+        val credentials = RecordingCredentialStore().also {
+            it.save(provider.meta.id, "synthetic-saved-session")
+        }
+        val health = DeferredAuthHealthStore()
+        val vm = vmWith(credentials, provider, health)
+        advanceUntilIdle()
+
+        assertTrue(health.readStarted.isCompleted)
+        assertFalse(vm.initialConnectionStateResolved.value)
+        vm.maybeStartQrLoginAutomatically()
+        assertEquals(0, provider.createCalls)
+
+        health.result.complete(AuthHealth.UNVERIFIED)
+        advanceUntilIdle()
+
+        assertTrue(vm.initialConnectionStateResolved.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        vm.maybeStartQrLoginAutomatically()
+        advanceUntilIdle()
+        assertEquals(0, provider.createCalls)
     }
 
     @Test
@@ -388,6 +481,103 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
+    fun gameEntryUsesCommunityQrAsCanonicalSourceWhenAvailable() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val game = FakeQrProvider(
+            listOf(QrLoginPollResult.Confirmed()),
+            providerId = "miyoushe_genshin_experimental"
+        )
+        val community = FakeQrProvider(
+            listOf(QrLoginPollResult.Confirmed()),
+            providerId = "miyoushe_community_signin"
+        )
+        val vm = ConnectProviderViewModel(
+            credentialStore = RecordingCredentialStore(),
+            providers = listOf(game, community),
+            savedStateHandle = SavedStateHandle(
+                mapOf("serviceId" to game.meta.id, "reconnect" to false)
+            ),
+            authHealthStore = FakeAuthHealthStore()
+        )
+
+        assertTrue(vm.usesCanonicalMiyousheQr)
+        assertTrue(vm.qrProvider === community)
+    }
+
+    @Test
+    fun canonicalGameQrDoesNotMarkGameValidWhenSessionLinkingFails() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val game = FakeQrProvider(
+            listOf(QrLoginPollResult.Confirmed()),
+            providerId = "miyoushe_genshin_experimental"
+        )
+        val community = FakeQrProvider(
+            listOf(QrLoginPollResult.Confirmed()),
+            providerId = "miyoushe_community_signin"
+        )
+        val health = FakeAuthHealthStore()
+        val vm = ConnectProviderViewModel(
+            credentialStore = RecordingCredentialStore(),
+            providers = listOf(game, community),
+            savedStateHandle = SavedStateHandle(
+                mapOf("serviceId" to game.meta.id, "reconnect" to false)
+            ),
+            authHealthStore = health
+        )
+
+        vm.startQrLogin()
+        advanceUntilIdle()
+
+        assertFalse(vm.connected.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertEquals(AuthHealth.UNVERIFIED, health.get(game.meta.id))
+    }
+
+    @Test
+    fun freshCanonicalQrAllowsUnverifiedZzzRoleLookupWithoutVerifyingSession() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val credentials = RecordingCredentialStore()
+        val zzz = FakeUnverifiedZzzProvider(
+            roles = listOf(GameRole(GameAccountConfig("12345678", "prod_gf_cn"), "synthetic role"))
+        )
+        val community = FakeQrProvider(
+            polls = listOf(QrLoginPollResult.Confirmed()),
+            providerId = "miyoushe_community_signin",
+            onConfirmed = {
+                credentials.save(
+                    "miyoushe_community_signin",
+                    "stoken=synthetic; stoken_v2=synthetic; mid=synthetic; stuid=synthetic; account_id=synthetic; " +
+                        "account_id_v2=synthetic; cookie_token_v2=synthetic; ltoken=synthetic; " +
+                        "ltoken_v2=synthetic; ltuid=synthetic; ltmid_v2=synthetic"
+                )
+            }
+        )
+        val health = FakeAuthHealthStore()
+        val vm = ConnectProviderViewModel(
+            credentialStore = credentials,
+            providers = listOf(zzz, community),
+            savedStateHandle = SavedStateHandle(mapOf("serviceId" to zzz.meta.id, "reconnect" to false)),
+            authHealthStore = health
+        )
+
+        advanceUntilIdle()
+        assertTrue(vm.usesCanonicalMiyousheQr)
+        vm.startQrLogin()
+        advanceUntilIdle()
+
+        assertTrue(vm.showZzzRoleSetup.value)
+        assertEquals(1, zzz.roleLookupCalls)
+        assertEquals(1, vm.gameRoles.value.size)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertEquals(AuthHealth.UNVERIFIED, health.get(zzz.meta.id))
+        assertFalse(vm.connected.value)
+        assertFalse(vm.gameAccountSaved.value)
+        assertEquals(0, zzz.saveCalls)
+        assertEquals(0, zzz.checkInCalls)
+        assertEquals(0, zzz.qrCreateCalls)
+    }
+
+    @Test
     fun qrLoginWaitsThenConfirms() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = vmWith(
@@ -425,6 +615,20 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
+    fun qrLoginProviderExceptionSurfacesErrorAndClearsSession() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val vm = vmWith(RecordingCredentialStore(), ThrowingQrProvider())
+
+        vm.startQrLogin()
+        advanceUntilIdle()
+
+        assertTrue(vm.error.value is ConnectError.Provider)
+        assertNull(vm.qrSession.value)
+        assertFalse(vm.qrBusy.value)
+        assertFalse(vm.connected.value)
+    }
+
+    @Test
     fun qrLoginOnPlainProviderShowsUnsupportedError() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val vm = vmWith(RecordingCredentialStore(), ScriptedProvider())
@@ -444,6 +648,7 @@ class ConnectProviderViewModelTest {
             RecordingCredentialStore(),
             FakeQrProvider(listOf(QrLoginPollResult.Confirmed("123456789")))
         )
+        advanceUntilIdle()
         vm.maybeStartQrLoginAutomatically()
         advanceUntilIdle()
 
@@ -737,6 +942,97 @@ class ConnectProviderViewModelTest {
     }
 
     @Test
+    fun unverifiedZzzLoadsRolesOnDemandAndStaysUnverifiedUntilCheckSucceeds() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val id = "miyoushe_zzz_experimental"
+        val credentials = RecordingCredentialStore().also { it.save(id, "synthetic-session") }
+        val originalSession = credentials.get(id)
+        val health = FakeAuthHealthStore().also { it.set(id, AuthHealth.UNVERIFIED) }
+        val provider = FakeUnverifiedZzzProvider(
+            roles = listOf(GameRole(GameAccountConfig("12345678", "prod_gf_cn"), "synthetic role"))
+        )
+        val vm = vmWith(credentials, provider, health)
+        advanceUntilIdle()
+
+        assertTrue(vm.showZzzRoleSetup.value)
+        assertEquals(0, provider.roleLookupCalls)
+        assertEquals(0, provider.saveCalls)
+        vm.maybeStartQrLoginAutomatically()
+        advanceUntilIdle()
+        assertEquals(0, provider.qrCreateCalls)
+
+        vm.fetchGameRoles()
+        advanceUntilIdle()
+        assertEquals(1, provider.roleLookupCalls)
+        assertEquals(1, vm.gameRoles.value.size)
+        assertFalse(vm.gameAccountSaved.value)
+        assertEquals(AuthHealth.UNVERIFIED, health.get(id))
+        assertEquals(originalSession, credentials.get(id))
+        assertEquals(0, provider.saveCalls)
+
+        vm.pickGameRole(0)
+        advanceUntilIdle()
+        assertEquals(GameAccountConfig("12345678", "prod_gf_cn"), provider.savedConfig)
+        assertTrue(vm.gameAccountSaved.value)
+        assertEquals(AuthHealth.UNVERIFIED, vm.authHealth.value)
+        assertEquals(AuthHealth.UNVERIFIED, health.get(id))
+        assertEquals(originalSession, credentials.get(id))
+        assertEquals(0, provider.revalidationCalls)
+        assertEquals(0, provider.checkInCalls)
+        assertEquals(0, provider.qrCreateCalls)
+
+        vm.verifySavedCredential()
+        advanceUntilIdle()
+        assertEquals(1, provider.revalidationCalls)
+        assertTrue(vm.connected.value)
+        assertEquals(AuthHealth.VALID, health.get(id))
+    }
+
+    @Test
+    fun unverifiedZzzBlocksIncompatibleSessionsAndManualOrInvalidRoleSaves() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val id = "miyoushe_zzz_experimental"
+        val credentials = RecordingCredentialStore().also { it.save(id, "synthetic-session") }
+        val health = FakeAuthHealthStore().also { it.set(id, AuthHealth.UNVERIFIED) }
+        val unavailable = FakeUnverifiedZzzProvider(compatible = false)
+        val unavailableVm = vmWith(credentials, unavailable, health)
+        advanceUntilIdle()
+
+        assertFalse(unavailableVm.showZzzRoleSetup.value)
+        unavailableVm.fetchGameRoles()
+        unavailableVm.updateGameUid("12345678")
+        unavailableVm.updateGameRegion("prod_gf_cn")
+        unavailableVm.saveGameAccount()
+        advanceUntilIdle()
+        assertEquals(0, unavailable.roleLookupCalls)
+        assertEquals(0, unavailable.saveCalls)
+        assertEquals(AuthHealth.UNVERIFIED, health.get(id))
+
+        val invalid = FakeUnverifiedZzzProvider(
+            roles = listOf(GameRole(GameAccountConfig("bad", "prod_gf_cn"), "synthetic role"))
+        )
+        val invalidVm = vmWith(credentials, invalid, health)
+        advanceUntilIdle()
+        assertTrue(invalidVm.showZzzRoleSetup.value)
+        invalidVm.fetchGameRoles()
+        advanceUntilIdle()
+        invalidVm.pickGameRole(0)
+        advanceUntilIdle()
+
+        assertEquals(1, invalid.roleLookupCalls)
+        assertEquals(1, invalid.saveCalls)
+        assertFalse(invalidVm.gameAccountSaved.value)
+        assertTrue(invalidVm.error.value is ConnectError.Provider)
+        assertEquals(AuthHealth.UNVERIFIED, invalidVm.authHealth.value)
+        assertEquals(AuthHealth.UNVERIFIED, health.get(id))
+        assertEquals(0, unavailable.checkInCalls)
+        assertEquals(0, unavailable.qrCreateCalls)
+        assertEquals(0, invalid.checkInCalls)
+        assertEquals(0, invalid.qrCreateCalls)
+        assertEquals("synthetic-session", credentials.get(id))
+    }
+
+    @Test
     fun zzzRegionDisplayLocalizesOfficialServerWithoutChangingRawRegion() = runTest {
         assertEquals("官服", zzzRegionDisplayValue("prod_gf_cn", false, "官服"))
         assertEquals("prod_gf_cn", zzzRegionDisplayValue("prod_gf_cn", true, "官服"))
@@ -830,7 +1126,7 @@ class ConnectProviderViewModelTest {
     private fun vmWith(
         credentials: RecordingCredentialStore,
         provider: CheckInProvider,
-        authHealthStore: FakeAuthHealthStore = FakeAuthHealthStore(),
+        authHealthStore: AuthHealthStore = FakeAuthHealthStore(),
         reconnect: Boolean = false
     ): ConnectProviderViewModel = ConnectProviderViewModel(
         credentialStore = credentials,
@@ -856,7 +1152,10 @@ private fun testMeta(id: String) = ProviderMeta(
 private open class BaseFakeProvider(
     override val meta: ProviderMeta
 ) : CheckInProvider {
+    var checkInCalls = 0
+
     override fun checkIn(): Flow<CheckInEvent> = flow {
+        checkInCalls++
         emit(
             CheckInEvent.Done(
                 CheckInResult(
@@ -895,16 +1194,29 @@ private class FakeReadOnlyProvider(
 }
 
 private class FakeQrProvider(
-    private val polls: List<QrLoginPollResult>
-) : BaseFakeProvider(testMeta("fake-qr")), QrLoginProvider {
+    private val polls: List<QrLoginPollResult>,
+    providerId: String = "fake-qr",
+    private val onConfirmed: suspend () -> Unit = {}
+) : BaseFakeProvider(testMeta(providerId)), QrLoginProvider {
     private var pollIndex = 0
     override suspend fun createQrLoginSession() = QrLoginSession("qr-payload", "session-1")
-    override suspend fun pollQrLogin(session: QrLoginSession): QrLoginPollResult =
-        polls[pollIndex.coerceAtMost(polls.size - 1)].also { pollIndex++ }
+    override suspend fun pollQrLogin(session: QrLoginSession): QrLoginPollResult {
+        val result = polls[pollIndex.coerceAtMost(polls.size - 1)].also { pollIndex++ }
+        if (result is QrLoginPollResult.Confirmed) onConfirmed()
+        return result
+    }
 }
 
-private class FakeQrReadOnlyProvider :
-    BaseFakeProvider(testMeta("fake-qr-read-only")),
+private class ThrowingQrProvider : BaseFakeProvider(testMeta("throwing-qr")), QrLoginProvider {
+    override suspend fun createQrLoginSession(): QrLoginSession =
+        error("synthetic QR transport failure")
+
+    override suspend fun pollQrLogin(session: QrLoginSession): QrLoginPollResult =
+        QrLoginPollResult.Waiting
+}
+
+private class FakeQrReadOnlyProvider(providerId: String = "fake-qr-read-only") :
+    BaseFakeProvider(testMeta(providerId)),
     QrLoginProvider,
     SavedCredentialRevalidator {
     var createCalls = 0
@@ -919,6 +1231,20 @@ private class FakeQrReadOnlyProvider :
 
     override suspend fun revalidateSavedCredential(): SavedCredentialValidation =
         SavedCredentialValidation.Valid
+}
+
+private class DeferredAuthHealthStore : AuthHealthStore {
+    val readStarted = CompletableDeferred<Unit>()
+    val result = CompletableDeferred<AuthHealth>()
+
+    override suspend fun get(ownerId: String): AuthHealth {
+        readStarted.complete(Unit)
+        return result.await()
+    }
+
+    override suspend fun hasRecord(ownerId: String): Boolean = true
+    override suspend fun set(ownerId: String, health: AuthHealth) = Unit
+    override suspend fun clear(ownerId: String) = Unit
 }
 
 private class FakeSmsProvider(
@@ -941,6 +1267,44 @@ private class FakeGameAccountProvider(
     override suspend fun fetchGameRoles(): List<GameRole> = fetchFailure?.let { throw it } ?: roles
     override suspend fun saveGameAccountConfig(uid: String, region: String): CredentialValidation =
         saveResult(uid, region)
+}
+
+private class FakeUnverifiedZzzProvider(
+    private val roles: List<GameRole> = emptyList(),
+    private val compatible: Boolean = true
+) : BaseFakeProvider(testMeta("miyoushe_zzz_experimental")),
+    GameAccountConfigProvider,
+    SavedCredentialRevalidator,
+    QrLoginProvider {
+    var roleLookupCalls = 0
+    var saveCalls = 0
+    var revalidationCalls = 0
+    var qrCreateCalls = 0
+    var savedConfig: GameAccountConfig? = null
+
+    override suspend fun gameAccountConfig(): GameAccountConfig? = savedConfig
+    override suspend fun hasCompatibleSavedSessionForRoleLookup(): Boolean = compatible
+    override suspend fun fetchGameRoles(): List<GameRole> {
+        roleLookupCalls++
+        return roles
+    }
+    override suspend fun saveGameAccountConfig(uid: String, region: String): CredentialValidation {
+        saveCalls++
+        if (!uid.matches(Regex("\\d{8,10}")) || region.isBlank()) {
+            return CredentialValidation.Invalid("Invalid synthetic role.")
+        }
+        savedConfig = GameAccountConfig(uid, region)
+        return CredentialValidation.Valid
+    }
+    override suspend fun revalidateSavedCredential(): SavedCredentialValidation {
+        revalidationCalls++
+        return SavedCredentialValidation.Valid
+    }
+    override suspend fun createQrLoginSession(): QrLoginSession {
+        qrCreateCalls++
+        return QrLoginSession("synthetic-qr", "synthetic-session")
+    }
+    override suspend fun pollQrLogin(session: QrLoginSession): QrLoginPollResult = QrLoginPollResult.Waiting
 }
 
 private class RecordingCredentialStore : CredentialStore {

@@ -76,6 +76,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import com.checky.app.domain.model.CredentialType
 import com.checky.app.domain.AuthHealth
+import com.checky.app.domain.QrLoginSession
 import com.checky.app.ui.components.ProviderIcon
 import com.checky.app.ui.components.localizedProviderCategory
 import com.checky.app.ui.components.localizedProviderDescription
@@ -93,6 +94,10 @@ private fun connectErrorLabel(error: ConnectError): String = when (error) {
         ConnectAppError.QR_TIMEOUT -> stringResource(R.string.connect_error_qr_timeout)
         ConnectAppError.GAME_ROLES_UNAVAILABLE -> stringResource(R.string.connect_error_game_roles_unavailable)
         ConnectAppError.VERIFICATION_FAILED -> stringResource(R.string.connect_error_verification_failed)
+        ConnectAppError.ZZZ_SESSION_NOT_SAVED -> stringResource(R.string.connect_error_zzz_session_missing)
+        ConnectAppError.ZZZ_LTOKEN_PAIR_MISSING -> stringResource(R.string.connect_error_zzz_ltoken_pair_missing)
+        ConnectAppError.ZZZ_UID_OR_REGION_MISSING -> stringResource(R.string.connect_error_zzz_uid_region_missing)
+        ConnectAppError.ZZZ_PROVIDER_NOT_CONFIRMED -> stringResource(R.string.connect_error_zzz_provider_not_confirmed)
     }
 }
 
@@ -109,6 +114,17 @@ private fun qrStatusLabel(status: QrUiStatus?): String = when (status) {
 
 internal fun zzzRegionDisplayValue(region: String, isEditing: Boolean, localizedOfficialServer: String): String =
     if (!isEditing && region == "prod_gf_cn") localizedOfficialServer else region
+
+internal fun shouldRenderQrStatus(qrSession: QrLoginSession?, qrStatus: QrUiStatus?): Boolean =
+    qrSession != null || qrStatus is QrUiStatus.Confirmed
+
+private fun ConnectError.isZzzCheckExplanation(): Boolean =
+    this is ConnectError.App && kind in setOf(
+        ConnectAppError.ZZZ_SESSION_NOT_SAVED,
+        ConnectAppError.ZZZ_LTOKEN_PAIR_MISSING,
+        ConnectAppError.ZZZ_UID_OR_REGION_MISSING,
+        ConnectAppError.ZZZ_PROVIDER_NOT_CONFIRMED
+    )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -138,6 +154,7 @@ fun ConnectProviderScreen(
     val meta = viewModel.meta
     val connected by viewModel.connected.collectAsStateWithLifecycle()
     val authHealth by viewModel.authHealth.collectAsStateWithLifecycle()
+    val initialConnectionStateResolved by viewModel.initialConnectionStateResolved.collectAsStateWithLifecycle()
     val verifying by viewModel.verifying.collectAsStateWithLifecycle()
     val savedCredentialCheckState by viewModel.savedCredentialCheckState.collectAsStateWithLifecycle()
     val secret by viewModel.secret.collectAsStateWithLifecycle()
@@ -145,13 +162,16 @@ fun ConnectProviderScreen(
     val saving by viewModel.saving.collectAsStateWithLifecycle()
     val saved by viewModel.saved.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val zzzCheckExplanation = error?.takeIf { it.isZzzCheckExplanation() }
     val qrSession by viewModel.qrSession.collectAsStateWithLifecycle()
     val qrStatus by viewModel.qrStatus.collectAsStateWithLifecycle()
     val qrBusy by viewModel.qrBusy.collectAsStateWithLifecycle()
+    val communityNeedsFullSession by viewModel.communityNeedsFullSession.collectAsStateWithLifecycle()
     val gameUid by viewModel.gameUid.collectAsStateWithLifecycle()
     val gameRegion by viewModel.gameRegion.collectAsStateWithLifecycle()
     val savingGameAccount by viewModel.savingGameAccount.collectAsStateWithLifecycle()
     val gameAccountSaved by viewModel.gameAccountSaved.collectAsStateWithLifecycle()
+    val showZzzRoleSetup by viewModel.showZzzRoleSetup.collectAsStateWithLifecycle()
     val phone by viewModel.phone.collectAsStateWithLifecycle()
     val smsCode by viewModel.smsCode.collectAsStateWithLifecycle()
     val smsSent by viewModel.smsSent.collectAsStateWithLifecycle()
@@ -228,15 +248,23 @@ fun ConnectProviderScreen(
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
-                connected -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                connected || showZzzRoleSetup -> {
+                    if (connected) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(stringResource(R.string.connect_connected), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        Text(
+                            stringResource(R.string.connect_credential_unverified_manage),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(Modifier.size(8.dp))
-                        Text(stringResource(R.string.connect_connected), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     }
                     if (saved) {
                         Text(stringResource(R.string.connect_token_saved), style = MaterialTheme.typography.bodyMedium)
@@ -250,6 +278,9 @@ fun ConnectProviderScreen(
                                     stringResource(if (isMiyousheZzz) R.string.connect_zzz_account else R.string.connect_genshin_account),
                                     style = MaterialTheme.typography.titleSmall
                                 )
+                                if (!connected && gameAccountSaved) {
+                                    Text(stringResource(R.string.connect_zzz_account_saved))
+                                }
                                 when {
                                     gameRolesBusy -> {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -264,7 +295,7 @@ fun ConnectProviderScreen(
                                             )
                                         }
                                     }
-                                    gameRoles.size > 1 -> {
+                                    gameRoles.isNotEmpty() -> {
                                         Text(
                                             stringResource(R.string.connect_multiple_roles),
                                             style = MaterialTheme.typography.bodySmall,
@@ -309,7 +340,7 @@ fun ConnectProviderScreen(
                                         ) { Text(stringResource(R.string.connect_fetch_roles_again)) }
                                     }
                                 }
-                                if (!gameRolesBusy && gameRoles.size <= 1) {
+                                if (!gameRolesBusy && gameRoles.size <= 1 && connected) {
                                 OutlinedTextField(
                                     value = gameUid,
                                     onValueChange = viewModel::updateGameUid,
@@ -384,26 +415,31 @@ fun ConnectProviderScreen(
                         SavedCredentialCheckControls(
                             state = savedCredentialCheckState,
                             verifying = verifying,
+                            explanation = zzzCheckExplanation,
                             onCheck = viewModel::verifySavedCredential
                         )
                     }
-                    OutlinedButton(
-                        onClick = { showDeleteConfirmation = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Icon(Icons.Filled.Delete, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                        Text(stringResource(R.string.connect_delete_credentials))
+                    if (connected) {
+                        OutlinedButton(
+                            onClick = { showDeleteConfirmation = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = null)
+                            Spacer(Modifier.size(8.dp))
+                            Text(stringResource(R.string.connect_delete_credentials))
+                        }
                     }
                 }
                 else -> {
                     // QR providers generate their session immediately on
                     // entry — the default path is scan-only, zero typing.
-                    LaunchedEffect(Unit) {
-                        viewModel.maybeStartQrLoginAutomatically()
+                    LaunchedEffect(initialConnectionStateResolved) {
+                        if (initialConnectionStateResolved) {
+                            viewModel.maybeStartQrLoginAutomatically()
+                        }
                     }
                     when (authHealth) {
                         AuthHealth.UNVERIFIED -> Text(
@@ -423,6 +459,7 @@ fun ConnectProviderScreen(
                         SavedCredentialCheckControls(
                             state = savedCredentialCheckState,
                             verifying = verifying,
+                            explanation = zzzCheckExplanation,
                             onCheck = viewModel::verifySavedCredential
                         )
                     }
@@ -468,6 +505,13 @@ fun ConnectProviderScreen(
                         return@Column
                     }
                     if (viewModel.qrProvider != null) {
+                        if (communityNeedsFullSession) {
+                            Text(
+                                stringResource(R.string.connect_community_full_session_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
                         Text(
                             stringResource(R.string.connect_qr_title),
                             style = MaterialTheme.typography.titleMedium,
@@ -526,6 +570,8 @@ fun ConnectProviderScreen(
                                     modifier = Modifier.align(Alignment.CenterHorizontally)
                                 )
                             }
+                        }
+                        if (shouldRenderQrStatus(qrSession, qrStatus)) {
                             Text(
                                 qrStatusLabel(qrStatus),
                                 style = MaterialTheme.typography.bodyMedium,
@@ -536,10 +582,19 @@ fun ConnectProviderScreen(
                                 },
                                 modifier = Modifier.align(Alignment.CenterHorizontally)
                             )
+                        }
+                        if (qrSession != null) {
                             OutlinedButton(
                                 onClick = viewModel::cancelQrLogin,
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text(stringResource(R.string.connect_cancel_scan)) }
+                        }
+                        error?.takeUnless { it.isZzzCheckExplanation() }?.let { qrError ->
+                            Text(
+                                connectErrorLabel(qrError),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                     // Manual Cookie entry stays hidden behind an explicit
@@ -582,8 +637,14 @@ fun ConnectProviderScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    if (error != null) {
-                        Text(connectErrorLabel(error!!), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    if (viewModel.qrProvider == null) {
+                        error?.let { manualError ->
+                            Text(
+                                connectErrorLabel(manualError),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                     Button(
                         onClick = viewModel::save,
@@ -643,6 +704,7 @@ fun ConnectProviderScreen(
 private fun SavedCredentialCheckControls(
     state: SavedCredentialCheckState,
     verifying: Boolean,
+    explanation: ConnectError?,
     onCheck: () -> Unit
 ) {
     OutlinedButton(
@@ -675,6 +737,13 @@ private fun SavedCredentialCheckControls(
                 SavedCredentialCheckState.UNVERIFIED -> MaterialTheme.colorScheme.error
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
+        )
+    }
+    explanation?.let {
+        Text(
+            connectErrorLabel(it),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall
         )
     }
 }

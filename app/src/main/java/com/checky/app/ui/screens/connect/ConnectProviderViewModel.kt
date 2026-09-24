@@ -8,6 +8,7 @@ import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.CredentialValidation
+import com.checky.app.domain.GameAccountConfig
 import com.checky.app.domain.GameAccountConfigProvider
 import com.checky.app.domain.GameRole
 import com.checky.app.domain.QrLoginPollResult
@@ -19,6 +20,7 @@ import com.checky.app.domain.ProviderConnectionGate
 import com.checky.app.domain.SavedCredentialRevalidator
 import com.checky.app.domain.SavedCredentialValidation
 import com.checky.app.domain.model.ProviderMeta
+import com.checky.app.domain.providers.MiyousheCredentialSharing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,7 +60,21 @@ class ConnectProviderViewModel @Inject constructor(
     private var reconnectPending = reconnectEntry
     val provider: CheckInProvider? = providers.firstOrNull { it.meta.id == serviceId }
     val meta: ProviderMeta? = provider?.meta
-    val qrProvider: QrLoginProvider? = provider as? QrLoginProvider
+    private val canonicalMiyousheQrProvider: QrLoginProvider? =
+        providers.firstOrNull { it.meta.id == MIYOUSHE_COMMUNITY_ID } as? QrLoginProvider
+    val qrProvider: QrLoginProvider? = if (
+        provider?.meta?.id?.let(MIYOUSHE_GAME_IDS::contains) == true &&
+            canonicalMiyousheQrProvider != null
+    ) {
+        canonicalMiyousheQrProvider
+    } else {
+        provider as? QrLoginProvider
+    }
+    val usesCanonicalMiyousheQr: Boolean =
+        provider?.meta?.id?.let(MIYOUSHE_GAME_IDS::contains) == true &&
+            canonicalMiyousheQrProvider != null
+    val isMiyousheProvider: Boolean =
+        provider?.meta?.id?.let(MIYOUSHE_PROVIDER_IDS::contains) == true
     val gameAccountProvider: GameAccountConfigProvider? = provider as? GameAccountConfigProvider
     val smsProvider: SmsLoginProvider? = provider as? SmsLoginProvider
 
@@ -78,6 +94,9 @@ class ConnectProviderViewModel @Inject constructor(
         if (reconnectEntry && provider != null) AuthHealth.UNVERIFIED else null
     )
     val authHealth: StateFlow<AuthHealth?> = _authHealth.asStateFlow()
+    private val _initialConnectionStateResolved = MutableStateFlow(reconnectEntry && provider != null)
+    internal val initialConnectionStateResolved: StateFlow<Boolean> =
+        _initialConnectionStateResolved.asStateFlow()
 
     private val _verifying = MutableStateFlow(false)
     val verifying: StateFlow<Boolean> = _verifying.asStateFlow()
@@ -86,9 +105,12 @@ class ConnectProviderViewModel @Inject constructor(
     internal val savedCredentialCheckState: StateFlow<SavedCredentialCheckState> =
         _savedCredentialCheckState.asStateFlow()
 
+    private val _communityNeedsFullSession = MutableStateFlow(false)
+    val communityNeedsFullSession: StateFlow<Boolean> = _communityNeedsFullSession.asStateFlow()
+
     val supportsReadOnlyRevalidation: Boolean = provider is SavedCredentialRevalidator
 
-    /** Only the game role lookups are strict GET-only checks. */
+    /** Only explicitly allowlisted providers expose the strict read-only check. */
     val supportsConnectedSavedCredentialCheck: Boolean =
         provider is SavedCredentialRevalidator && provider.meta.id in STRICT_READ_ONLY_PROVIDER_IDS
 
@@ -133,6 +155,9 @@ class ConnectProviderViewModel @Inject constructor(
     private val _gameRoles = MutableStateFlow<List<GameRole>>(emptyList())
     val gameRoles: StateFlow<List<GameRole>> = _gameRoles.asStateFlow()
 
+    private val _showZzzRoleSetup = MutableStateFlow(false)
+    val showZzzRoleSetup: StateFlow<Boolean> = _showZzzRoleSetup.asStateFlow()
+
     private val _gameRolesBusy = MutableStateFlow(false)
     val gameRolesBusy: StateFlow<Boolean> = _gameRolesBusy.asStateFlow()
 
@@ -140,6 +165,11 @@ class ConnectProviderViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            if (isMiyousheProvider) {
+                MiyousheCredentialSharing.reconcile(credentialStore, authHealthStore)
+                _communityNeedsFullSession.value =
+                    MiyousheCredentialSharing.communityNeedsCanonicalQr(credentialStore)
+            }
             if (reconnectEntry) {
                 enterReconnectState()
             } else {
@@ -148,11 +178,14 @@ class ConnectProviderViewModel @Inject constructor(
                 }
                 _connected.value = _authHealth.value == AuthHealth.VALID
             }
-            gameAccountProvider?.gameAccountConfig()?.let { config ->
+            _initialConnectionStateResolved.value = true
+            val gameAccountConfig = gameAccountProvider?.gameAccountConfig()
+            gameAccountConfig?.let { config ->
                 _gameUid.value = config.uid
                 _gameRegion.value = config.region
                 _gameAccountSaved.value = true
             }
+            _showZzzRoleSetup.value = canShowZzzRoleSetup(gameAccountConfig)
             // Zero-input path: right after a fresh connect, look up the roles
             // bound to the account so the user never types a UID.
             if (gameAccountProvider != null && _connected.value && _gameUid.value.isBlank()) {
@@ -179,6 +212,7 @@ class ConnectProviderViewModel @Inject constructor(
                 val health = ProviderConnectionGate.health(target, credentialStore, authHealthStore)
                 _authHealth.value = health
                 _connected.value = health == AuthHealth.VALID
+                _showZzzRoleSetup.value = canShowZzzRoleSetup(gameAccountProvider?.gameAccountConfig())
             }
         }
     }
@@ -243,10 +277,12 @@ class ConnectProviderViewModel @Inject constructor(
                 when (result) {
                     SavedCredentialValidation.Valid -> {
                         _savedCredentialCheckState.value = SavedCredentialCheckState.VALID
+                        _showZzzRoleSetup.value = false
                         markProviderConfirmedValid()
                     }
                     SavedCredentialValidation.Expired -> {
                         _savedCredentialCheckState.value = SavedCredentialCheckState.EXPIRED
+                        _showZzzRoleSetup.value = false
                         authHealthStore.set(target.credentialOwnerId, AuthHealth.EXPIRED)
                         _authHealth.value = AuthHealth.EXPIRED
                         _connected.value = false
@@ -256,7 +292,20 @@ class ConnectProviderViewModel @Inject constructor(
                         authHealthStore.set(target.credentialOwnerId, AuthHealth.UNVERIFIED)
                         _authHealth.value = AuthHealth.UNVERIFIED
                         _connected.value = false
-                        _error.value = ConnectError.App(ConnectAppError.VERIFICATION_FAILED)
+                        _showZzzRoleSetup.value = canShowZzzRoleSetup(gameAccountProvider?.gameAccountConfig())
+                        val reason = (result as? SavedCredentialValidation.Unverified)?.reason
+                        val safeZzzError = if (target.meta.id == MIYOUSHE_ZZZ_ID) {
+                            SAFE_ZZZ_LOCAL_SESSION_ERRORS[reason]
+                                ?: if (reason in SAFE_ZZZ_PROVIDER_REASONS) {
+                                    ConnectAppError.ZZZ_PROVIDER_NOT_CONFIRMED
+                                } else {
+                                    null
+                                }
+                        } else {
+                            null
+                        }
+                        _error.value = safeZzzError?.let(ConnectError::App)
+                            ?: ConnectError.App(ConnectAppError.VERIFICATION_FAILED)
                     }
                 }
             } finally {
@@ -300,6 +349,7 @@ class ConnectProviderViewModel @Inject constructor(
      * already active.
      */
     fun maybeStartQrLoginAutomatically() {
+        if (!_initialConnectionStateResolved.value) return
         if (supportsReadOnlyRevalidation &&
             (_authHealth.value == AuthHealth.UNVERIFIED || _authHealth.value == AuthHealth.EXPIRED)
         ) return
@@ -332,11 +382,32 @@ class ConnectProviderViewModel @Inject constructor(
                         QrLoginPollResult.Waiting -> _qrStatus.value = QrUiStatus.Waiting
                         QrLoginPollResult.Scanned -> _qrStatus.value = QrUiStatus.Scanned
                         is QrLoginPollResult.Confirmed -> {
-                            markProviderConfirmedValid()
+                            if (isMiyousheProvider) {
+                                val sourceProviderId = if (usesCanonicalMiyousheQr) {
+                                    MIYOUSHE_COMMUNITY_ID
+                                } else {
+                                    provider?.meta?.id
+                                }
+                                MiyousheCredentialSharing.reconcile(
+                                    credentialStore,
+                                    authHealthStore,
+                                    sourceProviderId
+                                )
+                            }
+                            val gameSessionReady = if (usesCanonicalMiyousheQr) {
+                                prepareCanonicalGameSession()
+                            } else {
+                                markProviderConfirmedValid()
+                                true
+                            }
+                            if (isMiyousheProvider) {
+                                _communityNeedsFullSession.value =
+                                    MiyousheCredentialSharing.communityNeedsCanonicalQr(credentialStore)
+                            }
                             _saved.value = true
                             _qrStatus.value = QrUiStatus.Confirmed(result.accountLabel)
                             _qrSession.value = null
-                            if (gameAccountProvider != null) {
+                            if (gameAccountProvider != null && gameSessionReady) {
                                 fetchGameRoles()
                             }
                             return@launch
@@ -357,6 +428,11 @@ class ConnectProviderViewModel @Inject constructor(
                 }
                 _error.value = ConnectError.App(ConnectAppError.QR_TIMEOUT)
                 _qrSession.value = null
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                _error.value = ConnectError.Provider(QR_LOGIN_FAILED_MESSAGE)
+                _qrSession.value = null
             } finally {
                 _qrBusy.value = false
             }
@@ -372,19 +448,23 @@ class ConnectProviderViewModel @Inject constructor(
     }
 
     /**
-     * Looks up the roles bound to the connected account. A single role is
-     * filled in and saved automatically; several roles wait for the user's
-     * pick; none falls back to manual UID entry with a hint.
+     * Looks up roles only on an explicit request. A sole role is saved on the
+     * connected path; an unverified ZZZ session waits for the user's pick.
      */
     fun fetchGameRoles() {
         val target = gameAccountProvider ?: return
+        if (provider?.meta?.id == MIYOUSHE_ZZZ_ID &&
+            _authHealth.value == AuthHealth.UNVERIFIED &&
+            !_showZzzRoleSetup.value
+        ) return
         viewModelScope.launch {
             _gameRolesBusy.value = true
             try {
                 val roles = target.fetchGameRoles()
                 _gameRoles.value = roles
                 when {
-                    roles.size == 1 -> {
+                    roles.size == 1 &&
+                        !(provider?.meta?.id == MIYOUSHE_ZZZ_ID && _authHealth.value == AuthHealth.UNVERIFIED) -> {
                         _gameUid.value = roles[0].config.uid
                         _gameRegion.value = roles[0].config.region
                         _gameRoles.value = emptyList()
@@ -409,7 +489,7 @@ class ConnectProviderViewModel @Inject constructor(
         _gameUid.value = role.config.uid
         _gameRegion.value = role.config.region
         _gameRoles.value = emptyList()
-        saveGameAccount()
+        saveGameAccount(roleSelectionAuthorized = true)
     }
 
     fun updateGameUid(value: String) {
@@ -423,7 +503,15 @@ class ConnectProviderViewModel @Inject constructor(
     }
 
     fun saveGameAccount() {
+        saveGameAccount(roleSelectionAuthorized = false)
+    }
+
+    private fun saveGameAccount(roleSelectionAuthorized: Boolean) {
         val target = gameAccountProvider ?: return
+        if (provider?.meta?.id == MIYOUSHE_ZZZ_ID &&
+            _authHealth.value == AuthHealth.UNVERIFIED &&
+            !roleSelectionAuthorized
+        ) return
         viewModelScope.launch {
             _savingGameAccount.value = true
             try {
@@ -462,9 +550,40 @@ class ConnectProviderViewModel @Inject constructor(
     private suspend fun markProviderConfirmedValid() {
         val target = provider ?: return
         reconnectPending = false
+        _showZzzRoleSetup.value = false
         authHealthStore.set(target.credentialOwnerId, AuthHealth.VALID)
+        if (usesCanonicalMiyousheQr) {
+            authHealthStore.set(MIYOUSHE_COMMUNITY_ID, AuthHealth.VALID)
+        }
         _authHealth.value = AuthHealth.VALID
         _connected.value = true
+    }
+
+    private suspend fun prepareCanonicalGameSession(): Boolean {
+        val target = provider ?: return false
+        val linked = MiyousheCredentialSharing.isTargetLinkableAfterCanonicalQr(
+            credentialStore,
+            target.meta.id
+        )
+        authHealthStore.set(MIYOUSHE_COMMUNITY_ID, AuthHealth.VALID)
+        authHealthStore.set(target.credentialOwnerId, AuthHealth.UNVERIFIED)
+        _authHealth.value = AuthHealth.UNVERIFIED
+        _connected.value = false
+        _showZzzRoleSetup.value = linked && canShowZzzRoleSetup(gameAccountProvider?.gameAccountConfig())
+        if (!linked) {
+            _error.value = ConnectError.Provider(
+                "米游社二维码已确认，但当前游戏会话未能安全关联。请检查连接状态后再继续。"
+            )
+        }
+        return linked
+    }
+
+    private suspend fun canShowZzzRoleSetup(config: GameAccountConfig?): Boolean {
+        val target = gameAccountProvider ?: return false
+        return provider?.meta?.id == MIYOUSHE_ZZZ_ID &&
+            _authHealth.value == AuthHealth.UNVERIFIED &&
+            config == null &&
+            target.hasCompatibleSavedSessionForRoleLookup()
     }
 
     private suspend fun enterReconnectState() {
@@ -487,9 +606,27 @@ class ConnectProviderViewModel @Inject constructor(
     }
 
     private companion object {
-        val STRICT_READ_ONLY_PROVIDER_IDS = setOf(
+        const val MIYOUSHE_COMMUNITY_ID = "miyoushe_community_signin"
+        const val MIYOUSHE_ZZZ_ID = "miyoushe_zzz_experimental"
+        val SAFE_ZZZ_LOCAL_SESSION_ERRORS = mapOf(
+            "No saved HoYoverse session." to ConnectAppError.ZZZ_SESSION_NOT_SAVED,
+            "Saved session lacks a readable LToken pair." to ConnectAppError.ZZZ_LTOKEN_PAIR_MISSING,
+            "Saved session lacks a usable ZZZ UID or region." to ConnectAppError.ZZZ_UID_OR_REGION_MISSING
+        )
+        val SAFE_ZZZ_PROVIDER_REASONS = setOf(
+            "HoYoverse connection could not be confirmed.",
+            "HoYoverse did not return a confirmed ZZZ check-in state."
+        )
+        val MIYOUSHE_GAME_IDS = setOf(
             "miyoushe_genshin_experimental",
             "miyoushe_zzz_experimental"
         )
+        val MIYOUSHE_PROVIDER_IDS = MIYOUSHE_GAME_IDS + MIYOUSHE_COMMUNITY_ID
+        val STRICT_READ_ONLY_PROVIDER_IDS = setOf(
+            "miyoushe_genshin_experimental",
+            "miyoushe_zzz_experimental",
+            "miyoushe_community_signin"
+        )
+        const val QR_LOGIN_FAILED_MESSAGE = "QR login could not be completed."
     }
 }

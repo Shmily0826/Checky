@@ -82,6 +82,10 @@ class MiyousheZzzProviderTest {
     @Test
     fun roleDiscoverySelectsOnlyNapCnAndKeepsItsSessionOwner() = runTest {
         val requests = mutableListOf<okhttp3.Request>()
+        val credentials = RecordingStore().also {
+            it.put(MiyousheZzzProvider.META.id, sessionJson(uid = "", region = ""))
+        }
+        val original = credentials.peek(MiyousheZzzProvider.META.id)
         val provider = provider(
             responseBodies = listOf(
                 """{"retcode":0,"data":{"list":[
@@ -89,18 +93,52 @@ class MiyousheZzzProviderTest {
                     {"game_biz":"nap_cn","game_uid":"123456789","region":"prod_gf_cn","region_name":"国服","nickname":"代理人","level":20}
                 ]}}"""
             ),
-            requests = requests
+            requests = requests,
+            credentials = credentials
         )
 
+        assertTrue(provider.hasCompatibleSavedSessionForRoleLookup())
         val roles = provider.fetchGameRoles()
 
         assertEquals(1, roles.size)
         assertEquals("123456789", roles.single().config.uid)
         assertEquals("prod_gf_cn", roles.single().config.region)
         assertEquals("miyoushe_zzz_experimental", provider.meta.id)
+        assertEquals("GET", requests.single().method)
+        assertEquals("/binding/api/getUserGameRolesByCookie", requests.single().url.encodedPath)
         assertFalse(requests.single().url.host == "act-nap-api.mihoyo.com")
         assertEquals("nap_cn", requests.single().url.queryParameter("game_biz"))
         assertValidRoleDs(requests.single())
+        assertEquals(0, credentials.saveCount)
+        assertEquals(0, credentials.deleteCount)
+        assertEquals(original, credentials.peek(MiyousheZzzProvider.META.id))
+    }
+
+    @Test
+    fun roleLookupRejectsMissingOrStructurallyInvalidSavedSessionBeforeRequest() = runTest {
+        val missingRequests = mutableListOf<okhttp3.Request>()
+        val missingProvider = provider(emptyList(), missingRequests, RecordingStore())
+        assertFalse(missingProvider.hasCompatibleSavedSessionForRoleLookup())
+
+        val requests = mutableListOf<okhttp3.Request>()
+        val credentials = RecordingStore().also {
+            it.put(MiyousheZzzProvider.META.id, sessionJson().replace(validCookie(), "invalid"))
+        }
+        val provider = provider(emptyList(), requests, credentials)
+
+        assertFalse(provider.hasCompatibleSavedSessionForRoleLookup())
+        var threw = false
+        try {
+            provider.fetchGameRoles()
+        } catch (_: IllegalStateException) {
+            threw = true
+        }
+
+        assertTrue(threw)
+        assertTrue(requests.isEmpty())
+        assertTrue(missingRequests.isEmpty())
+        assertEquals(0, credentials.saveCount)
+        assertEquals(0, credentials.deleteCount)
     }
 
     @Test
@@ -259,6 +297,26 @@ class MiyousheZzzProviderTest {
         )
         assertEquals("prod_gf_cn", provider.gameAccountConfig()?.region)
         assertTrue(credentials.has(MiyousheZzzProvider.META.id))
+        assertEquals(validCookie(), JSONObject(checkNotNull(credentials.peek(MiyousheZzzProvider.META.id))).getString("cookie"))
+    }
+
+    @Test
+    fun invalidGameConfigDoesNotRewriteSavedSession() = runTest {
+        val credentials = RecordingStore().also {
+            it.save(MiyousheZzzProvider.META.id, sessionJson(uid = "", region = ""))
+        }
+        val original = credentials.peek(MiyousheZzzProvider.META.id)
+        val savesBefore = credentials.saveCount
+        val deletesBefore = credentials.deleteCount
+        val provider = MiyousheZzzProvider(
+            ApplicationProvider.getApplicationContext<Context>(), credentials, OkHttpClient()
+        )
+
+        assertTrue(provider.saveGameAccountConfig("bad", "prod_gf_cn") is com.checky.app.domain.CredentialValidation.Invalid)
+        assertTrue(provider.saveGameAccountConfig("12345678", " ") is com.checky.app.domain.CredentialValidation.Invalid)
+        assertEquals(savesBefore, credentials.saveCount)
+        assertEquals(deletesBefore, credentials.deleteCount)
+        assertEquals(original, credentials.peek(MiyousheZzzProvider.META.id))
     }
 
     private fun provider(

@@ -151,6 +151,7 @@
     <string name="connect_auth_expired_preserved">服务方报告登录已失效。本地凭据已保留；重新连接后即可恢复自动签到。</string>
     <string name="connect_verify_saved_credential">立即签到以验证凭据</string>
     <string name="connect_check_connection">检查连接</string>
+    <string name="connect_community_full_session_hint">当前游戏会话不能直接作为社区凭证。使用一次社区二维码后，也会连接游戏 provider，无需再次扫码。</string>
     <string name="connect_open_check">打开连接检查</string>
     <string name="connect_saved_check_running">正在只读检查已保存连接…</string>
     <string name="connect_saved_check_valid">只读检查成功：当前已保存凭证可用。</string>
@@ -280,6 +281,10 @@
     <string name="accessibility_service_label">Checky TapTap 签到</string>
     <string name="accessibility_service_description">仅在 Checky 发起 TapTap 签到时使用：读取 TapTap 游戏签到页面，并最多执行一次签到点击。</string>
     <string name="connect_error_verification_failed">凭据未能通过验证，请重试或重新连接。</string>
+    <string name="connect_error_zzz_session_missing">Checky 中没有已保存的绝区零会话。未启动登录或签到。</string>
+    <string name="connect_error_zzz_ltoken_pair_missing">已保存的绝区零会话缺少可读取的 LToken 配对。会话已保留，未启动登录或签到。</string>
+    <string name="connect_error_zzz_uid_region_missing">已保存的绝区零会话缺少可用的游戏 UID 或区服。会话已保留，未启动登录或签到。</string>
+    <string name="connect_error_zzz_provider_not_confirmed">HoYoverse 未能确认已保存的绝区零连接。状态仍为未验证；未执行登录或签到。</string>
     <string name="settings_auto_diagnostics">自动签到诊断</string>
     <string name="settings_auto_diagnostics_next_planned">下一次计划</string>
     <string name="settings_auto_diagnostics_disabled">已停用</string>

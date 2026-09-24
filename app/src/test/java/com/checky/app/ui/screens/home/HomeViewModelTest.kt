@@ -19,6 +19,8 @@ import com.checky.app.domain.model.RewardType
 import com.checky.app.domain.providers.TaygedoClient
 import com.checky.app.domain.providers.TaygedoCommunityProvider
 import com.checky.app.domain.providers.TaygedoNteProvider
+import com.checky.app.domain.providers.MiyousheCommunityProvider
+import com.checky.app.domain.providers.MiyousheProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
@@ -314,6 +316,36 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun homeStatusReconcilesCommunitySessionBeforeHealthGate() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val provider = SequenceCheckInProvider(
+            meta = MiyousheProvider.META,
+            com.checky.app.domain.model.CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
+        )
+        val credentials = FakeCredentialStore().also {
+            it.save(MiyousheCommunityProvider.META.id, completeCommunityCookie())
+        }
+        val health = FakeAuthHealthStore()
+        val repo = FakeCheckInRepository(listOf(service(provider.meta.id)))
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo),
+            credentialStore = credentials,
+            providers = listOf(provider),
+            metas = listOf(provider.meta),
+            authHealthStore = health
+        )
+
+        val state = async { vm.homeServices.first { it.isNotEmpty() }.single() }
+            .await()
+
+        assertEquals(AuthHealth.UNVERIFIED, state.authHealth)
+        assertFalse(state.isConnected)
+        assertTrue(credentials.has(MiyousheProvider.META.id))
+    }
+
+    @Test
     fun checkInAllSkipsTaygedoWhenValidHealthFailsPreflight() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val credentials = FakeCredentialStore().also {
@@ -453,4 +485,18 @@ class HomeViewModelTest {
         lastMessage = null,
         lastTimestamp = null
     )
+
+    private fun completeCommunityCookie() = listOf(
+        "stoken=token",
+        "stoken_v2=token-v2",
+        "mid=mid",
+        "stuid=123456789",
+        "account_id=123456789",
+        "account_id_v2=123456789",
+        "cookie_token_v2=cookie-token",
+        "ltoken=ltoken",
+        "ltoken_v2=ltoken-v2",
+        "ltuid=123456789",
+        "ltmid_v2=123456789"
+    ).joinToString(";")
 }

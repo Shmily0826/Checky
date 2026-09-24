@@ -71,6 +71,11 @@ class MiyousheZzzProvider(
             it.uid.isNotBlank() && it.region.isNotBlank()
         }?.let { GameAccountConfig(it.uid, it.region) }
 
+    override suspend fun hasCompatibleSavedSessionForRoleLookup(): Boolean {
+        val saved = credentialStore.get(meta.id) ?: return false
+        return validateCredentials(saved) is CredentialValidation.Valid
+    }
+
     override suspend fun revalidateSavedCredential(): SavedCredentialValidation = withContext(Dispatchers.IO) {
         val saved = credentialStore.get(meta.id)
             ?: return@withContext SavedCredentialValidation.Unverified("No saved HoYoverse session.")
@@ -99,8 +104,12 @@ class MiyousheZzzProvider(
     }
 
     override suspend fun fetchGameRoles(): List<GameRole> = withContext(Dispatchers.IO) {
-            val cookie = credentialStore.get(meta.id)?.let(::decodeSession)?.cookie.orEmpty()
-            check(cookie.isNotBlank()) { "HoYoverse session is unavailable." }
+            val saved = credentialStore.get(meta.id)
+                ?: error("HoYoverse session is unavailable.")
+            check(validateCredentials(saved) is CredentialValidation.Valid) {
+                "HoYoverse session is not ready for role lookup."
+            }
+            val cookie = decodeSession(saved).cookie
             val body = request(
                 API_HOST,
                 "GET",

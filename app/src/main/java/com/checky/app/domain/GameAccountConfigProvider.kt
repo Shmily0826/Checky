@@ -20,6 +20,9 @@ data class GameRole(
 interface GameAccountConfigProvider {
     suspend fun gameAccountConfig(): GameAccountConfig?
 
+    /** Whether a saved session is structurally ready for an explicit role lookup. */
+    suspend fun hasCompatibleSavedSessionForRoleLookup(): Boolean = false
+
     /** Validates and persists the selected game role alongside the session. */
     suspend fun saveGameAccountConfig(uid: String, region: String): CredentialValidation
 

@@ -3,6 +3,7 @@ package com.checky.app.ui.screens.home
 import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.CheckInStatus
+import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.ServiceCheckInState
 import java.time.Instant
 import java.time.LocalDate
@@ -64,6 +65,31 @@ internal fun isLiveStateForBusinessDate(state: ServiceCheckInState, now: Instant
     isTimestampOnBusinessDate(state.timestamp, now, state.meta.businessZone) ||
         (state.status == CheckInStatus.RUNNING && state.timestamp == null &&
             runStartedAt?.atZone(state.meta.businessZone)?.toLocalDate() == now.atZone(state.meta.businessZone).toLocalDate())
+
+internal fun countCurrentDoneServices(
+    eligibleServices: List<ServiceSnapshot>,
+    metaById: Map<String, ProviderMeta>,
+    liveStates: Map<String, ServiceCheckInState>?,
+    now: Instant,
+    runStartedAt: Instant?
+): Int {
+    val eligibleIds = eligibleServices.mapTo(mutableSetOf()) { it.serviceId }
+    val doneIds = eligibleServices.mapNotNullTo(mutableSetOf()) { service ->
+        val meta = metaById[service.serviceId] ?: return@mapNotNullTo null
+        service.serviceId.takeIf {
+            projectHomeStatusForConnection(service, meta, now, connected = true).status.isTerminal
+        }
+    }
+    liveStates.orEmpty().forEach { (id, state) ->
+        if (id in eligibleIds &&
+            isLiveStateForBusinessDate(state, now, runStartedAt) &&
+            state.status.isTerminal
+        ) {
+            doneIds += id
+        }
+    }
+    return doneIds.size
+}
 
 internal fun hasCurrentLiveProgress(progress: CheckInAllProgress?, today: LocalDate, zone: ZoneId, runDate: LocalDate?): Boolean =
     progress != null && (runDate == today || progress.states.values.any { isTimestampOnDate(it.timestamp, today, zone) })

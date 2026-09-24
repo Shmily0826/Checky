@@ -14,6 +14,7 @@ import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.LegacyAuthHealthMigration
 import com.checky.app.domain.NoOpAuthHealthStore
 import com.checky.app.domain.ProviderConnectionGate
+import com.checky.app.domain.providers.MiyousheCredentialSharing
 import com.checky.app.domain.providers.TaygedoProvider
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.model.ProviderMeta
@@ -63,6 +64,7 @@ class HomeViewModel @Inject constructor(
         .combine(connectionRefresh) { list, _ -> list }
         .map { list ->
             LegacyAuthHealthMigration.seedIfNeeded(providers, list, credentialStore, authHealthStore)
+            MiyousheCredentialSharing.reconcile(credentialStore, authHealthStore)
             list.filter { it.isEnabled }.map { service ->
                 val health = authHealth(service.serviceId)
                 HomeServiceState(
