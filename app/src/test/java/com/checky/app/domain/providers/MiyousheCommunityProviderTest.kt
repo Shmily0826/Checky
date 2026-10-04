@@ -284,7 +284,13 @@ class MiyousheCommunityProviderTest {
 
             val done = provider.checkIn().first { it is CheckInEvent.Done } as CheckInEvent.Done
 
-            assertFalse(done.result.outcome is CheckInOutcome.Success)
+            if (preflight.contains("\"retcode\":1034")) {
+                assertTrue(done.result.outcome is CheckInOutcome.ActionRequired)
+                assertFalse(done.result.outcome is CheckInOutcome.AuthenticationExpired)
+                assertEquals(cookie, store.getNow(MiyousheCommunityProvider.META.id))
+            } else {
+                assertFalse(done.result.outcome is CheckInOutcome.Success)
+            }
             assertEquals(1, requests.size)
             assertFalse(requests.any { it.method == "POST" })
         }
@@ -319,6 +325,10 @@ class MiyousheCommunityProviderTest {
     private fun assertPreflightRequest(request: okhttp3.Request, cookie: String) {
         assertEquals("GET", request.method)
         assertEquals("bbs-api.miyoushe.com", request.url.host)
+        assertEquals(
+            android.os.Build.VERSION.RELEASE?.takeIf(String::isNotBlank) ?: "unknown",
+            request.header("x-rpc-sys_version")
+        )
         assertEquals("/apihub/wapi/getUserMissionsState", request.url.encodedPath)
         assertEquals("myb", request.url.queryParameter("point_sn"))
         assertEquals(null, request.body)

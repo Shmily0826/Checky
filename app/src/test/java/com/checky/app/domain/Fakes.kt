@@ -10,6 +10,7 @@ import com.checky.app.domain.model.ProviderMeta
 import com.checky.app.domain.model.Reward
 import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.AuthHealthStore
+import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -54,6 +55,7 @@ class FakeCredentialStore(
 /** In-memory auth evidence store for gate, migration, and orchestration tests. */
 class FakeAuthHealthStore : AuthHealthStore {
     val states = mutableMapOf<String, AuthHealth>()
+    val verificationBlocks = mutableMapOf<String, LocalDate>()
 
     override suspend fun get(ownerId: String): AuthHealth = states[ownerId] ?: AuthHealth.UNVERIFIED
     override suspend fun hasRecord(ownerId: String): Boolean = ownerId in states
@@ -62,6 +64,10 @@ class FakeAuthHealthStore : AuthHealthStore {
     }
     override suspend fun clear(ownerId: String) {
         states.remove(ownerId)
+    }
+    override suspend fun verificationBlockedThrough(providerId: String): LocalDate? = verificationBlocks[providerId]
+    override suspend fun blockVerificationThrough(providerId: String, date: LocalDate) {
+        verificationBlocks[providerId] = date
     }
 }
 

@@ -30,13 +30,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.LocalDate
 import javax.inject.Inject
 import kotlin.jvm.JvmSuppressWildcards
 
 data class HomeServiceState(
     val service: com.checky.app.data.model.ServiceSnapshot,
     val isConnected: Boolean,
-    val authHealth: AuthHealth? = null
+    val authHealth: AuthHealth? = null,
+    val verificationPausedToday: Boolean = false
 )
 
 @HiltViewModel
@@ -67,10 +69,14 @@ class HomeViewModel @Inject constructor(
             MiyousheCredentialSharing.reconcile(credentialStore, authHealthStore)
             list.filter { it.isEnabled }.map { service ->
                 val health = authHealth(service.serviceId)
+                val blockedThrough = if (service.serviceId in MIYOUSHE_PROVIDER_IDS) {
+                    authHealthStore.verificationBlockedThrough(service.serviceId)
+                } else null
                 HomeServiceState(
                     service = service,
                     isConnected = health == AuthHealth.VALID,
-                    authHealth = health
+                    authHealth = health,
+                    verificationPausedToday = blockedThrough != null && blockedThrough >= LocalDate.now()
                 )
             }
         }
@@ -198,5 +204,13 @@ class HomeViewModel @Inject constructor(
     private suspend fun authHealth(serviceId: String): AuthHealth? {
         val provider = providers.firstOrNull { it.meta.id == serviceId } ?: return null
         return ProviderConnectionGate.health(provider, credentialStore, authHealthStore)
+    }
+
+    private companion object {
+        val MIYOUSHE_PROVIDER_IDS = setOf(
+            "miyoushe_genshin_experimental",
+            "miyoushe_zzz_experimental",
+            "miyoushe_community_signin"
+        )
     }
 }

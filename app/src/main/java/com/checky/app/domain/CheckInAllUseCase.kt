@@ -23,7 +23,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.time.LocalDate
 import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.time.TimeSource
 
 /**
@@ -37,6 +39,7 @@ import kotlin.time.TimeSource
  *  - every terminal result is persisted through [CheckInRepository]
  *  - a single [CheckInAllProgress.Finished] with a summary is emitted at the end
  */
+@Singleton
 class CheckInAllUseCase @Inject constructor(
     private val repository: CheckInRepository,
     private val credentialStore: CredentialStore,
@@ -56,9 +59,12 @@ class CheckInAllUseCase @Inject constructor(
     /** Pause before the single automatic retry of a temporary failure. */
     internal var retryDelayMs: Long = 15_000L
 
+    internal var localDate: () -> LocalDate = LocalDate::now
+
     operator fun invoke(
         providers: List<CheckInProvider>,
-        parallel: Boolean = true
+        parallel: Boolean = true,
+        runMode: CheckInRunMode = CheckInRunMode.MANUAL
     ): Flow<CheckInAllProgress> = flow {
         if (!running.compareAndSet(false, true)) {
             // Already running — ignore the duplicate trigger.
@@ -138,11 +144,33 @@ class CheckInAllUseCase @Inject constructor(
                     patch(provider.meta.id) {
                         copy(status = CheckInStatus.RUNNING, progress = 0f, message = "Starting…")
                     }
-                    var result = runAttempt(provider)
+                    val blockedThrough = if (provider.meta.id in MIYOUSHE_PROVIDER_IDS) {
+                        authHealthStore.verificationBlockedThrough(provider.meta.id)
+                    } else null
+                    var result = if (blockedThrough != null && blockedThrough >= localDate()) {
+                        CheckInResult(
+                            serviceId = provider.meta.id,
+                            serviceName = provider.meta.displayName,
+                            outcome = CheckInOutcome.ActionRequired(
+                                "Verification is required. Complete it in the official MiYouShe app; Checky has paused attempts for today.",
+                                "MIYOUSHE_VERIFICATION_BLOCKED_TODAY",
+                                com.checky.app.domain.model.RetryRecommendation.NONE
+                            ),
+                            timestamp = System.currentTimeMillis()
+                        )
+                    } else runAttempt(provider)
 
-                    // Temporary failures (network blips, server hiccups) get
-                    // exactly one automatic retry after a short pause.
-                    if (result.outcome is CheckInOutcome.TemporaryFailure) {
+                    if (provider.meta.id in MIYOUSHE_PROVIDER_IDS &&
+                        result.outcome is CheckInOutcome.ActionRequired &&
+                        result.diagnosticCode.isMiyousheVerification()
+                    ) {
+                        authHealthStore.blockVerificationThrough(provider.meta.id, localDate())
+                    }
+
+                    // Other providers' temporary failures get one automatic retry.
+                    if (result.outcome is CheckInOutcome.TemporaryFailure &&
+                        provider.meta.id !in MIYOUSHE_PROVIDER_IDS
+                    ) {
                         patch(provider.meta.id) {
                             copy(
                                 status = CheckInStatus.RUNNING,
@@ -248,4 +276,19 @@ class CheckInAllUseCase @Inject constructor(
             durationMs = durationMs
         )
     }
+
+    private companion object {
+        private val MIYOUSHE_PROVIDER_IDS = setOf(
+            "miyoushe_genshin_experimental",
+            "miyoushe_zzz_experimental",
+            "miyoushe_community_signin"
+        )
+    }
+}
+
+enum class CheckInRunMode { MANUAL, AUTOMATIC }
+
+private fun String.isMiyousheVerification(): Boolean {
+    val code = uppercase()
+    return "VERIFICATION" in code || "CAPTCHA" in code || "NEED_VERIFY" in code || "RISK" in code
 }

@@ -48,6 +48,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.File
+import java.time.LocalDate
 
 /**
  * JVM-level coverage of the "Check in all" UI state transitions
@@ -63,6 +64,75 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class HomeViewModelTest {
+
+    @Test
+    fun verificationPauseKeepsMiyousheConnectedAndMapsToActionRequired() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val providerId = "miyoushe_community_signin"
+        val provider = ScriptedCheckInProvider(testProviderMeta(providerId), status = CheckInStatus.PENDING)
+        val credentials = FakeCredentialStore()
+        credentials.save(provider.credentialOwnerId, "test-only")
+        val authHealth = FakeAuthHealthStore().apply {
+            states[provider.credentialOwnerId] = AuthHealth.VALID
+            verificationBlocks[providerId] = LocalDate.now()
+        }
+        val repo = FakeCheckInRepository(listOf(service(providerId)))
+        val vm = HomeViewModel(
+            repository = repo,
+            userPreferencesRepository = prefsRepo(this),
+            checkInAllUseCase = CheckInAllUseCase(repo),
+            credentialStore = credentials,
+            providers = listOf(provider),
+            metas = listOf(provider.meta),
+            authHealthStore = authHealth
+        )
+        backgroundScope.launch { vm.homeServices.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.homeServices.value.single()
+        assertTrue(state.isConnected)
+        assertEquals(AuthHealth.VALID, state.authHealth)
+        assertTrue(state.verificationPausedToday)
+        assertEquals(
+            CheckInStatus.USER_ACTION_REQUIRED,
+            homeServiceStatus(
+                verificationPausedToday = state.verificationPausedToday,
+                needsVerification = false,
+                connected = state.isConnected,
+                liveStatus = null,
+                persistedStatus = CheckInStatus.PENDING
+            )
+        )
+        assertFalse(
+            isOrdinaryPendingCard(
+                status = CheckInStatus.USER_ACTION_REQUIRED,
+                connected = state.isConnected,
+                needsVerification = false
+            )
+        )
+        assertEquals(AuthHealth.VALID, authHealth.get(provider.credentialOwnerId))
+    }
+
+    @Test
+    fun explicitAuthExpiryMapsToLoginExpiredAndReconnectEligibleState() {
+        assertEquals(
+            CheckInStatus.LOGIN_EXPIRED,
+            homeServiceStatus(
+                verificationPausedToday = false,
+                needsVerification = false,
+                connected = false,
+                liveStatus = null,
+                persistedStatus = CheckInStatus.PENDING
+            )
+        )
+        assertFalse(
+            staleLoginExpiredCanRetry(
+                connected = false,
+                authHealth = AuthHealth.EXPIRED,
+                lastStatus = CheckInStatus.LOGIN_EXPIRED
+            )
+        )
+    }
 
     @After
     fun tearDown() {

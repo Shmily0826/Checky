@@ -1,5 +1,7 @@
 package com.checky.app.domain
 
+import java.time.LocalDate
+
 /** Local evidence about whether a credential/session is currently usable. */
 enum class AuthHealth {
     /** No provider-confirmed evidence has been recorded yet. */
@@ -18,6 +20,9 @@ interface AuthHealthStore {
     suspend fun hasRecord(ownerId: String): Boolean
     suspend fun set(ownerId: String, health: AuthHealth)
     suspend fun clear(ownerId: String)
+
+    suspend fun verificationBlockedThrough(providerId: String): LocalDate? = null
+    suspend fun blockVerificationThrough(providerId: String, date: LocalDate) = Unit
 }
 
 /** Safe fallback for JVM tests that do not exercise persistence. */

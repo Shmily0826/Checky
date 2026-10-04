@@ -122,6 +122,7 @@ fun HomeScreen(
         services = homeServices.map { it.service },
         connectionById = homeServices.associate { it.service.serviceId to it.isConnected },
         authHealthById = homeServices.associate { it.service.serviceId to it.authHealth },
+        verificationPausedById = homeServices.associate { it.service.serviceId to it.verificationPausedToday },
         metas = viewModel.metas,
         progress = progress,
         runStartedAt = runStartedAt,
@@ -157,6 +158,20 @@ internal fun isOrdinaryPendingCard(
     needsVerification: Boolean
 ): Boolean = connected && !needsVerification && status == CheckInStatus.PENDING
 
+internal fun homeServiceStatus(
+    verificationPausedToday: Boolean,
+    needsVerification: Boolean,
+    connected: Boolean,
+    liveStatus: CheckInStatus?,
+    persistedStatus: CheckInStatus
+): CheckInStatus = when {
+    verificationPausedToday -> CheckInStatus.USER_ACTION_REQUIRED
+    needsVerification -> CheckInStatus.USER_ACTION_REQUIRED
+    !connected -> CheckInStatus.LOGIN_EXPIRED
+    liveStatus != null -> liveStatus
+    else -> persistedStatus
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeContent(
@@ -175,7 +190,8 @@ private fun HomeContent(
     onRetry: (String) -> Unit,
     onAddService: () -> Unit,
     connectionById: Map<String, Boolean> = emptyMap(),
-    authHealthById: Map<String, AuthHealth?> = emptyMap()
+    authHealthById: Map<String, AuthHealth?> = emptyMap(),
+    verificationPausedById: Map<String, Boolean> = emptyMap()
 ) {
     val metaById = metas.associateBy { it.id }
     val live = progress?.states.takeIf { hasCurrentLiveBusinessProgress(progress, now, runStartedAt) }
@@ -184,23 +200,27 @@ private fun HomeContent(
         val connected = connectionById[s.serviceId] == true
         val hasAuthHealth = authHealthById.containsKey(s.serviceId)
         val authHealth = authHealthById[s.serviceId]
+        val verificationPaused = verificationPausedById[s.serviceId] == true
         val needsVerification = hasAuthHealth && authHealth == AuthHealth.UNVERIFIED
         val liveState = live?.get(s.serviceId)
             ?.takeIf { isLiveStateForBusinessDate(it, now, runStartedAt) }
         val persisted = projectHomeStatusForConnection(s, meta, now, connected)
-        val status = when {
-            needsVerification -> CheckInStatus.USER_ACTION_REQUIRED
-            !connected -> CheckInStatus.LOGIN_EXPIRED
-            liveState != null -> liveState.status
-            else -> persisted.status
-        }
+        val status = homeServiceStatus(
+            verificationPausedToday = verificationPaused,
+            needsVerification = needsVerification,
+            connected = connected,
+            liveStatus = liveState?.status,
+            persistedStatus = persisted.status
+        )
         val canRetryStaleExpired = staleLoginExpiredCanRetry(connected, authHealth, s.lastStatus)
         CardInput(
             serviceId = s.serviceId,
             meta = meta,
             status = status,
             progress = liveState?.progress ?: if (status == CheckInStatus.RUNNING) 0.5f else 1f,
-            message = if (needsVerification) {
+            message = if (verificationPaused) {
+                stringResource(R.string.home_verification_paused_today)
+            } else if (needsVerification) {
                 stringResource(R.string.home_credential_unverified)
             } else if (!connected) {
                 stringResource(R.string.home_not_connected)
@@ -216,9 +236,13 @@ private fun HomeContent(
                 CheckInStatus.SUCCESS -> stringResource(R.string.home_status_success)
                 CheckInStatus.ALREADY_CHECKED_IN -> stringResource(R.string.home_status_already)
                 CheckInStatus.PENDING -> stringResource(R.string.home_status_pending)
+                CheckInStatus.USER_ACTION_REQUIRED -> if (verificationPaused) {
+                    stringResource(R.string.home_status_verification_paused)
+                } else null
                 else -> null
             },
             actionLabel = when {
+                verificationPaused -> null
                 canRetryStaleExpired -> stringResource(R.string.action_retry)
                 needsVerification -> stringResource(R.string.connect_manage_connection)
                 !connected -> stringResource(if (authHealth == AuthHealth.EXPIRED) R.string.action_reconnect else R.string.action_connect)
@@ -229,6 +253,7 @@ private fun HomeContent(
                 else -> null
             },
             onAction = when {
+                verificationPaused -> null
                 canRetryStaleExpired -> ({ onRetry(s.serviceId) })
                 needsVerification -> ({ onReconnect(s.serviceId, false) })
                 !connected -> ({ onReconnect(s.serviceId, authHealth == AuthHealth.EXPIRED) })

@@ -26,6 +26,8 @@
     <string name="home_connect_to_enable">Connect a service to enable daily check-ins.</string>
     <string name="home_not_connected">Not connected. Connect this service before checking in.</string>
     <string name="home_credential_unverified">Credential is saved locally but still needs provider verification. Manage the connection; automatic check-in remains disabled.</string>
+    <string name="home_verification_paused_today">Verification is required. Complete it in the official MiYouShe app. Checky has paused attempts for today and will be eligible again tomorrow.</string>
+    <string name="home_status_verification_paused">Verification required · paused today</string>
     <string name="home_not_checked_in_today">Not checked in today yet.</string>
     <string name="home_status_success">Check-in successful today</string>
     <string name="home_status_already">Already checked in today</string>

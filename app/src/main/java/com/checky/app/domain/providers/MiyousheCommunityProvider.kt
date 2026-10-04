@@ -1,6 +1,7 @@
 package com.checky.app.domain.providers
 
 import android.content.Context
+import android.os.Build
 import android.provider.Settings
 import com.checky.app.domain.CheckInEvent
 import com.checky.app.domain.CheckInProvider
@@ -359,7 +360,7 @@ class MiyousheCommunityProvider(
             .header("x-rpc-app_version", APP_VERSION)
             .header("x-rpc-channel", "miyousheluodi")
             .header("x-rpc-client_type", "2")
-            .header("x-rpc-sys_version", "12")
+            .header("x-rpc-sys_version", Build.VERSION.RELEASE?.takeIf(String::isNotBlank) ?: "unknown")
             .header("x-rpc-device_id", deviceId)
             .header("x-rpc-device_name", "Android")
             .header("x-rpc-device_model", "Android")

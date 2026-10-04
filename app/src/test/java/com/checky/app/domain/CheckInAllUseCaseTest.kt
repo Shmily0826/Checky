@@ -1,5 +1,7 @@
 package com.checky.app.domain
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.checky.app.data.preferences.DataStoreAuthHealthStore
 import com.checky.app.domain.providers.miyousheCommunityUncertainMutationOutcome
 import com.checky.app.domain.model.CheckInAllProgress
 import com.checky.app.domain.CheckInEvent
@@ -14,6 +16,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import java.io.File
+import java.time.LocalDate
+import javax.inject.Singleton
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -105,15 +110,18 @@ class CheckInAllUseCaseTest {
     @Test
     fun preventsDuplicateExecution() = runTest {
         val repo = FakeCheckInRepository()
-        val useCase = CheckInAllUseCase(repo)
+        val singletonUseCase = CheckInAllUseCase(repo)
+        val uiConsumerUseCase = singletonUseCase
+        val workerConsumerUseCase = singletonUseCase
+        assertTrue(CheckInAllUseCase::class.java.isAnnotationPresent(Singleton::class.java))
         val providers = listOf(successProvider(), alreadyProvider())
 
         val first = mutableListOf<CheckInAllProgress>()
-        val job1 = launch { useCase(providers).toList(first) }
+        val job1 = launch { uiConsumerUseCase(providers).toList(first) }
         // Let the first run set its running guard.
         advanceTimeBy(1)
         val second = mutableListOf<CheckInAllProgress>()
-        val job2 = launch { useCase(providers).toList(second) }
+        val job2 = launch { workerConsumerUseCase(providers).toList(second) }
         advanceUntilIdle()
         job1.join()
         job2.join()
@@ -160,6 +168,64 @@ class CheckInAllUseCaseTest {
         assertEquals(1, repo.saved.size)
         assertEquals(2, flaky.attempts)
         assertTrue(progress.any { run -> run.states.values.any { it.message.contains("重试") } })
+    }
+
+    @Test
+    fun miyousheTemporaryFailuresAreNotRetried() = runTest {
+        val providerIds = listOf(
+            "miyoushe_genshin_experimental",
+            "miyoushe_zzz_experimental",
+            "miyoushe_community_signin"
+        )
+        for (providerId in providerIds) {
+            val provider = SequenceCheckInProvider(
+                testProviderMeta(providerId),
+                CheckInOutcome.TemporaryFailure("temporary"),
+                CheckInOutcome.Success("unexpected retry", "SUCCESS", Reward.empty())
+            )
+
+            CheckInAllUseCase(FakeCheckInRepository())
+                .invoke(listOf(provider), parallel = false)
+                .toList()
+
+            assertEquals("$providerId must not retry", 1, provider.attempts)
+        }
+    }
+
+    @Test
+    fun manualVerificationBlocksFurtherAttemptsUntilLocalDateRollsOver() = runTest {
+        val today = LocalDate.of(2026, 9, 28)
+        val file = File.createTempFile("checky_auto_verification", ".preferences_pb").apply { deleteOnExit() }
+        val dataStore = PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file })
+        val auth = DataStoreAuthHealthStore(dataStore)
+        val provider = SequenceCheckInProvider(
+            testProviderMeta("miyoushe_genshin_experimental"),
+            CheckInOutcome.ActionRequired("verify", "MIYOUSHE_VERIFICATION"),
+            CheckInOutcome.Success("ok", "SUCCESS", Reward.empty())
+        )
+        auth.set(provider.credentialOwnerId, AuthHealth.VALID)
+        val firstUseCase = CheckInAllUseCase(FakeCheckInRepository(), FakeCredentialStore(), auth).apply {
+            localDate = { today }
+        }
+        firstUseCase(listOf(provider), parallel = false).toList()
+        assertEquals(today, auth.verificationBlockedThrough(provider.meta.id))
+
+        val blockedRepo = FakeCheckInRepository()
+        val restartedUseCase = CheckInAllUseCase(
+            blockedRepo, FakeCredentialStore(), DataStoreAuthHealthStore(dataStore)
+        ).apply {
+            localDate = { today }
+        }
+        val blocked = restartedUseCase(listOf(provider), parallel = false).toList()
+            .filterIsInstance<CheckInAllProgress.Finished>().single()
+        assertEquals(1, provider.attempts)
+        assertEquals(CheckInStatus.USER_ACTION_REQUIRED, blocked.states.getValue(provider.meta.id).status)
+        assertEquals("MIYOUSHE_VERIFICATION_BLOCKED_TODAY", blockedRepo.saved.single().diagnosticCode)
+        assertEquals(AuthHealth.VALID, DataStoreAuthHealthStore(dataStore).get(provider.credentialOwnerId))
+
+        CheckInAllUseCase(FakeCheckInRepository(), FakeCredentialStore(), DataStoreAuthHealthStore(dataStore))
+            .apply { localDate = { today.plusDays(1) } }(listOf(provider), parallel = false).toList()
+        assertEquals("manual run resumes after rollover", 2, provider.attempts)
     }
 
     @Test

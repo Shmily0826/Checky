@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.checky.app.domain.AuthHealth
 import com.checky.app.domain.AuthHealthStore
 import kotlinx.coroutines.flow.first
+import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -34,5 +35,19 @@ class DataStoreAuthHealthStore @Inject constructor(
         dataStore.edit { it.remove(key(ownerId)) }
     }
 
+    override suspend fun verificationBlockedThrough(providerId: String): LocalDate? {
+        val raw = try {
+            dataStore.data.first()[verificationKey(providerId)]
+        } catch (_: Exception) {
+            return LocalDate.MAX
+        }
+        return raw?.let { runCatching { LocalDate.parse(it) }.getOrDefault(LocalDate.MAX) }
+    }
+
+    override suspend fun blockVerificationThrough(providerId: String, date: LocalDate) {
+        dataStore.edit { it[verificationKey(providerId)] = date.toString() }
+    }
+
     private fun key(ownerId: String) = stringPreferencesKey("auth_health_$ownerId")
+    private fun verificationKey(providerId: String) = stringPreferencesKey("verification_block_$providerId")
 }

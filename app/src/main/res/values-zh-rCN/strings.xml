@@ -26,6 +26,8 @@
     <string name="home_connect_to_enable">连接服务后即可进行每日签到。</string>
     <string name="home_not_connected">未连接。请先连接此服务再签到。</string>
     <string name="home_credential_unverified">凭据已保存在本地，但仍需服务方验证。请管理连接；自动签到目前已禁用。</string>
+    <string name="home_verification_paused_today">需要验证。请在米游社官方 App 中完成验证。Checky 今日已暂停尝试，明日将恢复资格。</string>
+    <string name="home_status_verification_paused">需要验证 · 今日已暂停尝试</string>
     <string name="home_not_checked_in_today">今日尚未签到。</string>
     <string name="home_status_success">今日签到成功</string>
     <string name="home_status_already">今日已签到</string>
