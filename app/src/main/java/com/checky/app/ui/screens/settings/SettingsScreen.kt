@@ -84,6 +84,8 @@ import com.checky.app.domain.providers.TapTapProvider
 import com.checky.app.ui.navigation.CheckyBottomBar
 import com.checky.app.ui.theme.CheckyTheme
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
 
 @Composable
 fun SettingsScreen(
@@ -530,6 +532,12 @@ private fun AutoCheckInDiagnosticsCard(
                 stringResource(R.string.settings_auto_diagnostics_failed_internal)
         }
     }
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    val startEpochMillis = diagnostics.lastStartEpochMillis
+    val startDay = diagnostics.lastStartLocalDay ?: startEpochMillis?.let {
+        java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+    }
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(
@@ -540,22 +548,70 @@ private fun AutoCheckInDiagnosticsCard(
                 label = stringResource(R.string.settings_auto_diagnostics_next_planned),
                 value = nextPlanned
             )
-            diagnostics.lastStartEpochMillis?.let { epochMillis ->
-                DiagnosticRow(
-                    label = stringResource(R.string.settings_auto_diagnostics_last_start),
-                    value = AutoCheckInDiagnosticsFormatter.format(epochMillis)
+            DiagnosticRow(
+                label = stringResource(R.string.settings_auto_diagnostics_last_run),
+                value = when {
+                    startEpochMillis == null || startDay == null ->
+                        stringResource(R.string.settings_auto_diagnostics_never_run)
+                    AutoCheckInDiagnosticsFormatter.isToday(startDay, today) -> stringResource(
+                        R.string.settings_auto_diagnostics_run_today,
+                        AutoCheckInDiagnosticsFormatter.formatTime(startEpochMillis, zone)
+                    )
+                    else -> stringResource(
+                        R.string.settings_auto_diagnostics_run_date,
+                        AutoCheckInDiagnosticsFormatter.formatDate(startDay),
+                        AutoCheckInDiagnosticsFormatter.formatTime(startEpochMillis, zone)
+                    )
+                }
+            )
+            when (diagnostics.lastOutcome) {
+                null -> if (startEpochMillis != null) DiagnosticRow(
+                    label = stringResource(R.string.settings_auto_diagnostics_status),
+                    value = stringResource(R.string.settings_auto_diagnostics_in_progress)
                 )
-            }
-            lastResult?.let { result ->
-                DiagnosticRow(
-                    label = stringResource(R.string.settings_auto_diagnostics_last_result),
+                AutoCheckInDiagnosticOutcome.COMPLETED -> {
+                    val done = (diagnostics.completedSucceeded ?: 0) +
+                        (diagnostics.completedAlreadyCheckedIn ?: 0)
+                    val total = diagnostics.completedTotal
+                    val failed = diagnostics.completedFailed ?: 0
+                    val attention = diagnostics.completedAttention ?: 0
+                    val summary = when {
+                        total == null -> stringResource(R.string.settings_auto_diagnostics_completed)
+                        failed == 0 && attention == 0 -> stringResource(
+                            R.string.settings_auto_diagnostics_all_done, done, total
+                        )
+                        else -> stringResource(
+                            R.string.settings_auto_diagnostics_partial, done, total, failed, attention
+                        )
+                    }
+                    DiagnosticRow(
+                        label = stringResource(R.string.settings_auto_diagnostics_status),
+                        value = summary
+                    )
+                }
+                else -> lastResult?.let { result -> DiagnosticRow(
+                    label = stringResource(R.string.settings_auto_diagnostics_status),
                     value = result
-                )
+                ) }
             }
             diagnostics.lastFinishEpochMillis?.let { epochMillis ->
                 DiagnosticRow(
                     label = stringResource(R.string.settings_auto_diagnostics_last_finish),
-                    value = AutoCheckInDiagnosticsFormatter.format(epochMillis)
+                    value = java.time.Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
+                        .takeIf { it == today }
+                        ?.let {
+                            stringResource(
+                                R.string.settings_auto_diagnostics_run_today,
+                                AutoCheckInDiagnosticsFormatter.formatTime(epochMillis, zone)
+                            )
+                        }
+                        ?: stringResource(
+                            R.string.settings_auto_diagnostics_run_date,
+                            AutoCheckInDiagnosticsFormatter.formatDate(
+                                java.time.Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
+                            ),
+                            AutoCheckInDiagnosticsFormatter.formatTime(epochMillis, zone)
+                        )
                 )
             }
             Text(

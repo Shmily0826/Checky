@@ -4,7 +4,9 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.checky.app.domain.model.CheckInSummary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -15,15 +17,17 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.util.UUID
+import java.time.LocalDate
 
 class AutoCheckInDiagnosticsStoreTest {
     private lateinit var scope: CoroutineScope
     private lateinit var store: DataStoreAutoCheckInDiagnosticsStore
+    private lateinit var file: File
 
     @Before
     fun setUp() {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val file = File(
+        file = File(
             System.getProperty("java.io.tmpdir"),
             "checky_auto_diag_${UUID.randomUUID()}.preferences_pb"
         )
@@ -42,10 +46,12 @@ class AutoCheckInDiagnosticsStoreTest {
     @Test
     fun startClearsPlannedAndTerminalPersistsOnlyTypedAggregateCounts() = runBlocking {
         store.recordPlannedNext(100L)
-        store.recordDailyStart(200L)
+        val runDay = LocalDate.of(2026, 9, 29)
+        store.recordDailyStart(runDay, 200L)
 
         val started = store.diagnostics.first()
         assertNull(started.plannedNextEpochMillis)
+        assertEquals(runDay, started.lastStartLocalDay)
         assertEquals(200L, started.lastStartEpochMillis)
         assertNull(started.lastOutcome)
         assertNull(started.lastFinishEpochMillis)
@@ -67,6 +73,7 @@ class AutoCheckInDiagnosticsStoreTest {
 
         assertEquals(
             AutoCheckInDiagnostics(
+                lastStartLocalDay = runDay,
                 lastStartEpochMillis = 200L,
                 lastOutcome = AutoCheckInDiagnosticOutcome.COMPLETED,
                 lastFinishEpochMillis = 300L,
@@ -78,5 +85,14 @@ class AutoCheckInDiagnosticsStoreTest {
             ),
             store.diagnostics.first()
         )
+
+        scope.coroutineContext[Job]!!.cancelAndJoin()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        store = DataStoreAutoCheckInDiagnosticsStore(
+            PreferenceDataStoreFactory.create(scope = scope, produceFile = { file })
+        )
+        assertEquals(runDay, store.diagnostics.first().lastStartLocalDay)
+        assertEquals(300L, store.diagnostics.first().lastFinishEpochMillis)
+        assertEquals(2, store.diagnostics.first().completedTotal)
     }
 }

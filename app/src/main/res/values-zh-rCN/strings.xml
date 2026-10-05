@@ -248,7 +248,8 @@
     <string name="notification_reconnect_title">Checky — %1$d 个服务需要重新连接</string>
     <string name="notification_login_expired">登录已失效：%1$s</string>
     <string name="notification_separator">、</string>
-    <string name="notification_result_title_success">Checky — 今日签到完成</string>
+    <string name="notification_result_title_success">自动签到完成</string>
+    <string name="notification_result_success_text">今日 %1$d/%2$d 已完成</string>
     <string name="notification_result_title_attention">Checky — 签到完成，%1$d 项需关注</string>
     <string name="notification_result_success">成功 %1$d</string>
     <string name="notification_result_already">已签到 %1$d</string>
@@ -294,6 +295,14 @@
     <string name="settings_auto_diagnostics_last_start">上次开始</string>
     <string name="settings_auto_diagnostics_last_result">上次结果</string>
     <string name="settings_auto_diagnostics_last_finish">上次完成</string>
+    <string name="settings_auto_diagnostics_last_run">上次自动签到</string>
+    <string name="settings_auto_diagnostics_never_run">没有自动签到记录</string>
+    <string name="settings_auto_diagnostics_run_today">今天 %1$s</string>
+    <string name="settings_auto_diagnostics_run_date">%1$s %2$s</string>
+    <string name="settings_auto_diagnostics_status">状态</string>
+    <string name="settings_auto_diagnostics_in_progress">已开始，尚无完成记录</string>
+    <string name="settings_auto_diagnostics_all_done">已完成 %1$d/%2$d</string>
+    <string name="settings_auto_diagnostics_partial">已完成 %1$d/%2$d · 失败 %3$d · 需处理 %4$d</string>
     <string name="settings_auto_diagnostics_skipped_disabled">已跳过——自动签到已停用</string>
     <string name="settings_auto_diagnostics_skipped_no_provider">已跳过——没有符合条件的已连接服务</string>
     <string name="settings_auto_diagnostics_completed">已完成</string>

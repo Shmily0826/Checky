@@ -201,14 +201,17 @@ object NotificationHelper {
         } else {
             context.getString(R.string.notification_result_title_attention, needsAttention)
         }
-        val content = formatCheckInResultSummary(
-            summary = summary,
-            reconnectRequired = reconnectRequired,
-            successLabel = { context.getString(R.string.notification_result_success, it) },
-            alreadyLabel = { context.getString(R.string.notification_result_already, it) },
-            failedLabel = { context.getString(R.string.notification_result_failed, it) },
-            reconnectLabel = { context.getString(R.string.notification_result_reconnect, it) },
-            attentionLabel = { context.getString(R.string.notification_result_attention, it) }
+        val completed = summary.succeeded + summary.alreadyCheckedIn
+        val content = if (needsAttention == 0) {
+            context.getString(R.string.notification_result_success_text, completed, summary.total)
+        } else formatCheckInResultSummary(
+            summary,
+            reconnectRequired,
+            { context.getString(R.string.notification_result_success, it) },
+            { context.getString(R.string.notification_result_already, it) },
+            { context.getString(R.string.notification_result_failed, it) },
+            { context.getString(R.string.notification_result_reconnect, it) },
+            { context.getString(R.string.notification_result_attention, it) }
         )
         val bigText = buildString {
             append(
@@ -243,7 +246,11 @@ object NotificationHelper {
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
-        NotificationManagerCompat.from(context).notify(RESULT_NOTIFICATION_ID, notification)
+        try {
+            NotificationManagerCompat.from(context).notify(RESULT_NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) {
+            // Permission can be revoked after the check; check-in already succeeded.
+        }
     }
 }
 

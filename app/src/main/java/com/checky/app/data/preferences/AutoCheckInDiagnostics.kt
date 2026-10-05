@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
+import java.time.LocalDate
+import java.time.Duration
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -33,6 +36,7 @@ enum class AutoCheckInDiagnosticOutcome {
  */
 data class AutoCheckInDiagnostics(
     val plannedNextEpochMillis: Long? = null,
+    val lastStartLocalDay: LocalDate? = null,
     val lastStartEpochMillis: Long? = null,
     val lastOutcome: AutoCheckInDiagnosticOutcome? = null,
     val lastFinishEpochMillis: Long? = null,
@@ -47,8 +51,14 @@ interface AutoCheckInDiagnosticsStore {
     val diagnostics: Flow<AutoCheckInDiagnostics>
 
     suspend fun recordPlannedNext(epochMillis: Long)
+    suspend fun getOrCreateDailyTarget(
+        date: LocalDate,
+        localToday: LocalDate,
+        baseEpochMillis: Long,
+        chooseOffsetMinutes: () -> Int
+    ): Long
     suspend fun clearPlannedNext()
-    suspend fun recordDailyStart(epochMillis: Long)
+    suspend fun recordDailyStart(localDay: LocalDate, epochMillis: Long)
     suspend fun recordDailyTerminal(
         outcome: AutoCheckInDiagnosticOutcome,
         finishEpochMillis: Long,
@@ -65,6 +75,9 @@ class DataStoreAutoCheckInDiagnosticsStore @Inject constructor(
         .map { prefs ->
             AutoCheckInDiagnostics(
                 plannedNextEpochMillis = prefs[KEY_PLANNED_NEXT],
+                lastStartLocalDay = prefs[KEY_LAST_START_LOCAL_DAY]?.let {
+                    runCatching { LocalDate.parse(it) }.getOrNull()
+                },
                 lastStartEpochMillis = prefs[KEY_LAST_START],
                 lastOutcome = prefs[KEY_LAST_OUTCOME]?.let { raw ->
                     runCatching { AutoCheckInDiagnosticOutcome.valueOf(raw) }.getOrNull()
@@ -84,15 +97,53 @@ class DataStoreAutoCheckInDiagnosticsStore @Inject constructor(
         }
     }
 
+    override suspend fun getOrCreateDailyTarget(
+        date: LocalDate,
+        localToday: LocalDate,
+        baseEpochMillis: Long,
+        chooseOffsetMinutes: () -> Int
+    ): Long {
+        var target = baseEpochMillis
+        dataStore.edit { prefs ->
+            prefs.asMap().keys
+                .filter { it.name.startsWith(TARGET_PREFIX) || it.name.startsWith(BASE_PREFIX) }
+                .forEach { key ->
+                    val storedDate = key.name.removePrefix(TARGET_PREFIX).removePrefix(BASE_PREFIX).let {
+                        runCatching { LocalDate.parse(it) }.getOrNull()
+                    }
+                    if (storedDate == null || storedDate < localToday || storedDate > localToday.plusDays(1)) {
+                        prefs.remove(key)
+                    }
+                }
+            val key = longPreferencesKey("$TARGET_PREFIX$date")
+            val baseKey = longPreferencesKey("$BASE_PREFIX$date")
+            val candidate = if (prefs[baseKey] == baseEpochMillis) {
+                prefs[key] ?: baseEpochMillis
+            } else {
+                baseEpochMillis + Duration.ofMinutes(
+                    chooseOffsetMinutes().coerceIn(-5, 5).toLong()
+                ).toMillis()
+            }
+            val dateStartEpochMillis = date.atStartOfDay(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+            target = maxOf(candidate, dateStartEpochMillis)
+            prefs[baseKey] = baseEpochMillis
+            prefs[key] = target
+        }
+        return target
+    }
+
     override suspend fun clearPlannedNext() {
         dataStore.edit { prefs ->
             prefs.remove(KEY_PLANNED_NEXT)
         }
     }
 
-    override suspend fun recordDailyStart(epochMillis: Long) {
+    override suspend fun recordDailyStart(localDay: LocalDate, epochMillis: Long) {
         dataStore.edit { prefs ->
             prefs.remove(KEY_PLANNED_NEXT)
+            prefs[KEY_LAST_START_LOCAL_DAY] = localDay.toString()
             prefs[KEY_LAST_START] = epochMillis
             prefs.remove(KEY_LAST_OUTCOME)
             prefs.remove(KEY_LAST_FINISH)
@@ -133,7 +184,10 @@ class DataStoreAutoCheckInDiagnosticsStore @Inject constructor(
 
     companion object {
         private const val MAX_COUNT = 1_000
+        private const val TARGET_PREFIX = "auto_diag_target_"
+        private const val BASE_PREFIX = "auto_diag_base_"
         private val KEY_PLANNED_NEXT = longPreferencesKey("auto_diag_planned_next")
+        private val KEY_LAST_START_LOCAL_DAY = stringPreferencesKey("auto_diag_last_start_local_day")
         private val KEY_LAST_START = longPreferencesKey("auto_diag_last_start")
         private val KEY_LAST_OUTCOME = stringPreferencesKey("auto_diag_last_outcome")
         private val KEY_LAST_FINISH = longPreferencesKey("auto_diag_last_finish")

@@ -247,14 +247,28 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun changingEnabledAutoCheckInTimeReplacesPeriodicRequest() {
+    fun changingEnabledAutoCheckInTimeReplacesOneTimeRequest() {
         val vm = buildVm()
+        val now = ZonedDateTime.now()
+        val firstTarget = now.plusMinutes(15)
+        val updatedTarget = now.plusMinutes(30)
+        val (firstHour, firstMinute, updatedHour, updatedMinute) = if (
+            updatedTarget.toLocalDate() == now.toLocalDate()
+        ) {
+            listOf(firstTarget.hour, firstTarget.minute, updatedTarget.hour, updatedTarget.minute)
+        } else {
+            listOf(23, 58, 23, 59)
+        }
 
+        vm.setAutoCheckInTime(firstHour, firstMinute)
+        awaitPref { it.autoCheckInHour == firstHour && it.autoCheckInMinute == firstMinute }
         vm.setAutoCheckInEnabled(true)
         awaitWork("checky_auto_checkin")
         val first = currentWork("checky_auto_checkin")
+        assertEquals(androidx.work.WorkInfo.State.ENQUEUED, first.state)
 
-        vm.setAutoCheckInTime(5, 30)
+        vm.setAutoCheckInTime(updatedHour, updatedMinute)
+        awaitPref { it.autoCheckInHour == updatedHour && it.autoCheckInMinute == updatedMinute }
         val second = awaitReplacement("checky_auto_checkin", first.id)
 
         assertTrue(first.id != second.id)
@@ -283,7 +297,8 @@ class SettingsViewModelTest {
                 8,
                 0,
                 now = now,
-                diagnostics = diagnosticsStore
+                diagnostics = diagnosticsStore,
+                chooseJitterOffsetMinutes = { 0 }
             )
             assertEquals(
                 expected.toInstant().toEpochMilli(),

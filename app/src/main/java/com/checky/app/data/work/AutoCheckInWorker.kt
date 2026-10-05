@@ -18,6 +18,7 @@ import com.checky.app.data.model.ServiceSnapshot
 import com.checky.app.data.repository.CheckInRepository
 import com.checky.app.domain.CheckInAllUseCase
 import com.checky.app.domain.CheckInProvider
+import com.checky.app.domain.CheckInRunMode
 import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.AuthHealthStore
 import com.checky.app.domain.LegacyAuthHealthMigration
@@ -35,7 +36,11 @@ import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.CancellationException
 import java.time.ZonedDateTime
 import java.time.ZoneId
+import java.time.Duration
+import java.time.LocalDate
+import java.time.Instant
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -69,21 +74,26 @@ class AutoCheckInWorker(
                     credentials = entryPoint.credentials(),
                     authHealthStore = entryPoint.authHealthStore(),
                     runBatch = { providers ->
-                        entryPoint.useCase()(providers, parallel = false).last()
+                        entryPoint.useCase()(
+                            providers,
+                            parallel = false,
+                            runMode = CheckInRunMode.AUTOMATIC
+                        ).last()
                     }
                 )
             }
-            if (execution is AutoCheckInExecutionResult.Completed) {
+            if (shouldPostAutoCheckInResult(dailyScheduled, execution)) {
+                val completed = execution as AutoCheckInExecutionResult.Completed
                 // Background runs have no UI: surface results/expired sessions as notifications.
                 NotificationHelper.showReconnectRequired(
                     applicationContext,
-                    execution.expiredServiceNames
+                    completed.expiredServiceNames
                 )
                 if (entryPoint.preferences().preferences.first().checkInResultNotify) {
                     NotificationHelper.showCheckInResult(
                         applicationContext,
-                        execution.summary,
-                        reconnectRequired = execution.expiredServiceNames.size
+                        completed.summary,
+                        reconnectRequired = completed.expiredServiceNames.size
                     )
                 }
             }
@@ -123,30 +133,53 @@ class AutoCheckInWorker(
             minute: Int,
             now: ZonedDateTime = ZonedDateTime.now(),
             providerMetas: List<ProviderMeta> = emptyList(),
-            diagnostics: AutoCheckInDiagnosticsStore? = null
+            diagnostics: AutoCheckInDiagnosticsStore? = null,
+            replacePendingWork: Boolean = false,
+            chooseJitterOffsetMinutes: () -> Int = { Random.nextInt(-5, 6) }
         ) {
-            // Do not cancel an in-flight provider mutation. The running worker
-            // reads latest preferences on completion and appends its next run.
-            if (isRunning(context)) return
             val diagnosticsStore = diagnostics ?: diagnosticsStore(context)
             val zones = providerMetas.map { it.businessZone }.toSet()
-            val target = AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now, zones)
+            val state = diagnosticsStore.diagnostics.first()
+            // Keep daily offsets within five minutes; the diagnostics store retains each date's choice.
+            val targets = listOf(now.toLocalDate(), now.toLocalDate().plusDays(1)).associateWith { date ->
+                val base = AutoCheckInSchedule.scheduledDateTime(date, hour, minute, now, zones)
+                val epoch = diagnosticsStore.getOrCreateDailyTarget(
+                    date, now.toLocalDate(), base.toInstant().toEpochMilli(),
+                    chooseJitterOffsetMinutes
+                )
+                java.time.Instant.ofEpochMilli(epoch).atZone(now.zone)
+            }
+            val decision = decideDailySchedule(hour, minute, now, zones, state, targets)
+            AutoCheckInAlarm.schedule(context, decision.alarmAt.toInstant().toEpochMilli())
+            val states = workStates(context)
+            if (shouldDeferScheduleReplacement(
+                    states = states,
+                    plannedNextEpochMillis = state.plannedNextEpochMillis,
+                    desiredEpochMillis = decision.workAt.toInstant().toEpochMilli(),
+                    nowEpochMillis = now.toInstant().toEpochMilli(),
+                    replacePendingWork = replacePendingWork
+                )
+            ) {
+                diagnosticsStore.recordPlannedNext(decision.workAt.toInstant().toEpochMilli())
+                return
+            }
+
             val request = OneTimeWorkRequestBuilder<AutoCheckInWorker>()
                 .setInputData(workDataOf(DAILY_SCHEDULED_INPUT to true))
                 .setInitialDelay(
-                    AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now, zones),
+                    Duration.between(now, decision.workAt).toMillis().coerceAtLeast(0),
                     TimeUnit.MILLISECONDS
                 )
                 .build()
             val workManager = WorkManager.getInstance(context)
             val enqueueOperation = workManager.enqueueUniqueWork(
                 UNIQUE_WORK,
-                ExistingWorkPolicy.REPLACE,
+                if (replacePendingWork) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
                 request
             )
             try {
                 awaitOperation(enqueueOperation)
-                diagnosticsStore.recordPlannedNext(target.toInstant().toEpochMilli())
+                diagnosticsStore.recordPlannedNext(decision.workAt.toInstant().toEpochMilli())
             } catch (cancellation: CancellationException) {
                 workManager.cancelWorkById(request.id)
                 throw cancellation
@@ -159,8 +192,8 @@ class AutoCheckInWorker(
         }
 
         suspend fun cancel(context: Context, diagnostics: AutoCheckInDiagnosticsStore? = null) {
-            // Disabling while a mutation is in flight must not interrupt it;
-            // the worker's latest-preferences check prevents future scheduling.
+            AutoCheckInAlarm.cancel(context)
+            // Disabling while a mutation is in flight must not interrupt it.
             if (isRunning(context)) return
             val diagnosticsStore = diagnostics ?: diagnosticsStore(context)
             val cancelOperation = WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK)
@@ -169,6 +202,10 @@ class AutoCheckInWorker(
         }
 
         private suspend fun isRunning(context: Context): Boolean {
+            return workStates(context).any { it == androidx.work.WorkInfo.State.RUNNING }
+        }
+
+        private suspend fun workStates(context: Context): List<androidx.work.WorkInfo.State> {
             val future = WorkManager.getInstance(context).getWorkInfosForUniqueWork(UNIQUE_WORK)
             val workInfos = suspendCancellableCoroutine<List<androidx.work.WorkInfo>> { continuation ->
                 future.addListener({
@@ -181,7 +218,7 @@ class AutoCheckInWorker(
                     }
                 }, java.util.concurrent.Executor { it.run() })
             }
-            return shouldDeferScheduleReplacement(workInfos.map { it.state })
+            return workInfos.map { it.state }
         }
 
         suspend fun reconcile(context: Context) {
@@ -213,37 +250,18 @@ class AutoCheckInWorker(
             )
             val preferences = entryPoint.preferences().preferences.first()
             val diagnosticsStore = entryPoint.diagnostics()
-            scheduleStaleIfNeeded(
-                context = context,
-                preferences = preferences,
-                diagnostics = diagnosticsStore.diagnostics.first(),
-                now = now,
-                providerMetas = entryPoint.providers().map { it.meta },
-                diagnosticsStore = diagnosticsStore
-            )
-        }
-
-        internal suspend fun scheduleStaleIfNeeded(
-            context: Context,
-            preferences: UserPreferences,
-            diagnostics: AutoCheckInDiagnostics,
-            now: ZonedDateTime,
-            providerMetas: List<ProviderMeta> = emptyList(),
-            diagnosticsStore: AutoCheckInDiagnosticsStore? = null
-        ): Boolean {
-            if (!preferences.autoCheckInEnabled ||
-                !shouldReconcileStaleSchedule(diagnostics, now)
-            ) return false
-
-            schedule(
-                context,
-                preferences.autoCheckInHour,
-                preferences.autoCheckInMinute,
-                now = now,
-                providerMetas = providerMetas,
-                diagnostics = diagnosticsStore
-            )
-            return true
+            if (preferences.autoCheckInEnabled) {
+                schedule(
+                    context,
+                    preferences.autoCheckInHour,
+                    preferences.autoCheckInMinute,
+                    now = now,
+                    providerMetas = entryPoint.providers().map { it.meta },
+                    diagnostics = diagnosticsStore
+                )
+            } else {
+                cancel(context, diagnosticsStore)
+            }
         }
 
         /** Queues behind the currently running worker without replacing it. */
@@ -253,15 +271,24 @@ class AutoCheckInWorker(
             minute: Int,
             now: ZonedDateTime = ZonedDateTime.now(),
             providerMetas: List<ProviderMeta> = emptyList(),
-            diagnostics: AutoCheckInDiagnosticsStore? = null
+            diagnostics: AutoCheckInDiagnosticsStore? = null,
+            chooseJitterOffsetMinutes: () -> Int = { Random.nextInt(-5, 6) }
         ) {
             val diagnosticsStore = diagnostics ?: diagnosticsStore(context)
             val zones = providerMetas.map { it.businessZone }.toSet()
-            val target = AutoCheckInSchedule.nextScheduledDateTime(hour, minute, now, zones)
+            val baseTarget = AutoCheckInSchedule.scheduledDateTime(
+                now.toLocalDate().plusDays(1), hour, minute, now, zones
+            )
+            val target = java.time.Instant.ofEpochMilli(
+                diagnosticsStore.getOrCreateDailyTarget(
+                    baseTarget.toLocalDate(), now.toLocalDate(), baseTarget.toInstant().toEpochMilli(),
+                    chooseJitterOffsetMinutes
+                )
+            ).atZone(now.zone)
             val request = OneTimeWorkRequestBuilder<AutoCheckInWorker>()
                 .setInputData(workDataOf(DAILY_SCHEDULED_INPUT to true))
                 .setInitialDelay(
-                    AutoCheckInSchedule.nextRunDelayMillis(hour, minute, now, zones),
+                    Duration.between(now, target).toMillis().coerceAtLeast(0),
                     TimeUnit.MILLISECONDS
                 )
                 .build()
@@ -273,6 +300,7 @@ class AutoCheckInWorker(
             try {
                 awaitOperation(enqueueOperation)
                 diagnosticsStore.recordPlannedNext(target.toInstant().toEpochMilli())
+                AutoCheckInAlarm.schedule(context, target.toInstant().toEpochMilli())
             } catch (cancellation: CancellationException) {
                 WorkManager.getInstance(context).cancelWorkById(request.id)
                 throw cancellation
@@ -317,22 +345,57 @@ class AutoCheckInWorker(
 internal fun isDailyScheduled(inputData: Data): Boolean =
     inputData.getBoolean("daily_scheduled", false)
 
-internal fun shouldDeferScheduleReplacement(states: List<androidx.work.WorkInfo.State>): Boolean =
-    states.any { it == androidx.work.WorkInfo.State.RUNNING }
+internal fun shouldPostAutoCheckInResult(
+    dailyScheduled: Boolean,
+    execution: AutoCheckInExecutionResult
+): Boolean = dailyScheduled && execution is AutoCheckInExecutionResult.Completed
 
-internal fun shouldReconcileStaleSchedule(
-    diagnostics: AutoCheckInDiagnostics,
-    now: ZonedDateTime
+internal fun shouldDeferScheduleReplacement(
+    states: List<androidx.work.WorkInfo.State>,
+    plannedNextEpochMillis: Long? = null,
+    desiredEpochMillis: Long? = null,
+    nowEpochMillis: Long = System.currentTimeMillis(),
+    replacePendingWork: Boolean = false
 ): Boolean {
-    val plannedNext = diagnostics.plannedNextEpochMillis ?: return false
-    if (plannedNext >= now.toInstant().toEpochMilli()) return false
+    if (states.any { it == androidx.work.WorkInfo.State.RUNNING }) return true
+    if (replacePendingWork || states.none { !it.isFinished }) return false
+    // Unknown or overdue work may already represent the catch-up attempt.
+    // Keep it; replace only a known future request whose target changed.
+    return plannedNextEpochMillis == null ||
+        plannedNextEpochMillis <= nowEpochMillis ||
+        plannedNextEpochMillis == desiredEpochMillis
+}
 
-    val plannedDate = java.time.Instant.ofEpochMilli(plannedNext).atZone(now.zone).toLocalDate()
-    return listOf(diagnostics.lastStartEpochMillis, diagnostics.lastFinishEpochMillis)
+internal data class DailyScheduleDecision(
+    val workAt: ZonedDateTime,
+    val alarmAt: ZonedDateTime,
+    val catchUp: Boolean
+)
+
+internal fun decideDailySchedule(
+    hour: Int,
+    minute: Int,
+    now: ZonedDateTime,
+    businessZones: Set<ZoneId>,
+    diagnostics: AutoCheckInDiagnostics,
+    effectiveTargets: Map<LocalDate, ZonedDateTime> = emptyMap()
+): DailyScheduleDecision {
+    val todayBase = AutoCheckInSchedule.scheduledDateTime(
+        now.toLocalDate(), hour, minute, now, businessZones
+    )
+    val today = effectiveTargets[now.toLocalDate()] ?: todayBase
+    val hasAttemptToday = listOf(diagnostics.lastStartEpochMillis, diagnostics.lastFinishEpochMillis)
         .filterNotNull()
-        .none { epochMillis ->
-            java.time.Instant.ofEpochMilli(epochMillis).atZone(now.zone).toLocalDate() == plannedDate
+        .any { epochMillis ->
+            java.time.Instant.ofEpochMilli(epochMillis).atZone(now.zone).toLocalDate() == today.toLocalDate()
         }
+    val nextDate = if (today.isAfter(now)) now.toLocalDate() else now.toLocalDate().plusDays(1)
+    val next = effectiveTargets[nextDate] ?: AutoCheckInSchedule.scheduledDateTime(
+        nextDate, hour, minute, now, businessZones
+    )
+    val catchUp = !today.isAfter(now) && !hasAttemptToday
+    return if (catchUp) DailyScheduleDecision(today, next, true)
+    else DailyScheduleDecision(next, next, false)
 }
 
 internal fun shouldRunAutoCheckIn(preferences: UserPreferences): Boolean =
@@ -423,7 +486,9 @@ internal suspend fun runWithDailyDiagnostics(
     if (!dailyScheduled) return block()
 
     val store = requireNotNull(diagnostics) { "Daily diagnostics store is required" }
-    store.recordDailyStart(nowMillis())
+    val startEpochMillis = nowMillis()
+    val localDay = Instant.ofEpochMilli(startEpochMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+    store.recordDailyStart(localDay, startEpochMillis)
     val result = try {
         block()
     } catch (cancellation: CancellationException) {

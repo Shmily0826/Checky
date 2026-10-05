@@ -10,12 +10,7 @@ import kotlinx.coroutines.launch
 /** Restores the local wall-clock schedule when its instant interpretation changes. */
 class AutoCheckInScheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action !in setOf(
-                Intent.ACTION_MY_PACKAGE_REPLACED,
-                Intent.ACTION_TIMEZONE_CHANGED,
-                Intent.ACTION_TIME_CHANGED
-            )
-        ) return
+        if (!shouldReconcileAutoCheckIn(intent.action)) return
 
         val pendingResult = goAsync()
         val appContext = context.applicationContext
@@ -28,3 +23,11 @@ class AutoCheckInScheduleReceiver : BroadcastReceiver() {
         }
     }
 }
+
+internal fun shouldReconcileAutoCheckIn(action: String?): Boolean = action in setOf(
+    Intent.ACTION_MY_PACKAGE_REPLACED,
+    Intent.ACTION_TIMEZONE_CHANGED,
+    Intent.ACTION_TIME_CHANGED,
+    Intent.ACTION_BOOT_COMPLETED,
+    AutoCheckInAlarm.ACTION_RECONCILE
+)

@@ -113,7 +113,8 @@ class SettingsViewModel @Inject constructor(
                     prefs.autoCheckInHour,
                     prefs.autoCheckInMinute,
                     providerMetas = providerMetas,
-                    diagnostics = autoCheckInDiagnosticsStore
+                    diagnostics = autoCheckInDiagnosticsStore,
+                    replacePendingWork = true
                 )
             } else {
                 AutoCheckInWorker.cancel(context, diagnostics = autoCheckInDiagnosticsStore)
@@ -131,7 +132,8 @@ class SettingsViewModel @Inject constructor(
                     prefs.autoCheckInHour,
                     prefs.autoCheckInMinute,
                     providerMetas = providerMetas,
-                    diagnostics = autoCheckInDiagnosticsStore
+                    diagnostics = autoCheckInDiagnosticsStore,
+                    replacePendingWork = true
                 )
             }
         }

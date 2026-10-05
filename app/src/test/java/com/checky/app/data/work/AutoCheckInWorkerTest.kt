@@ -1,5 +1,7 @@
 package com.checky.app.data.work
 
+import android.app.AlarmManager
+import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.checky.app.domain.FakeCredentialStore
 import com.checky.app.domain.FakeAuthHealthStore
@@ -30,10 +32,12 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import androidx.work.Data
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
@@ -48,67 +52,110 @@ class AutoCheckInWorkerTest {
     }
 
     @Test
-    fun runningWorkDefersReplacementButPendingWorkMayBeReplaced() {
+    fun unfinishedWorkDefersReplacement() {
         assertEquals(true, shouldDeferScheduleReplacement(listOf(androidx.work.WorkInfo.State.RUNNING)))
-        assertEquals(false, shouldDeferScheduleReplacement(listOf(androidx.work.WorkInfo.State.ENQUEUED)))
+        assertEquals(true, shouldDeferScheduleReplacement(listOf(androidx.work.WorkInfo.State.ENQUEUED)))
+        assertEquals(true, shouldDeferScheduleReplacement(listOf(androidx.work.WorkInfo.State.BLOCKED)))
         assertEquals(false, shouldDeferScheduleReplacement(emptyList()))
+        assertEquals(false, shouldDeferScheduleReplacement(listOf(androidx.work.WorkInfo.State.SUCCEEDED)))
     }
 
     @Test
-    fun stalePlanReconcilesOnlyWhenItsPlannedDateHasNoRun() {
-        val zone = ZoneId.of("Pacific/Auckland")
-        val planned = ZonedDateTime.of(2026, 9, 19, 9, 0, 0, 0, zone)
-        val now = planned.plusHours(5)
+    fun reconciliationKeepsOverdueWorkAndReplacesOnlyStaleFutureWork() {
+        val now = 100_000L
+        val pending = listOf(androidx.work.WorkInfo.State.ENQUEUED)
 
-        assertEquals(
-            true,
-            shouldReconcileStaleSchedule(
-                AutoCheckInDiagnostics(plannedNextEpochMillis = planned.toInstant().toEpochMilli()),
-                now
-            )
+        assertEquals(true, shouldDeferScheduleReplacement(
+            pending, plannedNextEpochMillis = now - 1, desiredEpochMillis = now + 1_000,
+            nowEpochMillis = now
+        ))
+        assertEquals(false, shouldDeferScheduleReplacement(
+            pending, plannedNextEpochMillis = now + 2_000, desiredEpochMillis = now + 1_000,
+            nowEpochMillis = now
+        ))
+        assertEquals(true, shouldDeferScheduleReplacement(
+            pending, plannedNextEpochMillis = now + 1_000, desiredEpochMillis = now + 1_000,
+            nowEpochMillis = now
+        ))
+        assertEquals(true, shouldDeferScheduleReplacement(
+            listOf(androidx.work.WorkInfo.State.RUNNING), now + 2_000, now + 1_000,
+            now, replacePendingWork = true
+        ))
+    }
+
+    @Test
+    fun pastScheduleWithoutAttemptGetsOneSameDayCatchUp() {
+        val zone = ZoneId.of("Pacific/Auckland")
+        val now = ZonedDateTime.of(2026, 9, 26, 15, 30, 0, 0, zone)
+        val decision = decideDailySchedule(9, 0, now, emptySet(), AutoCheckInDiagnostics())
+
+        assertEquals(true, decision.catchUp)
+        assertEquals(ZonedDateTime.of(2026, 9, 26, 9, 0, 0, 0, zone), decision.workAt)
+        assertEquals(ZonedDateTime.of(2026, 9, 27, 9, 0, 0, 0, zone), decision.alarmAt)
+    }
+
+    @Test
+    fun startedWithoutTerminalTodayDoesNotCatchUpAgain() {
+        val zone = ZoneId.of("Pacific/Auckland")
+        val now = ZonedDateTime.of(2026, 9, 26, 15, 30, 0, 0, zone)
+        val decision = decideDailySchedule(
+            9, 0, now, emptySet(),
+            AutoCheckInDiagnostics(lastStartEpochMillis = now.minusHours(1).toInstant().toEpochMilli())
         )
-        assertEquals(
-            false,
-            shouldReconcileStaleSchedule(
-                AutoCheckInDiagnostics(
-                    plannedNextEpochMillis = planned.toInstant().toEpochMilli(),
-                    lastStartEpochMillis = planned.plusMinutes(1).toInstant().toEpochMilli()
-                ),
-                now
-            )
+
+        assertEquals(false, decision.catchUp)
+        assertEquals(ZonedDateTime.of(2026, 9, 27, 9, 0, 0, 0, zone), decision.workAt)
+    }
+
+    @Test
+    fun terminalTodayDoesNotCatchUpAgain() {
+        val zone = ZoneId.of("Pacific/Auckland")
+        val now = ZonedDateTime.of(2026, 9, 26, 15, 30, 0, 0, zone)
+        val decision = decideDailySchedule(
+            9, 0, now, emptySet(),
+            AutoCheckInDiagnostics(lastFinishEpochMillis = now.minusHours(1).toInstant().toEpochMilli())
         )
-        assertEquals(
-            false,
-            shouldReconcileStaleSchedule(
-                AutoCheckInDiagnostics(
-                    plannedNextEpochMillis = planned.toInstant().toEpochMilli(),
-                    lastFinishEpochMillis = planned.plusMinutes(20).toInstant().toEpochMilli()
-                ),
-                now
-            )
-        )
-        assertEquals(
-            true,
-            shouldReconcileStaleSchedule(
-                AutoCheckInDiagnostics(
-                    plannedNextEpochMillis = planned.toInstant().toEpochMilli(),
-                    lastStartEpochMillis = planned.minusDays(1).toInstant().toEpochMilli(),
-                    lastFinishEpochMillis = planned.minusDays(1).plusMinutes(20).toInstant().toEpochMilli()
-                ),
-                now
-            )
-        )
-        assertEquals(
-            false,
-            shouldReconcileStaleSchedule(
-                AutoCheckInDiagnostics(plannedNextEpochMillis = now.toInstant().toEpochMilli()),
-                now
-            )
-        )
-        assertEquals(
-            false,
-            shouldReconcileStaleSchedule(AutoCheckInDiagnostics(), now)
-        )
+
+        assertEquals(false, decision.catchUp)
+        assertEquals(ZonedDateTime.of(2026, 9, 27, 9, 0, 0, 0, zone), decision.workAt)
+    }
+
+    @Test
+    fun futureScheduleKeepsConfiguredLocalTime() {
+        val zone = ZoneId.of("Pacific/Auckland")
+        val now = ZonedDateTime.of(2026, 9, 26, 8, 0, 0, 0, zone)
+        val decision = decideDailySchedule(9, 0, now, emptySet(), AutoCheckInDiagnostics())
+
+        assertEquals(false, decision.catchUp)
+        assertEquals(ZonedDateTime.of(2026, 9, 26, 9, 0, 0, 0, zone), decision.workAt)
+        assertEquals(decision.workAt, decision.alarmAt)
+    }
+
+    @Test
+    fun bootAndAlarmActionsAreReconciliationOnly() {
+        assertEquals(true, shouldReconcileAutoCheckIn(android.content.Intent.ACTION_BOOT_COMPLETED))
+        assertEquals(true, shouldReconcileAutoCheckIn(AutoCheckInAlarm.ACTION_RECONCILE))
+        assertEquals(true, shouldReconcileAutoCheckIn(android.content.Intent.ACTION_TIME_CHANGED))
+        assertEquals(false, shouldReconcileAutoCheckIn("com.example.UNRELATED"))
+    }
+
+    @Test
+    fun alarmIsUpdatedAndCancelledWithStableReceiverIdentity() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val shadowAlarmManager = shadowOf(context.getSystemService(AlarmManager::class.java))
+
+        AutoCheckInAlarm.schedule(context, 10_000L)
+        var alarm = shadowAlarmManager.scheduledAlarms.single()
+        assertEquals(AlarmManager.RTC_WAKEUP, alarm.type)
+        assertTrue(alarm.allowWhileIdle)
+        assertEquals(AutoCheckInAlarm.ACTION_RECONCILE, shadowOf(alarm.operation).savedIntent.action)
+
+        AutoCheckInAlarm.schedule(context, 20_000L)
+        alarm = shadowAlarmManager.scheduledAlarms.single()
+        assertEquals(20_000L, alarm.triggerAtTime)
+
+        AutoCheckInAlarm.cancel(context)
+        assertTrue(shadowAlarmManager.scheduledAlarms.isEmpty())
     }
     @Test
     fun nextRunUsesLocalWallClockAndRollsToTomorrow() {
@@ -394,6 +441,18 @@ class AutoCheckInWorkerTest {
     }
 
     @Test
+    fun onlyScheduledCompletedRunsPostResultNotifications() {
+        val completed = AutoCheckInExecutionResult.Completed(
+            CheckInSummary(1, 1, 0, 0, 0, 0, 0, durationMs = 1),
+            emptyList()
+        )
+
+        assertTrue(shouldPostAutoCheckInResult(true, completed))
+        assertEquals(false, shouldPostAutoCheckInResult(false, completed))
+        assertEquals(false, shouldPostAutoCheckInResult(true, AutoCheckInExecutionResult.FailedInternal))
+    }
+
+    @Test
     fun cancellationIsNotConvertedToInternalFailure() = runTest {
         val store = RecordingDiagnosticsStore()
 
@@ -472,6 +531,7 @@ private suspend fun taygedoSelectionFixture(
 
 private class RecordingDiagnosticsStore : AutoCheckInDiagnosticsStore {
     private val state = MutableStateFlow(AutoCheckInDiagnostics())
+    private val targets = mutableMapOf<java.time.LocalDate, Long>()
     val value: AutoCheckInDiagnostics get() = state.value
     override val diagnostics: Flow<AutoCheckInDiagnostics> = state
 
@@ -479,12 +539,21 @@ private class RecordingDiagnosticsStore : AutoCheckInDiagnosticsStore {
         state.value = state.value.copy(plannedNextEpochMillis = epochMillis)
     }
 
+    override suspend fun getOrCreateDailyTarget(
+        date: java.time.LocalDate,
+        localToday: java.time.LocalDate,
+        baseEpochMillis: Long,
+        chooseOffsetMinutes: () -> Int
+    ): Long = targets.getOrPut(date) {
+        baseEpochMillis + java.time.Duration.ofMinutes(chooseOffsetMinutes().coerceIn(-5, 5).toLong()).toMillis()
+    }
+
     override suspend fun clearPlannedNext() {
         state.value = state.value.copy(plannedNextEpochMillis = null)
     }
 
-    override suspend fun recordDailyStart(epochMillis: Long) {
-        state.value = AutoCheckInDiagnostics(lastStartEpochMillis = epochMillis)
+    override suspend fun recordDailyStart(localDay: java.time.LocalDate, epochMillis: Long) {
+        state.value = AutoCheckInDiagnostics(lastStartLocalDay = localDay, lastStartEpochMillis = epochMillis)
     }
 
     override suspend fun recordDailyTerminal(

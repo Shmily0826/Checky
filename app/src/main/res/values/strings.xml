@@ -253,7 +253,8 @@
     <string name="notification_reconnect_title">Checky — %1$d services need to reconnect</string>
     <string name="notification_login_expired">Login expired: %1$s</string>
     <string name="notification_separator">, </string>
-    <string name="notification_result_title_success">Checky — today’s check-in is complete</string>
+    <string name="notification_result_title_success">Automatic check-in complete</string>
+    <string name="notification_result_success_text">Today: %1$d/%2$d complete</string>
     <string name="notification_result_title_attention">Checky — check-in complete, %1$d need attention</string>
     <string name="notification_result_success">Success %1$d</string>
     <string name="notification_result_already">Already checked in %1$d</string>
@@ -294,6 +295,14 @@
     <string name="settings_auto_diagnostics_last_start">Last start</string>
     <string name="settings_auto_diagnostics_last_result">Last result</string>
     <string name="settings_auto_diagnostics_last_finish">Last finish</string>
+    <string name="settings_auto_diagnostics_last_run">Last automatic run</string>
+    <string name="settings_auto_diagnostics_never_run">No automatic run recorded</string>
+    <string name="settings_auto_diagnostics_run_today">Today %1$s</string>
+    <string name="settings_auto_diagnostics_run_date">%1$s %2$s</string>
+    <string name="settings_auto_diagnostics_status">Status</string>
+    <string name="settings_auto_diagnostics_in_progress">Started, no completion recorded</string>
+    <string name="settings_auto_diagnostics_all_done">%1$d/%2$d completed</string>
+    <string name="settings_auto_diagnostics_partial">%1$d/%2$d completed · %3$d failed · %4$d need attention</string>
     <string name="settings_auto_diagnostics_skipped_disabled">Skipped — automatic check-in is disabled</string>
     <string name="settings_auto_diagnostics_skipped_no_provider">Skipped — no eligible connected services</string>
     <string name="settings_auto_diagnostics_completed">Completed</string>
