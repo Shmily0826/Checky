@@ -8,6 +8,7 @@ import com.checky.app.accessibility.TapTapPageDisposition
 import com.checky.app.accessibility.TapTapPageMatcher
 import com.checky.app.accessibility.TapTapRunResult
 import com.checky.app.accessibility.TapTapRunState
+import com.checky.app.domain.model.CheckInOutcome
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -21,6 +22,74 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class TapTapProviderTest {
+    @Test
+    fun endedVerifiedEventTerminatesImmediatelyWithoutGestureAndRequiresUrlUpdate() = runBlocking {
+        var clicks = 0
+        var returns = 0
+        val run = requireNotNull(TapTapAutomationCoordinator.begin { returns++ })
+        try {
+            val endedPage = snapshot(
+                texts = listOf(
+                    TapTapPageMatcher.VERIFIED_EVENT_TITLE,
+                    "已累计签到3天 活动已结束",
+                    "已领", "已领", "已领",
+                    TapTapPageMatcher.ACTIVITY_ENDED_TEXT
+                ),
+                buttons = listOf(button(TapTapPageMatcher.ACTIVITY_ENDED_TEXT, enabled = false, clickable = false))
+            )
+
+            assertEquals(TapTapPageDisposition.EVENT_ENDED, TapTapPageMatcher.classify(endedPage))
+            TapTapAutomationCoordinator.observe(run, endedPage) { clicks++; true }
+            TapTapAutomationCoordinator.observe(run, endedPage) { clicks++; true }
+
+            assertTrue(run.completion.isCompleted)
+            assertEquals(TapTapRunResult.EVENT_ENDED, run.completion.await())
+            assertEquals(TapTapRunState.EVENT_ENDED, run.state)
+            assertFalse(run.clickConsumed)
+            assertEquals(0, clicks)
+            assertEquals(1, returns)
+
+            val outcome: CheckInOutcome = TapTapProvider.eventEndedOutcome()
+            assertTrue(outcome is CheckInOutcome.ActionRequired)
+            assertEquals(com.checky.app.domain.model.RetryRecommendation.NONE, outcome.retryRecommendation)
+            assertTrue(outcome.toString().contains("saved TapTap event URL has expired"))
+            assertTrue(outcome.toString().contains("Update it when a new event is available"))
+            assertEquals("TAPTAP_EVENT_ENDED", TapTapProvider.diagnosticCodeFor(TapTapRunResult.EVENT_ENDED))
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun endedMarkerPrecedesActionableSignInWithoutConsumingClick() = runBlocking {
+        val run = requireNotNull(TapTapAutomationCoordinator.begin())
+        try {
+            val endedPage = snapshot(
+                texts = listOf(TapTapPageMatcher.VERIFIED_EVENT_TITLE, "已累计签到3天", TapTapPageMatcher.ACTIVITY_ENDED_TEXT),
+                buttons = listOf(button("立即签到", enabled = true, clickable = true))
+            )
+            TapTapAutomationCoordinator.observe(run, endedPage) { error("ended page must never click") }
+            assertTrue(run.completion.isCompleted)
+            assertEquals(TapTapRunResult.EVENT_ENDED, run.completion.await())
+            assertFalse(run.clickConsumed)
+        } finally {
+            TapTapAutomationCoordinator.clear(run)
+        }
+    }
+
+    @Test
+    fun endedRecognitionRequiresExactEventPackageAndMarkersAndPreservesVerificationGate() {
+        val endedPage = snapshot(
+            texts = listOf(TapTapPageMatcher.VERIFIED_EVENT_TITLE, "已累计签到3天", TapTapPageMatcher.ACTIVITY_ENDED_TEXT),
+            buttons = emptyList()
+        )
+        assertEquals(TapTapPageDisposition.NOT_TARGET, TapTapPageMatcher.classify(endedPage.copy(packageName = "other.app")))
+        assertEquals(TapTapPageDisposition.NOT_TARGET, TapTapPageMatcher.classify(endedPage.copy(texts = endedPage.texts - TapTapPageMatcher.VERIFIED_EVENT_TITLE)))
+        assertEquals(TapTapPageDisposition.NOT_TARGET, TapTapPageMatcher.classify(endedPage.copy(texts = endedPage.texts - "已累计签到3天")))
+        assertEquals(TapTapPageDisposition.NOT_TARGET, TapTapPageMatcher.classify(endedPage.copy(texts = endedPage.texts - TapTapPageMatcher.ACTIVITY_ENDED_TEXT)))
+        assertEquals(TapTapPageDisposition.UNKNOWN, TapTapPageMatcher.classify(endedPage.copy(texts = endedPage.texts + "安全验证")))
+    }
+
     @Test
     fun deepLinkEncodesTheHttpsEventAsTheDispatcherQueryParameter() {
         val deepLink = TapTapProvider.buildDeepLink(TapTapProvider.DEFAULT_EVENT_URL)

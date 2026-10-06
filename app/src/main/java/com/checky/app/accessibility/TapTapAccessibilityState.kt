@@ -21,6 +21,7 @@ enum class TapTapPageDisposition {
     READY,
     ALREADY_COMPLETED,
     SUCCESS,
+    EVENT_ENDED,
     UNKNOWN
 }
 
@@ -32,7 +33,8 @@ enum class TapTapRunState {
     PAGE_NOT_READY,
     GESTURE_FAILED,
     UNSAFE_OR_UNKNOWN_PAGE,
-    CONFIRMATION_TIMEOUT
+    CONFIRMATION_TIMEOUT,
+    EVENT_ENDED
 }
 
 enum class TapTapRunResult {
@@ -41,10 +43,13 @@ enum class TapTapRunResult {
     GESTURE_FAILED,
     PAGE_NOT_READY,
     CONFIRMATION_TIMEOUT,
+    EVENT_ENDED,
     UNKNOWN
 }
 
 object TapTapPageMatcher {
+    const val VERIFIED_EVENT_TITLE = "\u539f\u795e-\u539f\u795e7.1\u7248\u672cTapTap\u4e13\u5c5e\u7b7e\u5230\u6d3b\u52a8"
+    const val ACTIVITY_ENDED_TEXT = "\u6d3b\u52a8\u5df2\u7ed3\u675f"
     private const val BUTTON_CLASS = "android.widget.Button"
     private const val PAGE_TITLE = "签到领好礼"
     private const val CUMULATIVE_PREFIX = "已累计签到"
@@ -56,6 +61,10 @@ object TapTapPageMatcher {
 
         val texts = snapshot.texts.map(String::trim).filter(String::isNotEmpty)
         if (texts.any(::isVerificationMarker)) return TapTapPageDisposition.UNKNOWN
+        if (VERIFIED_EVENT_TITLE in texts && ACTIVITY_ENDED_TEXT in texts &&
+            texts.any { it.startsWith(CUMULATIVE_PREFIX) }) {
+            return TapTapPageDisposition.EVENT_ENDED
+        }
         val expectedPage = PAGE_TITLE in texts && texts.any { it.startsWith(CUMULATIVE_PREFIX) }
         if (!expectedPage) return TapTapPageDisposition.NOT_TARGET
 

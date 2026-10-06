@@ -56,7 +56,10 @@ object TapTapAutomationCoordinator {
             if (pending !== run || run.completion.isCompleted) return
             val disposition = TapTapPageMatcher.classify(snapshot)
             TapTapLabTrace.stage(disposition.name)
-            when (run.state) {
+            if (disposition == TapTapPageDisposition.EVENT_ENDED) {
+                complete(run, TapTapRunResult.EVENT_ENDED)
+                shouldReturnToChecky = true
+            } else when (run.state) {
                 TapTapRunState.READY -> when (disposition) {
                     TapTapPageDisposition.NOT_TARGET,
                     TapTapPageDisposition.WAITING -> Unit
@@ -76,6 +79,7 @@ object TapTapAutomationCoordinator {
                         shouldReturnToChecky = true
                     }
                     TapTapPageDisposition.UNKNOWN -> complete(run, TapTapRunResult.UNKNOWN)
+                    TapTapPageDisposition.EVENT_ENDED -> Unit
                 }
                 TapTapRunState.CONFIRMING -> when (disposition) {
                     TapTapPageDisposition.SUCCESS -> {
@@ -125,6 +129,7 @@ object TapTapAutomationCoordinator {
             TapTapRunResult.GESTURE_FAILED -> TapTapRunState.GESTURE_FAILED
             TapTapRunResult.PAGE_NOT_READY -> TapTapRunState.PAGE_NOT_READY
             TapTapRunResult.CONFIRMATION_TIMEOUT -> TapTapRunState.CONFIRMATION_TIMEOUT
+            TapTapRunResult.EVENT_ENDED -> TapTapRunState.EVENT_ENDED
             TapTapRunResult.UNKNOWN -> TapTapRunState.UNSAFE_OR_UNKNOWN_PAGE
         }
         TapTapLabTrace.stage(run.state.name)

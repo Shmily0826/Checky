@@ -100,6 +100,7 @@ class TapTapProvider(
                     "TapTap is already checked in today.", diagnosticCodeFor(TapTapRunResult.ALREADY_COMPLETED)
                 )
                 TapTapRunResult.GESTURE_FAILED -> unknown(diagnosticCodeFor(TapTapRunResult.GESTURE_FAILED))
+                TapTapRunResult.EVENT_ENDED -> eventEndedOutcome()
                 TapTapRunResult.PAGE_NOT_READY -> unknown(diagnosticCodeFor(TapTapRunResult.PAGE_NOT_READY))
                 TapTapRunResult.CONFIRMATION_TIMEOUT -> unknown(diagnosticCodeFor(TapTapRunResult.CONFIRMATION_TIMEOUT))
                 TapTapRunResult.UNKNOWN -> unknown(diagnosticCodeFor(TapTapRunResult.UNKNOWN))
@@ -157,10 +158,17 @@ class TapTapProvider(
             TapTapRunResult.GESTURE_FAILED -> "TAPTAP_GESTURE_FAILED"
             TapTapRunResult.PAGE_NOT_READY -> "TAPTAP_PAGE_NOT_READY"
             TapTapRunResult.CONFIRMATION_TIMEOUT -> CONFIRM_TIMEOUT_DIAGNOSTIC
+            TapTapRunResult.EVENT_ENDED -> "TAPTAP_EVENT_ENDED"
             TapTapRunResult.UNKNOWN -> "TAPTAP_UNSAFE_OR_UNKNOWN_PAGE"
         }
 
         const val CONFIRM_TIMEOUT_DIAGNOSTIC = "TAPTAP_CONFIRM_TIMEOUT"
+
+        internal fun eventEndedOutcome() = CheckInOutcome.ActionRequired(
+            "The saved TapTap event URL has expired. Update it when a new event is available.",
+            diagnosticCodeFor(TapTapRunResult.EVENT_ENDED),
+            retryRecommendation = com.checky.app.domain.model.RetryRecommendation.NONE
+        )
 
         private fun normalizedEventUrl(eventUrl: String?): String? =
             eventUrl?.trim()?.takeIf(::isValidEventUrl)
