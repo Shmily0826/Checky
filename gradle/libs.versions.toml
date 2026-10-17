@@ -1,5 +1,5 @@
 [versions]
-agp = "9.3.2"
+agp = "9.4.1"
 # Kotlin is supplied by AGP 9's built-in Kotlin (2.2.10); this entry is kept
 # only to document the version and to keep KSP aligned with it.
 kotlin = "2.2.10"
