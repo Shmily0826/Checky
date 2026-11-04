@@ -333,3 +333,37 @@ real `Dispatchers.IO`, which `advanceUntilIdle()` virtual time does not cover
 - Dependency bumps validated with the full JVM suite: espresso-core 3.7.0,
   robolectric 4.16.1, appcompat 1.8.0. `hilt-navigation-compose` stays at
   1.2.0 — 1.4.0 requires compileSdk 37 (app compiles against 35).
+
+### Local MiYouShe game reconnection regression (2026-11-04)
+
+- Explicit canonical QR confirmation now refreshes only the selected game entry
+  when account identifiers agree, preserving its version-1 UID/region. Ordinary
+  reconciliation still leaves existing entries alone. Conflicting identities,
+  unsupported session versions, and incomplete source credentials do not replace
+  the target. Credential replacement invalidates previous connection evidence.
+- QR status text now says login was confirmed; it does not claim the game
+  sign-in endpoint has been verified. The game remains UNVERIFIED until its
+  saved-credential check succeeds.
+- Added `MiyousheReconnectTest`: seven synthetic tests covering the connect
+  screen's QR -> replacement -> read-only validation path, role preservation,
+  unrelated game isolation, passive reconciliation, conflicting/unknown account
+  identity, unsupported session format, incomplete source, legacy cookies, and
+  credential-store failure. HTTP calls are intercepted; no real account is used.
+- JDK: Temurin 17.0.19 (`D:\Dev-Setup\jdk`). Full `testDebugUnitTest`:
+  **420 tests, 0 failures/errors/skips**. `assembleDebug` succeeded. These checks
+  ran against the current working tree, including pre-existing uncommitted work.
+- `lintDebug` passed with 0 errors and 62 warnings (14 additional warnings
+  suppressed by the existing baseline). Its first run reported `PropertyEscape`
+  in the ignored local SDK-path configuration; escaping the drive-letter colon
+  in `local.properties` and rerunning analysis resolved that error. No lint
+  baseline or tracked build configuration was changed.
+- No physical-device, emulator, or real-provider verification was performed for
+  this fix. Installation and same-account reconnection on the owner's phone
+  remain pending; no real-provider mutation was sent.
+- Before committing, the six-file patch was applied to an isolated checkout of
+  `eab4c277c63a4245058b001f04f5d810a8c26488`, excluding all unrelated working-tree
+  changes. JDK 17 `testDebugUnitTest assembleDebug lintDebug` passed there:
+  **383 tests, 0 failures/errors/skips**, Debug APK built, lint 0 errors and
+  58 warnings (16 filtered by the existing baseline). This is the validation
+  for the standalone reconnection commit; the 420-test result above describes
+  the earlier combined working tree.

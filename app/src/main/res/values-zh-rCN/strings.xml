@@ -200,8 +200,8 @@
     <string name="connect_qr_waiting">等待扫码…</string>
     <string name="connect_qr_generating">正在生成二维码…</string>
     <string name="connect_qr_scanned">已扫码，请在米游社确认登录…</string>
-    <string name="connect_qr_confirmed">绑定成功</string>
-    <string name="connect_qr_confirmed_uid">绑定成功（UID %1$s）</string>
+    <string name="connect_qr_confirmed">扫码登录已确认</string>
+    <string name="connect_qr_confirmed_uid">扫码登录已确认（账号 UID %1$s）</string>
     <string name="connect_error_token_required">请输入令牌后继续。</string>
     <string name="connect_error_qr_unsupported">当前服务不支持扫码绑定。</string>
     <string name="connect_error_qr_expired">二维码已过期，请重新生成。</string>

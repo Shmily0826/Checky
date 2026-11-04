@@ -7,8 +7,8 @@ import org.json.JSONObject
 
 /**
  * Copies only a structurally compatible, same-account MiYouShe session into
- * missing provider entries. Each target keeps its own auth health and game
- * account configuration; this is credential continuity, not validation.
+ * missing provider entries, or refreshes the explicit game target after QR login.
+ * Game configuration is preserved; copied credentials require fresh validation.
  */
 internal object MiyousheCredentialSharing {
     private val providerIds = setOf(
@@ -29,11 +29,12 @@ internal object MiyousheCredentialSharing {
         "login_uid"
     )
 
-    /** Returns target provider IDs newly populated by this local-only step. */
+    /** Returns target IDs populated or explicitly refreshed; neither proves endpoint validity. */
     suspend fun reconcile(
         credentialStore: CredentialStore,
         authHealthStore: AuthHealthStore,
-        sourceProviderId: String? = null
+        sourceProviderId: String? = null,
+        refreshTargetProviderId: String? = null
     ): Set<String> {
         val entries = providerIds.mapNotNull { id ->
             credentialStore.get(id)?.let { stored ->
@@ -53,12 +54,27 @@ internal object MiyousheCredentialSharing {
 
         val copied = linkedSetOf<String>()
         providerIds.filter { it != source.providerId }.forEach { targetId ->
-            if (credentialStore.has(targetId)) return@forEach
+            val existing = credentialStore.get(targetId)
+            val refresh = targetId == refreshTargetProviderId && targetId in gameProviderIds &&
+                source.providerId == MiyousheCommunityProvider.META.id &&
+                classifyMiyousheCommunityCookie(source.cookie) is MiyousheCommunityCookieBuildResult.Complete
+            if (existing != null && !refresh) return@forEach
             if (!canShareTo(targetId, source.cookie)) return@forEach
 
-            credentialStore.save(targetId, encodeForTarget(targetId, source.cookie))
-            // Sharing does not prove the target endpoint is usable.
+            val updated = if (existing != null) {
+                if (accountIdentity(extractCookie(existing)) != source.identity) return@forEach
+                val session = runCatching { JSONObject(existing) }.getOrNull()
+                if (session != null) {
+                    if (session.opt("version") != 1 || session.opt("cookie") !is String) return@forEach
+                    session.put("cookie", source.cookie).toString()
+                } else {
+                    // Legacy raw cookies have no game configuration to preserve.
+                    encodeForTarget(targetId, source.cookie)
+                }
+            } else encodeForTarget(targetId, source.cookie)
+            // Invalidate prior evidence before replacing credentials, including on save failure.
             authHealthStore.set(targetId, AuthHealth.UNVERIFIED)
+            credentialStore.save(targetId, updated)
             copied += targetId
         }
         return copied
@@ -76,11 +92,13 @@ internal object MiyousheCredentialSharing {
         val source = credentialStore.get(MiyousheCommunityProvider.META.id)
             ?.let(::extractCookie)
             ?: return false
-        val target = credentialStore.get(targetProviderId)
-            ?.let(::extractCookie)
-            ?: return false
+        val storedTarget = credentialStore.get(targetProviderId) ?: return false
+        val session = runCatching { JSONObject(storedTarget) }.getOrNull()
+        if (session != null && (session.opt("version") != 1 || session.opt("cookie") !is String)) return false
+        val target = extractCookie(storedTarget)
         val sourceIdentity = accountIdentity(source)
         return sourceIdentity != null && sourceIdentity == accountIdentity(target) &&
+            source == target &&
             classifyMiyousheCommunityCookie(source) is MiyousheCommunityCookieBuildResult.Complete &&
             isGameCompatible(target)
     }
@@ -119,7 +137,7 @@ internal object MiyousheCredentialSharing {
 
     private fun accountIdentity(cookie: String): String? {
         val pairs = cookiePairs(cookie)
-        return accountKeys.firstNotNullOfOrNull { key -> pairs[key] }
+        return accountKeys.mapNotNull(pairs::get).distinct().singleOrNull()
     }
 
     private fun cookieNames(cookie: String): Set<String> = cookiePairs(cookie).keys

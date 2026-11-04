@@ -391,7 +391,8 @@ class ConnectProviderViewModel @Inject constructor(
                                 MiyousheCredentialSharing.reconcile(
                                     credentialStore,
                                     authHealthStore,
-                                    sourceProviderId
+                                    sourceProviderId,
+                                    refreshTargetProviderId = provider?.meta?.id.takeIf { usesCanonicalMiyousheQr }
                                 )
                             }
                             val gameSessionReady = if (usesCanonicalMiyousheQr) {

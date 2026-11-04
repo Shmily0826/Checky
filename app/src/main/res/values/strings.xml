@@ -200,8 +200,8 @@
     <string name="connect_qr_waiting">Waiting for scan…</string>
     <string name="connect_qr_generating">Generating QR code…</string>
     <string name="connect_qr_scanned">Scanned. Confirm the login in HoYoLAB…</string>
-    <string name="connect_qr_confirmed">Connected successfully</string>
-    <string name="connect_qr_confirmed_uid">Connected successfully (UID %1$s)</string>
+    <string name="connect_qr_confirmed">QR login confirmed</string>
+    <string name="connect_qr_confirmed_uid">QR login confirmed (account UID %1$s)</string>
     <string name="connect_error_token_required">Enter a token to continue.</string>
     <string name="connect_error_qr_unsupported">This service does not support QR connection.</string>
     <string name="connect_error_qr_expired">The QR code expired. Generate a new one.</string>
