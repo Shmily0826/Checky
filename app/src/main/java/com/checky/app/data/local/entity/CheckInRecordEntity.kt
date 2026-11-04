@@ -17,5 +17,9 @@ data class CheckInRecordEntity(
     @ColumnInfo(name = "diagnostic_code") val diagnosticCode: String,
     /** Wall-clock duration of the attempt in ms. */
     @ColumnInfo(name = "duration_ms") val durationMs: Long,
-    @ColumnInfo(name = "timestamp") val timestamp: Long
-)
+    @ColumnInfo(name = "timestamp") val timestamp: Long,
+    @ColumnInfo(name = "local_copy_text") val localCopyText: String? = null
+) {
+    override fun toString(): String =
+        "CheckInRecordEntity(id=$id, serviceId=$serviceId, status=$status, localCopyText=${if (localCopyText == null) "null" else "[REDACTED]"})"
+}

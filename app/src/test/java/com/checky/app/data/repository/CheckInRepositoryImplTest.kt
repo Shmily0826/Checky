@@ -53,6 +53,24 @@ class CheckInRepositoryImplTest {
     )
 
     @Test
+    fun localCopyTextRoundTripsWithoutAppearingInDiagnosticText() = runTest {
+        val (repo, dao) = repoWith()
+        val code = "FAKE-HISTORY-CODE"
+        val result = successResult("miyoushe_genshin_experimental").copy(
+            outcome = CheckInOutcome.Success("Done", "SUCCESS", Reward.empty(), localCopyText = code)
+        )
+        repo.saveResult(result)
+
+        val stored = dao.observeRecords().first().single()
+        val history = repo.observeRecords().first().single()
+        assertEquals(code, stored.localCopyText)
+        assertEquals(code, history.localCopyText)
+        assertFalse(stored.toString().contains(code))
+        assertFalse(history.toString().contains(code))
+        assertEquals("Done", dao.getService(result.serviceId)!!.lastMessage)
+    }
+
+    @Test
     fun saveResultPersistsRecordAndServiceLastResult() = runTest {
         val (repo, dao) = repoWith()
         repo.saveResult(successResult("miyoushe_genshin_experimental"))
@@ -64,6 +82,7 @@ class CheckInRepositoryImplTest {
         assertEquals(30, record.rewardAmount)
         assertEquals("SUCCESS", record.diagnosticCode)
         assertEquals(42L, record.durationMs)
+        assertNull(record.localCopyText)
 
         val service = dao.getService("miyoushe_genshin_experimental")
         assertNotNull(service)

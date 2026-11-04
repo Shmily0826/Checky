@@ -25,7 +25,7 @@ object AppModule {
         context,
         CheckyDatabase::class.java,
         CheckyDatabase.DATABASE_NAME
-    ).addMigrations(CheckyDatabase.MIGRATION_1_2).build()
+    ).addMigrations(CheckyDatabase.MIGRATION_1_2, CheckyDatabase.MIGRATION_2_3).build()
 
     @Provides
     fun provideDao(database: CheckyDatabase): CheckyDao = database.dao()

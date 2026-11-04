@@ -96,7 +96,8 @@ class CheckInRepositoryImpl @Inject constructor(
                 message = result.message,
                 diagnosticCode = result.diagnosticCode,
                 durationMs = result.durationMs,
-                timestamp = result.timestamp
+                timestamp = result.timestamp,
+                localCopyText = result.localCopyText
             )
         )
         val existing = dao.getService(result.serviceId)
@@ -131,6 +132,7 @@ class CheckInRepositoryImpl @Inject constructor(
             message = entity.message,
             diagnosticCode = entity.diagnosticCode,
             durationMs = entity.durationMs,
-            timestamp = entity.timestamp
+            timestamp = entity.timestamp,
+            localCopyText = entity.localCopyText
         )
 }

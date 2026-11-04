@@ -51,8 +51,12 @@ sealed class CheckInOutcome {
     data class Success(
         override val userMessage: String,
         override val diagnosticCode: String,
-        override val reward: Reward
-    ) : CheckInOutcome()
+        override val reward: Reward,
+        val localCopyText: String? = null
+    ) : CheckInOutcome() {
+        override fun toString(): String =
+            "Success(userMessage=$userMessage, diagnosticCode=$diagnosticCode, reward=$reward, localCopyText=${if (localCopyText == null) "null" else "[REDACTED]"})"
+    }
 
     data class AlreadyCompleted(
         override val userMessage: String,

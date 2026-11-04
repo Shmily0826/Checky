@@ -308,4 +308,5 @@
     <string name="settings_auto_diagnostics_completed">Completed</string>
     <string name="settings_auto_diagnostics_failed_internal">Internal scheduling/execution error</string>
     <string name="settings_auto_diagnostics_note">Android may defer background work past the planned time.</string>
+    <string name="action_copy">Copy</string>
 </resources>

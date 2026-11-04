@@ -17,5 +17,9 @@ data class CheckInRecord(
     val diagnosticCode: String,
     /** Wall-clock duration of the attempt in ms. */
     val durationMs: Long,
-    val timestamp: Long
-)
+    val timestamp: Long,
+    val localCopyText: String? = null
+) {
+    override fun toString(): String =
+        "CheckInRecord(id=$id, serviceId=$serviceId, status=$status, localCopyText=${if (localCopyText == null) "null" else "[REDACTED]"})"
+}

@@ -9,7 +9,7 @@ import com.checky.app.data.local.entity.ServiceEntity
 
 @Database(
     entities = [CheckInRecordEntity::class, ServiceEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class CheckyDatabase : RoomDatabase() {
@@ -23,6 +23,13 @@ abstract class CheckyDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE check_in_records ADD COLUMN diagnostic_code TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE check_in_records ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** v2 -> v3: optional local copy text; existing history stays intact. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE check_in_records ADD COLUMN local_copy_text TEXT")
             }
         }
     }

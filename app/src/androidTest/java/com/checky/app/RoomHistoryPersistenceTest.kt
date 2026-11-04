@@ -11,6 +11,7 @@ import com.checky.app.data.local.entity.CheckInRecordEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -42,13 +43,14 @@ class RoomHistoryPersistenceTest {
 
     @Test
     fun savesAndReadsRecordIncludingSafeFields() = runBlocking {
-        dao.insertRecord(record(id = "r1", diagnosticCode = "SUCCESS", durationMs = 1234L))
+        dao.insertRecord(record(id = "r1", diagnosticCode = "SUCCESS", durationMs = 1234L, localCopyText = "FAKE-CODE"))
 
         val records = dao.getRecords()
         assertEquals(1, records.size)
         assertEquals("SUCCESS", records[0].diagnosticCode)
         assertEquals(1234L, records[0].durationMs)
         assertEquals("gamepass", records[0].serviceId)
+        assertEquals("FAKE-CODE", records[0].localCopyText)
     }
 
     @Test
@@ -94,9 +96,10 @@ class RoomHistoryPersistenceTest {
 
         val migrated = helper.runMigrationsAndValidate(
             TEST_DB_NAME,
-            2,
+            3,
             true,
-            CheckyDatabase.MIGRATION_1_2
+            CheckyDatabase.MIGRATION_1_2,
+            CheckyDatabase.MIGRATION_2_3
         )
         migrated.query("SELECT * FROM check_in_records WHERE id = 'legacy'").use { cursor ->
             cursor.moveToFirst()
@@ -104,6 +107,36 @@ class RoomHistoryPersistenceTest {
             // New columns defaulted safely.
             assertEquals("", cursor.getString(cursor.getColumnIndexOrThrow("diagnostic_code")))
             assertEquals(0L, cursor.getLong(cursor.getColumnIndexOrThrow("duration_ms")))
+            assertNull(cursor.getString(cursor.getColumnIndexOrThrow("local_copy_text")))
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun migrationFromV2AddsNullableLocalCopyTextWithoutChangingHistory() {
+        val helper = MigrationTestHelper(
+            InstrumentationRegistry.getInstrumentation(),
+            CheckyDatabase::class.java
+        )
+        helper.createDatabase(TEST_DB_NAME, 2).apply {
+            execSQL(
+                "INSERT INTO check_in_records (id, service_id, service_name, status, reward_type, reward_amount, message, diagnostic_code, duration_ms, timestamp) " +
+                    "VALUES ('legacy-v2', 'taptap_game_sign', 'TapTap', 'SUCCESS', 'NONE', 0, 'done', 'SUCCESS', 12, 43)"
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DB_NAME,
+            3,
+            true,
+            CheckyDatabase.MIGRATION_2_3
+        )
+        migrated.query("SELECT * FROM check_in_records WHERE id = 'legacy-v2'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("legacy-v2", cursor.getString(cursor.getColumnIndexOrThrow("id")))
+            assertEquals("done", cursor.getString(cursor.getColumnIndexOrThrow("message")))
+            assertNull(cursor.getString(cursor.getColumnIndexOrThrow("local_copy_text")))
         }
         migrated.close()
     }
@@ -112,7 +145,8 @@ class RoomHistoryPersistenceTest {
         id: String,
         diagnosticCode: String = "SUCCESS",
         durationMs: Long = 500L,
-        timestamp: Long = 1L
+        timestamp: Long = 1L,
+        localCopyText: String? = null
     ) = CheckInRecordEntity(
         id = id,
         serviceId = "gamepass",
@@ -123,7 +157,8 @@ class RoomHistoryPersistenceTest {
         message = "claimed",
         diagnosticCode = diagnosticCode,
         durationMs = durationMs,
-        timestamp = timestamp
+        timestamp = timestamp,
+        localCopyText = localCopyText
     )
 
     private companion object {

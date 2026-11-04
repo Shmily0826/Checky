@@ -367,3 +367,85 @@ real `Dispatchers.IO`, which `advanceUntilIdle()` virtual time does not cover
   58 warnings (16 filtered by the existing baseline). This is the validation
   for the standalone reconnection commit; the 420-test result above describes
   the earlier combined working tree.
+
+### Workspace backup and two bounded fixes (2026-11-04)
+
+- Before source edits, copied the entire workspace (including `.git`, ignored
+  files, and untracked files) to the local-only directory
+  `D:\CODE-backups\Checky\workspace-20261104-11014631\workspace`.
+  Verified all **83,370 files / 6,638,787,608 bytes** against source SHA-256
+  hashes. The sibling `sha256-manifest.json`, `snapshot.json`, status, and
+  patch files record the pre-edit snapshot. No backup contents were uploaded.
+- Restored Genshin's `is_sign=true` -> AlreadyCompleted decision before the
+  sign-in POST. The new regression test failed before the fix and passed after
+  it; it covers both the initial read and the read after SToken renewal.
+  Malformed or non-Boolean state still stops the mutation path.
+- Completed the existing history-copy contract: nullable `localCopyText` in
+  entity/model, repository round trip, Room v3 schema, registered additive
+  v2 -> v3 migration, and an explicit history copy button. Record string
+  representations redact the copy text. The UI test uses an empty Compose
+  host and checks that rendering alone preserves the clipboard contents.
+- Added JVM migration coverage using the committed v1/v2 schemas and the
+  production database provider. Both upgrade paths retain history and service
+  selection, leave old copy text null, and can persist/read a new copy value.
+- Files touched by this task (relative to the backed-up working tree):
+  - `app/src/main/java/com/checky/app/domain/providers/MiyousheProvider.kt`
+  - `app/src/test/java/com/checky/app/domain/providers/MiyousheProviderTest.kt`
+  - `app/src/main/java/com/checky/app/data/local/CheckyDatabase.kt`
+  - `app/src/main/java/com/checky/app/data/local/entity/CheckInRecordEntity.kt`
+  - `app/src/main/java/com/checky/app/data/model/CheckInRecord.kt`
+  - `app/src/main/java/com/checky/app/data/repository/CheckInRepositoryImpl.kt`
+  - `app/src/main/java/com/checky/app/di/AppModule.kt`
+  - `app/src/main/java/com/checky/app/ui/screens/history/HistoryScreen.kt`
+  - `app/schemas/com.checky.app.data.local.CheckyDatabase/3.json`
+  - `app/src/test/java/com/checky/app/data/repository/CheckInRepositoryImplTest.kt`
+  - `app/src/test/java/com/checky/app/data/local/CheckyDatabaseMigrationTest.kt`
+  - `app/src/androidTest/java/com/checky/app/ui/screens/history/HistoryCopyUiTest.kt`
+  - `TEST_REPORT.md`
+- JDK 17 validation: `testDebugUnitTest assembleDebug assembleDebugAndroidTest
+  lintDebug` passed: **423 tests, 0 failures/errors/skips**, both Debug APKs
+  built, lint 0 errors and 62 warnings (14 filtered by the existing baseline).
+  `compileDebugAndroidTestKotlin` also passed; the prior six compilation errors
+  are resolved. The scoped Impeccable detector returned no findings.
+- Validation used the current combined working tree. No physical-device,
+  emulator, instrumented-test execution, or real-provider verification was
+  performed. No real account mutation, installation, or credential update was
+  sent. Other pending features were not modified, and no changes from this
+  task had been committed or pushed at this initial validation stage.
+
+#### Standalone commit validation
+
+- Extracted the two fixes onto `060c59d13de7e6b87c821b5a69606002186f0cbb` in a
+  separate checkout, excluding pending SToken renewal, device identity,
+  daily-reward display, TapTap gift claiming, and ended-event automation.
+- The Genshin commit contains only `MiyousheProvider.kt` and its JVM test:
+  the read-only state mapper recognizes AlreadyCompleted, and the regression
+  confirms an already-signed response causes one GET and zero POSTs. The
+  renewal-specific tests remain with the uncommitted renewal work.
+- The history commit includes its direct prerequisites: only the nullable,
+  redacted Success copy payload in `CheckInOutcome.kt`, the copy getter in
+  `CheckInResult.kt`, the two `action_copy` translations, and the existing
+  `RoomHistoryPersistenceTest.kt` migration/copy tests. Other hunks in these
+  shared files are excluded. The complete history commit file list is:
+  - `app/schemas/com.checky.app.data.local.CheckyDatabase/3.json`
+  - `app/src/main/java/com/checky/app/data/local/CheckyDatabase.kt`
+  - `app/src/main/java/com/checky/app/data/local/entity/CheckInRecordEntity.kt`
+  - `app/src/main/java/com/checky/app/data/model/CheckInRecord.kt`
+  - `app/src/main/java/com/checky/app/data/repository/CheckInRepositoryImpl.kt`
+  - `app/src/main/java/com/checky/app/di/AppModule.kt`
+  - `app/src/main/java/com/checky/app/ui/screens/history/HistoryScreen.kt`
+  - `app/src/main/java/com/checky/app/domain/model/CheckInOutcome.kt`
+  - `app/src/main/java/com/checky/app/domain/model/CheckInResult.kt`
+  - `app/src/main/res/values/strings.xml`
+  - `app/src/main/res/values-zh-rCN/strings.xml`
+  - `app/src/test/java/com/checky/app/data/repository/CheckInRepositoryImplTest.kt`
+  - `app/src/test/java/com/checky/app/data/local/CheckyDatabaseMigrationTest.kt`
+  - `app/src/androidTest/java/com/checky/app/RoomHistoryPersistenceTest.kt`
+  - `app/src/androidTest/java/com/checky/app/ui/screens/history/HistoryCopyUiTest.kt`
+  - `TEST_REPORT.md`
+- JDK 17 `testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug`
+  passed on this standalone version: **386 tests, 0 failures/errors/skips**,
+  both Debug APKs built, lint 0 errors and 58 warnings (16 baseline-filtered).
+  The 423-test result above applies to the combined working tree, not these
+  isolated commits. Instrumented tests were built, not executed; real-device
+  and live-provider verification remain deferred.

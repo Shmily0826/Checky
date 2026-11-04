@@ -27,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,6 +36,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -73,11 +77,12 @@ private fun formatTime(ts: Long): String =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HistoryContent(
+internal fun HistoryContent(
     navController: NavHostController,
     records: List<CheckInRecord>,
     onClear: () -> Unit
 ) {
+    val clipboardManager = LocalClipboardManager.current
     var showClearConfirmation by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
@@ -174,6 +179,15 @@ private fun HistoryContent(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.outline
                                     )
+                                }
+                                record.localCopyText?.takeIf { it.isNotBlank() }?.let { copyText ->
+                                    Text(text = copyText, style = MaterialTheme.typography.bodySmall)
+                                    TextButton(
+                                        onClick = { clipboardManager.setText(AnnotatedString(copyText)) },
+                                        modifier = Modifier.testTag("history_copy_${record.id}")
+                                    ) {
+                                        Text(stringResource(R.string.action_copy))
+                                    }
                                 }
                             }
                             Column(horizontalAlignment = Alignment.End) {

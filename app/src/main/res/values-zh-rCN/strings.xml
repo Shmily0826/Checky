@@ -308,4 +308,5 @@
     <string name="settings_auto_diagnostics_completed">已完成</string>
     <string name="settings_auto_diagnostics_failed_internal">内部调度/执行错误</string>
     <string name="settings_auto_diagnostics_note">Android 可能将后台任务延迟到计划时间之后。</string>
+    <string name="action_copy">复制</string>
 </resources>

@@ -19,4 +19,5 @@ data class CheckInResult(
     val message: String get() = outcome.userMessage
     val diagnosticCode: String get() = outcome.diagnosticCode
     val retryRecommendation: RetryRecommendation get() = outcome.retryRecommendation
+    val localCopyText: String? get() = (outcome as? CheckInOutcome.Success)?.localCopyText
 }
