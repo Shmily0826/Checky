@@ -424,6 +424,11 @@ class MiyousheProvider(
                         userMessage = "米游社返回了无法识别的签到状态，已停止操作。",
                         diagnosticCode = "MIYOUSHE_BAD_STATE"
                     )
+                } else if (data.getBoolean("is_sign")) {
+                    CheckInOutcome.AlreadyCompleted(
+                        userMessage = "原神今天已经签到。",
+                        diagnosticCode = "ALREADY"
+                    )
                 } else {
                     CheckInOutcome.Success(
                         userMessage = "签到状态已确认。",
@@ -471,7 +476,8 @@ class MiyousheProvider(
 
     private fun mapMiyousheGameCheckInReadOnlyResponse(body: String): SavedCredentialValidation =
         when (mapResponse(body, checkingOnly = true)) {
-            is CheckInOutcome.Success -> SavedCredentialValidation.Valid
+            is CheckInOutcome.Success,
+            is CheckInOutcome.AlreadyCompleted -> SavedCredentialValidation.Valid
             is CheckInOutcome.AuthenticationExpired -> SavedCredentialValidation.Expired
             else -> SavedCredentialValidation.Unverified("米游社未返回可确认的签到状态。")
         }

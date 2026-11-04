@@ -6,6 +6,9 @@ import com.checky.app.domain.CredentialStore
 import com.checky.app.domain.FakeAuthHealthStore
 import com.checky.app.domain.FakeCredentialStore
 import com.checky.app.domain.SavedCredentialValidation
+import com.checky.app.domain.CheckInEvent
+import com.checky.app.domain.model.CheckInOutcome
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -26,6 +29,23 @@ import java.io.IOException
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class MiyousheProviderTest {
+
+    @Test
+    fun alreadySignedInfoNeverPosts() = runTest {
+        val requests = mutableListOf<okhttp3.Request>()
+        val credentials = GenshinRecordingStore().also {
+            it.put(MiyousheProvider.META.id, sessionJson())
+        }
+        val target = provider(
+            responseBody = """{"retcode":0,"data":{"is_sign":true}}""",
+            credentials = credentials,
+            requests = requests
+        )
+        val done = target.checkIn().first { it is CheckInEvent.Done } as CheckInEvent.Done
+        assertTrue(done.result.outcome is CheckInOutcome.AlreadyCompleted)
+        assertEquals(1, requests.size)
+        assertEquals("GET", requests.single().method)
+    }
 
     @Test
     fun existingGameSessionSharesOnlyToMissingCompatibleTargetsWithoutPromotingHealth() = runTest {
